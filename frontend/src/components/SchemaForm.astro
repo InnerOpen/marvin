@@ -3,6 +3,7 @@ import BooleanField from "./schema-fields/BooleanField.astro";
 import DateField from "./schema-fields/DateField.astro";
 import DateTimeField from "./schema-fields/DateTimeField.astro";
 import EmbedField from "./schema-fields/EmbedField.astro";
+import AudioRecorder from "@/components/AudioRecorder.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
 import CueListField, { type CueOption } from "./schema-fields/CueListField.astro";
 import LinkedItemsField from "./schema-fields/LinkedItemsField.astro";
@@ -141,6 +142,7 @@ function getFieldError(key: string) {
   })}
 </div>
 {hasAssetField && <ImageCropper />}
+{hasAssetField && <AudioRecorder />}
 
 <style>
   .schema-form {

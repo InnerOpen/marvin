@@ -982,6 +982,8 @@ AUDIO_EXTENSIONS = {
     "audio/ogg": "ogg",
     "audio/flac": "flac",
     "audio/aac": "aac",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
     "audio/webm": "webm",
 }
 MAX_AUDIO_BYTES = 25 * 1024 * 1024

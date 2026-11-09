@@ -37,6 +37,25 @@ class ExtractedMetadata:
     """EXIF orientation (1-8) for images."""
 
 
+def _essence(content_type: str | None) -> str:
+    """``audio/webm;codecs=opus`` -> ``audio/webm``: the type without its parameters, lower-cased."""
+    return (content_type or "").split(";", 1)[0].strip().lower()
+
+
+def _sound_only(guessed: str, declared_type: str | None) -> str | None:
+    """The client's ``audio/<container>`` when the extension says ``video/<container>``, else None.
+
+    One container holds sound with or without pictures, and the extension can't tell which: a browser's recorder
+    makes ``take.webm`` from a microphone (``audio/webm``), which the extension alone files as a video. The client
+    knows; its word is taken only for that same container, so a mislabelled part can't turn a video into a PDF.
+    """
+    declared = _essence(declared_type)
+    kind, _, container = guessed.partition("/")
+    if kind == "video" and declared == f"audio/{container}":
+        return declared
+    return None
+
+
 class AssetMetadataExtractor:
     """Extract technical metadata from uploaded files."""
 
@@ -74,10 +93,15 @@ class AssetMetadataExtractor:
         "audio/mp3": "audio",
         "audio/wav": "audio",
         "audio/wave": "audio",
+        "audio/x-wav": "audio",
         "audio/ogg": "audio",
+        "audio/opus": "audio",
         "audio/webm": "audio",
         "audio/aac": "audio",
         "audio/flac": "audio",
+        # .m4a: AAC (or ALAC) in MP4, what iPhone Voice Memos and Safari's recorder make
+        "audio/mp4": "audio",
+        "audio/x-m4a": "audio",
         # Archives
         "application/zip": "archive",
         "application/x-zip-compressed": "archive",
@@ -88,18 +112,19 @@ class AssetMetadataExtractor:
         "application/x-rar-compressed": "archive",
     }
 
-    def extract_metadata(self, file_path: Path) -> ExtractedMetadata:
+    def extract_metadata(self, file_path: Path, declared_type: str | None = None) -> ExtractedMetadata:
         """
         Extract metadata from a file.
 
         Args:
             file_path: Path to the file to analyze
+            declared_type: The type the client sent with the file (the multipart part's Content-Type), if any
 
         Returns:
             ExtractedMetadata with technical information about the file
         """
         # Get MIME type
-        mime_type = self._detect_mime_type(file_path)
+        mime_type = self._detect_mime_type(file_path, declared_type)
 
         # Get file size
         size = file_path.stat().st_size
@@ -128,9 +153,13 @@ class AssetMetadataExtractor:
             orientation=orientation,
         )
 
-    def _detect_mime_type(self, file_path: Path) -> str:
-        """Detect MIME type from file."""
-        # Use mimetypes module to guess
+    def _detect_mime_type(self, file_path: Path, declared_type: str | None = None) -> str:
+        """Detect MIME type from file: the extension decides, except where only the client can tell (`_sound_only`)."""
+        mime_type = self._mime_from_extension(file_path)
+        return _sound_only(mime_type, declared_type) or mime_type
+
+    def _mime_from_extension(self, file_path: Path) -> str:
+        # mimetypes reads the host's mime.types too, so what it knows varies with the image; the map below is the floor.
         mime_type, _ = mimetypes.guess_type(str(file_path))
 
         if mime_type:
@@ -150,6 +179,12 @@ class AssetMetadataExtractor:
             ".webm": "video/webm",
             ".mp3": "audio/mpeg",
             ".wav": "audio/wav",
+            ".m4a": "audio/mp4",
+            ".ogg": "audio/ogg",
+            ".oga": "audio/ogg",
+            ".opus": "audio/opus",
+            ".weba": "audio/webm",
+            ".flac": "audio/flac",
             ".zip": "application/zip",
         }
 

@@ -42,7 +42,7 @@ const newHref = isAsset ? "/workspace/assets/new" : "/workspace/resources/new";
 const role = (field as { role?: string | null }).role?.trim() || field.key;
 ---
 
-<div class="field-group li-field" data-linked-field data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-role={role} data-readonly={field.readOnly ? "1" : ""}>
+<div class="field-group li-field" data-linked-field data-label={field.label} data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-role={role} data-readonly={field.readOnly ? "1" : ""}>
   <label for={inputId}>
     {field.label}
     {field.required && <span class="required">*</span>}
@@ -111,6 +111,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
             </div>
           </div>
         </div>
+        <button type="button" class="button secondary li-record" data-linked-record>Record audio…</button>
         <label class="li-upload-keep" data-linked-upload-keep hidden><input type="checkbox" data-linked-upload-keep-on /> Also keep the original file (a second, full-size asset; the cropped picture is saved as a version made from it)</label>
         <label class="li-upload-label">Name {multiple && <small>(one file; several are each named after their file)</small>}
           <input type="text" data-linked-upload-name maxlength="200" />
@@ -174,6 +175,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
   .li-field .li-upload-filename { margin: 0; font-size: 0.8125rem; color: var(--muted); word-break: break-all; }
   .li-field .li-upload-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
   .li-field .li-upload-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .li-field .li-record { justify-self: start; }
   .li-field .li-upload-keep { display: flex; gap: 8px; align-items: flex-start; font-size: 0.8125rem; color: var(--muted); }
   .li-field .li-picker summary { list-style: none; display: inline-flex; width: max-content; cursor: pointer; }
   .li-field .li-picker summary::-webkit-details-marker { display: none; }
@@ -191,6 +193,13 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
 <script>
   import { assetItem, canAdd, matches, nameFromFile, serialize, uploadSlug } from "@/lib/linkedItems";
   import { fetchApi } from "@/lib/api/client";
+
+  type AudioRecorderApi = {
+    open: (o: { suggestedName?: string }) => Promise<File | null>;
+    metadataOf: (f: File) => Record<string, unknown> | null;
+  };
+  /** The page's recorder (components/AudioRecorder.astro), looked up when needed: its script may run after this one. */
+  const audioRecorder = () => (window as unknown as { AudioRecorder?: AudioRecorderApi }).AudioRecorder;
 
   // Each field keeps its ids in the hidden input; the cards and the option list are redrawn from it, so the page's own
   // "unsaved changes" tracking (a change event on the input) keeps working.
@@ -411,9 +420,22 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
       });
       change.addEventListener("click", () => file.click());
       file.addEventListener("change", () => take(file.files));
+      // Record a take: the page's recorder (SchemaForm puts one on the page) opens over this dialog and hands back a File,
+      // which goes the way of a picked one, named after the entry when it has a title.
+      dialog.querySelector<HTMLButtonElement>("[data-linked-record]")!.addEventListener("click", async () => {
+        const recorder = audioRecorder();
+        if (!recorder) return;
+        const entryTitle = root.closest("form")?.querySelector<HTMLInputElement>('[name="title"]')?.value.trim();
+        const label = `${entryTitle || root.dataset.label || "Recording"} · take ${ids().length + 1}`;
+        const recorded = await recorder.open({ suggestedName: label });
+        if (!recorded) return;
+        if (!name.value.trim()) name.value = label;
+        file.value = ""; // "Change file" and the rest now mean the take, not an earlier pick
+        take([recorded]);
+      });
       again.addEventListener("click", () => take(file.files?.length ? file.files : ready.map((r) => r.original ?? r.send)));
       type Made = { id: string; name: string; mimeType?: string | null; publicUrl?: string | null; altText?: string | null };
-      const send = (f: File, slug: string, title: string, metadata?: Record<string, string>) => {
+      const send = (f: File, slug: string, title: string, metadata?: Record<string, unknown>) => {
         const body = new FormData();
         body.append("file", f);
         body.append("slug", slug);
@@ -425,10 +447,12 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
       };
       const taken = (e: unknown) => /exist|taken|duplicate|unique|409|conflict/i.test(e instanceof Error ? e.message : String(e));
       /** One ready file up: its original first when kept (sent once, with a stamped slug), then the file with a nice slug, retried with a
-       * stamp when that one is taken. */
+       * stamp when that one is taken. A recorded take carries its recording facts (device, format, length, peak). */
       const uploadOne = async (r: Ready, title: string): Promise<Made> => {
         const source = r.original && !keep.hidden && keepOn.checked ? await send(r.original, uploadSlug(`${title} original`), `${title} (original)`) : null;
-        const meta = source ? { derived_from: source.id, derivation: "edited:cropper" } : undefined;
+        const lineage = source ? { derived_from: source.id, derivation: "edited:cropper" } : null;
+        const recording = audioRecorder()?.metadataOf(r.send) ?? null;
+        const meta = lineage || recording ? { ...recording, ...lineage } : undefined;
         try {
           return await send(r.send, uploadSlug(title, ""), title, meta);
         } catch (e) {

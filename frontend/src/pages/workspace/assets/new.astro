@@ -1,4 +1,5 @@
 ---
+import AudioRecorder from "@/components/AudioRecorder.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
 import SlugInput from "@/components/SlugInput.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -50,6 +51,7 @@ try {
             </svg>
             <p style="margin: 1rem 0 0.5rem; font-weight: 600;">Click to upload or drag and drop</p>
             <p style="margin: 0; font-size: 0.875rem; color: var(--muted);">Images, videos, PDFs, documents — one file, or a whole batch</p>
+            <button type="button" class="button secondary small record-audio" id="recordAudio">Record audio…</button>
           </div>
           <div class="upload-preview" id="uploadPreview" style="display: none;">
             <div id="previewContent"></div>
@@ -138,6 +140,7 @@ try {
   </section>
 
   <ImageCropper />
+  <AudioRecorder />
 </AppLayout>
 
 <style>
@@ -202,6 +205,10 @@ try {
   .file-upload-area.dragover {
     border-color: var(--brand);
     background: var(--panel-2);
+  }
+
+  .record-audio {
+    margin-top: 1rem;
   }
 
   .upload-placeholder svg {
@@ -404,9 +411,55 @@ try {
     }
   });
 
+  // Record a take instead of picking a file: it comes back as a File and goes the picked file's way. It also goes into the
+  // file input, whose `required` would otherwise stop the form, and its recording facts into the metadata.
+  type Recorder = { open: (o: { suggestedName?: string }) => Promise<File | null>; metadataOf: (f: File) => Record<string, unknown> | null };
+  document.getElementById('recordAudio')!.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const recorder = (window as unknown as { AudioRecorder?: Recorder }).AudioRecorder;
+    if (!recorder) return;
+    // To the second: the name makes the slug, and two takes a minute apart must not ask for the same one.
+    const label = nameInput.value.trim() || `Recording ${new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })}`;
+    const file = await recorder.open({ suggestedName: label });
+    if (!file) return;
+    const picked = new DataTransfer();
+    picked.items.add(file);
+    fileInput.files = picked.files;
+    handleFile(file);
+    nameInput.value = label;
+    updateSlug();
+    const facts = recorder.metadataOf(file);
+    if (facts) editMetadata((current) => ({ ...current, ...facts }));
+  });
+
+  /** A change to the metadata box's object (an empty box is an empty one). Text that isn't a JSON object is the person's
+   * own and is left alone; so is the box when the change hands back the same object. */
+  function editMetadata(change: (current: Record<string, unknown>) => Record<string, unknown>) {
+    const box = document.getElementById('metadata') as HTMLTextAreaElement;
+    let current: unknown;
+    try {
+      current = box.value.trim() ? JSON.parse(box.value) : {};
+    } catch {
+      return;
+    }
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return;
+    const next = change(current as Record<string, unknown>);
+    if (next === current) return;
+    box.value = Object.keys(next).length ? JSON.stringify(next, null, 2) : '';
+  }
+  /** Another file in place of a recorded take: the take's facts must not go up with it. */
+  function dropRecordingFacts() {
+    editMetadata((current) => {
+      if (!('recording' in current)) return current;
+      const { recording: _dropped, ...rest } = current;
+      return rest;
+    });
+  }
+
   // Remove file
   removeFileBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    dropRecordingFacts();
     selectedFile = null;
     fileInput.value = '';
     uploadPlaceholder.style.display = 'block';
@@ -418,6 +471,7 @@ try {
   // Handle file selection
   // One file keeps the single-file form (with the cropper); more become a batch.
   function handleFiles(files: FileList) {
+    dropRecordingFacts();
     if (files.length === 1) {
       handleFile(files[0]);
       return;

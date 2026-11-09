@@ -1,0 +1,405 @@
+---
+/**
+ * AudioRecorder: a dialog that records a take from a microphone and hands it back as a File, for any upload on the page
+ * to send as it would a picked file. Put it on a page once (SchemaForm does, as it does the cropper) and call
+ *
+ *   const file = await window.AudioRecorder.open({ suggestedName, metadata }); // null when nothing was kept
+ *   const facts = window.AudioRecorder.metadataOf(file); // { ...metadata, recording: { mime, device, duration_seconds, … } }
+ *
+ * Echo cancellation and automatic gain are off by default (a narration take is wanted as the microphone hears it), so
+ * the meter latches a clip warning. Takes are not journalled anywhere: closing the tab mid-take loses it.
+ * lib/audioRecorder.ts has the pure parts.
+ */
+---
+
+<dialog class="audio-recorder" id="audioRecorder" aria-labelledby="audioRecorderTitle">
+  <div class="ar-body">
+    <h3 id="audioRecorderTitle">Record audio</h3>
+    <p class="ar-help">With echo cancellation and automatic gain off the take is what the microphone hears: wear headphones and keep the meter out of the red.</p>
+    <label class="ar-label">Microphone
+      <select data-ar-device><option value="">Default microphone</option></select>
+    </label>
+    <fieldset class="ar-options">
+      <legend>Browser processing</legend>
+      <label><input type="checkbox" data-ar-constraint="autoGainControl" /> Automatic gain</label>
+      <label><input type="checkbox" data-ar-constraint="echoCancellation" /> Echo cancellation</label>
+      <label><input type="checkbox" data-ar-constraint="noiseSuppression" /> Noise suppression</label>
+    </fieldset>
+    <div class="ar-meter">
+      <canvas data-ar-meter height="14" aria-hidden="true"></canvas>
+      <button type="button" class="ar-clip" data-ar-clip hidden title="It clipped: move back or turn the input down. Click to reset.">Clipped</button>
+    </div>
+    <p class="ar-clock" data-ar-clock>0:00</p>
+    <p class="ar-status" data-ar-status role="status"></p>
+    <audio controls data-ar-playback hidden></audio>
+    <p class="field-error" data-ar-error hidden></p>
+    <div class="ar-actions">
+      <button type="button" class="button secondary" data-ar-discard>Cancel</button>
+      <button type="button" class="button secondary" data-ar-again hidden>Record again</button>
+      <button type="button" class="button secondary" data-ar-pause hidden>Pause</button>
+      <button type="button" class="button" data-ar-record>Record</button>
+      <button type="button" class="button" data-ar-stop hidden>Stop</button>
+      <button type="button" class="button" data-ar-use hidden>Use this take</button>
+    </div>
+  </div>
+</dialog>
+
+<style is:global>
+  /* Global, scoped by the dialog's class: the dialog sits in the top layer over whichever page or dialog opened it. */
+  .audio-recorder { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(440px, calc(100vw - 32px)); background: var(--panel); color: var(--ink); }
+  .audio-recorder::backdrop { background: rgb(0 0 0 / 0.45); }
+  /* The page's .button sets a display of its own, which would otherwise beat the hidden attribute. */
+  .audio-recorder [hidden] { display: none; }
+  .audio-recorder .ar-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 20px; }
+  .audio-recorder h3 { margin: 0; font-size: 1.1rem; }
+  .audio-recorder .ar-help, .audio-recorder .ar-status { margin: 0; font-size: 0.8125rem; color: var(--muted); }
+  .audio-recorder .ar-status:empty { display: none; }
+  .audio-recorder .ar-label { display: grid; gap: 4px; font-size: 0.875rem; font-weight: 600; }
+  .audio-recorder select { width: 100%; min-width: 0; font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+  .audio-recorder .ar-options { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.8125rem; }
+  .audio-recorder .ar-options legend { padding: 0 4px; color: var(--muted); }
+  .audio-recorder .ar-options label { display: flex; gap: 6px; align-items: center; }
+  .audio-recorder .ar-meter { display: flex; gap: 8px; align-items: center; }
+  .audio-recorder canvas { flex: 1; min-width: 0; height: 14px; border-radius: 4px; background: var(--panel-2); }
+  .audio-recorder .ar-clip { padding: 2px 8px; border: 0; border-radius: 4px; background: var(--color-error); color: #fff; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
+  .audio-recorder .ar-clock { margin: 0; font-size: 1.75rem; font-variant-numeric: tabular-nums; text-align: center; }
+  .audio-recorder .ar-recording .ar-clock { color: var(--color-error); }
+  .audio-recorder audio { width: 100%; }
+  .audio-recorder .field-error { margin: 0; font-size: 0.8125rem; color: var(--color-error); }
+  .audio-recorder .ar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+</style>
+
+<script>
+  import {
+    canPauseReliably,
+    fileFor,
+    formatClock,
+    levelOf,
+    looksTruncated,
+    meterPosition,
+    pickMimeType,
+    recordingMetadata,
+    type RecordingSettings,
+  } from "@/lib/audioRecorder";
+
+  /** A chunk a second: Safari 26 hands back empty chunks under that (WebKit 301507), and Chrome needs no finer. */
+  const TIMESLICE_MS = 1000;
+  /** About 43 ms of sound at 48 kHz per meter frame. */
+  const FFT_SIZE = 2048;
+  const FALLBACK_NAME = "recording";
+
+  type Options = { suggestedName?: string; metadata?: Record<string, unknown> };
+  type Constraint = "autoGainControl" | "echoCancellation" | "noiseSuppression";
+
+  const dialog = document.getElementById("audioRecorder") as HTMLDialogElement;
+  const el = <T extends HTMLElement>(name: string) => dialog.querySelector<T>(`[data-ar-${name}]`)!;
+  const device = el<HTMLSelectElement>("device");
+  const toggles = Array.from(dialog.querySelectorAll<HTMLInputElement>("[data-ar-constraint]"));
+  const canvas = el<HTMLCanvasElement>("meter");
+  const clip = el<HTMLButtonElement>("clip");
+  const clock = el<HTMLElement>("clock");
+  const status = el<HTMLElement>("status");
+  const playback = el<HTMLAudioElement>("playback");
+  const error = el<HTMLElement>("error");
+  const buttons = {
+    discard: el<HTMLButtonElement>("discard"),
+    again: el<HTMLButtonElement>("again"),
+    pause: el<HTMLButtonElement>("pause"),
+    record: el<HTMLButtonElement>("record"),
+    stop: el<HTMLButtonElement>("stop"),
+    use: el<HTMLButtonElement>("use"),
+  };
+  const canPause = typeof MediaRecorder !== "undefined" && "pause" in MediaRecorder.prototype && canPauseReliably(navigator.userAgent);
+
+  // One dialog session: the microphone stream (kept for the whole session: an iOS home-screen app asks again for every new
+  // one), the meter, the recorder, and the take once stopped.
+  let options: Options = {};
+  let settle: ((file: File | null) => void) | null = null;
+  let kept: File | null = null;
+  let stream: MediaStream | null = null;
+  let streamRequest = 0;
+  let audio: AudioContext | null = null;
+  let analyser: AnalyserNode | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
+  let frame = 0;
+  let recorder: MediaRecorder | null = null;
+  let chunks: Blob[] = [];
+  let mimeType = "";
+  let settings: RecordingSettings | null = null;
+  let take: Blob | null = null;
+  let takeUrl = "";
+  let decodedSeconds: number | null = null;
+  // The clock counts only time spent recording: what came before the last pause, plus the stretch since.
+  let elapsedBefore = 0;
+  let runningSince: number | null = null;
+  let peak = 0;
+  let clippedInTake = false;
+  const metadataByFile = new WeakMap<File, Record<string, unknown>>();
+
+  type State = "starting" | "ready" | "recording" | "paused" | "recorded" | "failed";
+  function show(state: State, message = "") {
+    const live = state === "recording" || state === "paused";
+    buttons.record.hidden = live || state === "recorded";
+    buttons.record.disabled = state === "starting";
+    buttons.record.textContent = state === "failed" ? "Try again" : "Record";
+    buttons.pause.hidden = !live || !canPause;
+    buttons.pause.textContent = state === "paused" ? "Resume" : "Pause";
+    buttons.stop.hidden = !live;
+    buttons.again.hidden = buttons.use.hidden = state !== "recorded";
+    buttons.discard.textContent = state === "recorded" ? "Discard" : "Cancel";
+    device.disabled = live;
+    toggles.forEach((t) => (t.disabled = live));
+    playback.hidden = state !== "recorded";
+    dialog.classList.toggle("ar-recording", state === "recording");
+    error.hidden = state !== "failed";
+    if (state === "failed") error.textContent = message;
+    status.textContent = state === "failed" ? "" : message;
+  }
+
+  const elapsed = () => elapsedBefore + (runningSince === null ? 0 : (performance.now() - runningSince) / 1000);
+
+  function constraints(): MediaTrackConstraints {
+    const on = (name: Constraint) => toggles.find((t) => t.dataset.arConstraint === name)!.checked;
+    return {
+      ...(device.value ? { deviceId: { exact: device.value } } : {}),
+      autoGainControl: on("autoGainControl"),
+      echoCancellation: on("echoCancellation"),
+      noiseSuppression: on("noiseSuppression"),
+      channelCount: { ideal: 1 },
+    };
+  }
+
+  function whyNot(e: unknown): string {
+    const name = e instanceof DOMException ? e.name : "";
+    if (name === "NotAllowedError") return "The microphone was refused. Allow it for this site in the browser's settings, then try again.";
+    if (name === "NotFoundError" || name === "OverconstrainedError") return "No microphone was found. Plug one in, or pick another, then try again.";
+    if (name === "NotReadableError") return "The microphone is busy with another app. Close it, then try again.";
+    return e instanceof Error ? e.message : "The microphone could not be opened.";
+  }
+
+  function stopStream() {
+    source?.disconnect();
+    source = null;
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
+  }
+
+  /** Opens (or reopens, after a change of device or processing) the microphone and points the meter at it. Called from a
+   * click: Safari wants both the permission request and the AudioContext's start inside one. */
+  async function startStream() {
+    const request = ++streamRequest;
+    stopStream();
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      show("failed", "This browser can't record here: recording needs a secure (https) page and a browser with MediaRecorder.");
+      return;
+    }
+    show("starting", "Waiting for the microphone…");
+    audio ??= new AudioContext();
+    void audio.resume();
+    try {
+      const opened = await navigator.mediaDevices.getUserMedia({ audio: constraints() });
+      if (request !== streamRequest || !dialog.open) return opened.getTracks().forEach((t) => t.stop());
+      stream = opened;
+    } catch (e) {
+      if (request === streamRequest) show("failed", whyNot(e));
+      return;
+    }
+    analyser ??= Object.assign(audio.createAnalyser(), { fftSize: FFT_SIZE });
+    source = audio.createMediaStreamSource(stream);
+    source.connect(analyser);
+    void listDevices();
+    show("ready", "Ready.");
+  }
+
+  /** The microphones, named: browsers give labels only once a page may use the microphone, so this runs after it opens. */
+  async function listDevices() {
+    const inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput");
+    const current = stream?.getAudioTracks()[0]?.getSettings().deviceId ?? device.value;
+    device.replaceChildren(
+      ...inputs.map((d, i) => {
+        const option = new Option(d.label || `Microphone ${i + 1}`, d.deviceId);
+        option.selected = d.deviceId === current;
+        return option;
+      }),
+    );
+  }
+
+  const samples = new Float32Array(FFT_SIZE);
+  let colours: { level: string; peak: string; clip: string } | null = null;
+  function paintMeter() {
+    frame = requestAnimationFrame(paintMeter);
+    const ctx = canvas.getContext("2d");
+    if (!ctx || !analyser || !stream) return;
+    analyser.getFloatTimeDomainData(samples);
+    const level = levelOf(samples);
+    const live = recorder?.state === "recording";
+    if (level.clipped) clip.hidden = false;
+    if (live) {
+      peak = Math.max(peak, level.peak);
+      clippedInTake ||= level.clipped;
+      clock.textContent = formatClock(elapsed());
+    }
+    const style = getComputedStyle(dialog);
+    colours ??= { level: style.getPropertyValue("--color-primary").trim() || "#3b82f6", peak: style.color, clip: style.getPropertyValue("--color-error").trim() || "#dc2626" };
+    const { width, height } = canvas;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = level.clipped ? colours.clip : colours.level;
+    ctx.fillRect(0, 0, width * meterPosition(level.rms), height);
+    ctx.fillStyle = level.clipped ? colours.clip : colours.peak;
+    ctx.fillRect(Math.max(0, width * meterPosition(level.peak) - 2), 0, 2, height);
+  }
+
+  function record() {
+    if (!stream) return void startStream();
+    chunks = [];
+    mimeType = "";
+    peak = 0;
+    clippedInTake = false;
+    clip.hidden = true;
+    const track = stream.getAudioTracks()[0];
+    const picked = pickMimeType((t) => MediaRecorder.isTypeSupported(t));
+    try {
+      recorder = new MediaRecorder(stream, picked ? { mimeType: picked } : undefined);
+    } catch (e) {
+      return show("failed", e instanceof Error ? e.message : "This browser can't record from the microphone.");
+    }
+    // The type is read while recording: once stopped, `recorder.mimeType` may be blank again (the spec resets it).
+    recorder.onstart = () => (mimeType = recorder?.mimeType || mimeType);
+    recorder.ondataavailable = (e) => {
+      if (!e.data.size) return;
+      chunks.push(e.data);
+      mimeType ||= e.data.type;
+    };
+    recorder.onstop = finish;
+    recorder.onerror = () => show("failed", "The recording stopped with an error. Try again.");
+    const applied = track.getSettings();
+    settings = {
+      mimeType: picked,
+      deviceLabel: track.label,
+      sampleRate: applied.sampleRate,
+      channelCount: applied.channelCount,
+      echoCancellation: applied.echoCancellation,
+      noiseSuppression: applied.noiseSuppression,
+      autoGainControl: applied.autoGainControl,
+    };
+    elapsedBefore = 0;
+    runningSince = performance.now();
+    recorder.start(TIMESLICE_MS);
+    show("recording", "Recording…");
+  }
+
+  function pauseOrResume() {
+    if (recorder?.state === "recording") {
+      recorder.pause();
+      elapsedBefore = elapsed();
+      runningSince = null;
+      show("paused", "Paused.");
+    } else if (recorder?.state === "paused") {
+      recorder.resume();
+      runningSince = performance.now();
+      show("recording", "Recording…");
+    }
+  }
+
+  function stop() {
+    elapsedBefore = elapsed();
+    runningSince = null;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+  }
+
+  /** The recorder has handed over its last chunk: the take, ready to play back. */
+  function finish() {
+    recorder = null;
+    if (!dialog.open) return;
+    take = new Blob(chunks, { type: mimeType });
+    if (settings) settings.mimeType = mimeType || settings.mimeType;
+    takeUrl = URL.createObjectURL(take);
+    playback.src = takeUrl;
+    clock.textContent = formatClock(elapsedBefore);
+    show("recorded", `Take: ${formatClock(elapsedBefore)}. Play it back, then keep it or record again.`);
+    void checkLength(take);
+  }
+
+  /** The take's true length, decoded: the player can't say (a recorder's WebM has no duration), and Safari 26.0–26.1 cut
+   * MP4 takes short (WebKit 299164), which only a comparison with the clock shows. */
+  async function checkLength(blob: Blob) {
+    decodedSeconds = null;
+    try {
+      decodedSeconds = (await audio!.decodeAudioData(await blob.arrayBuffer())).duration;
+    } catch {
+      return; // some browsers can't decode their own recording format; the clock's length stands
+    }
+    if (take === blob && looksTruncated(decodedSeconds, elapsedBefore)) {
+      status.textContent = `This take plays only ${formatClock(decodedSeconds)} of the ${formatClock(elapsedBefore)} recorded: the browser cut it short. Record it again.`;
+    }
+  }
+
+  function dropTake() {
+    if (takeUrl) URL.revokeObjectURL(takeUrl);
+    playback.removeAttribute("src");
+    take = null;
+    takeUrl = "";
+    decodedSeconds = null;
+  }
+
+  function useTake() {
+    if (!take || !settings) return;
+    const file = fileFor(take, mimeType, options.suggestedName || FALLBACK_NAME);
+    const facts = recordingMetadata(settings, { durationSeconds: decodedSeconds ?? elapsedBefore, peak, clipped: clippedInTake });
+    metadataByFile.set(file, { ...(options.metadata ?? {}), ...facts });
+    kept = file;
+    dialog.close();
+  }
+
+  /** Esc, Cancel, Discard and Use all end here: let go of the microphone and answer the caller. */
+  function cleanUp() {
+    streamRequest++;
+    if (recorder) {
+      recorder.onstop = recorder.ondataavailable = null;
+      if (recorder.state !== "inactive") recorder.stop();
+      recorder = null;
+    }
+    cancelAnimationFrame(frame);
+    stopStream();
+    analyser = null;
+    void audio?.close();
+    audio = null;
+    dropTake();
+    settle?.(kept);
+    settle = null;
+  }
+
+  function open(opts: Options = {}): Promise<File | null> {
+    if (dialog.open) return Promise.resolve(null);
+    options = opts;
+    kept = null;
+    clock.textContent = formatClock(0);
+    clip.hidden = true;
+    dialog.showModal();
+    canvas.width = Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio));
+    frame = requestAnimationFrame(paintMeter);
+    void startStream();
+    return new Promise((resolve) => (settle = resolve));
+  }
+
+  buttons.record.addEventListener("click", record);
+  buttons.pause.addEventListener("click", pauseOrResume);
+  buttons.stop.addEventListener("click", stop);
+  buttons.use.addEventListener("click", useTake);
+  buttons.discard.addEventListener("click", () => dialog.close());
+  buttons.again.addEventListener("click", () => {
+    dropTake();
+    clock.textContent = formatClock(0);
+    show("ready", "Ready.");
+  });
+  clip.addEventListener("click", () => (clip.hidden = true));
+  device.addEventListener("change", () => void startStream());
+  toggles.forEach((t) => t.addEventListener("change", () => void startStream()));
+  // Esc mid-take or with a take not yet kept asks first: a take is easy to lose and not always easy to do again.
+  dialog.addEventListener("cancel", (e) => {
+    if ((recorder || take) && !confirm("Discard this take?")) e.preventDefault();
+  });
+  dialog.addEventListener("close", cleanUp);
+
+  (window as unknown as { AudioRecorder: unknown }).AudioRecorder = { open, metadataOf: (f: File) => metadataByFile.get(f) ?? null };
+</script>
