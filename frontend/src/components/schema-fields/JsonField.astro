@@ -1,0 +1,100 @@
+---
+/**
+ * JsonField Component
+ * Renders a free-form JSON field as a monospace textarea, styled like the other fields
+ */
+export interface Props {
+  field: {
+    key: string;
+    label: string;
+    type: "json";
+    required?: boolean;
+    helpText?: string;
+    readOnly?: boolean;
+  };
+  value?: unknown;
+  error?: string;
+}
+
+const { field, value, error } = Astro.props;
+const inputId = `field-${field.key}`;
+const empty = value === undefined || value === null || value === "";
+---
+
+<div class="field-group">
+  <label for={inputId}>
+    {field.label}
+    {field.required && <span class="required">*</span>}
+  </label>
+
+  <textarea
+    id={inputId}
+    name={`dataJson.${field.key}`}
+    placeholder="Enter valid JSON"
+    rows="6"
+    required={field.required}
+    readonly={field.readOnly}
+    class:list={["field-textarea", { error }]}
+    spellcheck="false"
+  >{empty ? "" : JSON.stringify(value, null, 2)}</textarea>
+
+  <p class="field-help">{field.helpText || "Enter valid JSON data"}</p>
+  {error && <p class="field-error">{error}</p>}
+</div>
+
+<style>
+  .field-group {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  label {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--ink);
+  }
+
+  .required {
+    color: var(--color-error);
+    margin-left: 2px;
+  }
+
+  .field-textarea {
+    padding: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    font-size: 0.8125rem;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    line-height: 1.5;
+    resize: vertical;
+    transition: border-color 0.2s;
+  }
+
+  .field-textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-alpha);
+  }
+
+  .field-textarea:read-only {
+    background: var(--muted-bg);
+    cursor: not-allowed;
+  }
+
+  .field-textarea.error {
+    border-color: var(--color-error);
+  }
+
+  .field-help {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .field-error {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--color-error);
+  }
+</style>

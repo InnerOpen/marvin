@@ -7,6 +7,7 @@ import DateField from "./schema-fields/DateField.astro";
 import DateTimeField from "./schema-fields/DateTimeField.astro";
 import EmbedField from "./schema-fields/EmbedField.astro";
 import CueListField, { type CueOption } from "./schema-fields/CueListField.astro";
+import JsonField from "./schema-fields/JsonField.astro";
 import LinkedItemsField from "./schema-fields/LinkedItemsField.astro";
 import type { CueSpec } from "@/lib/cueFields";
 import MarkdownField from "./schema-fields/MarkdownField.astro";
@@ -73,23 +74,7 @@ const { field, value, error, assets = [], resources = [], cues = {}, refs = {} }
 
       case 'json':
         if (cues[field.key]) return <CueListField field={field as any} value={value} spec={cues[field.key].spec} options={cues[field.key].options} error={error} />;
-        // JSON field - allow free-form JSON input
-        return (
-          <div class="field-group">
-            <label>
-              {field.label}
-              {field.required && <span class="required">*</span>}
-            </label>
-            <textarea
-              name={`dataJson.${field.key}`}
-              placeholder="Enter valid JSON"
-              rows="6"
-              required={field.required}
-              class="field-textarea json-field"
-            >{value ? JSON.stringify(value, null, 2) : ''}</textarea>
-            <p class="field-help">{field.helpText || 'Enter valid JSON data'}</p>
-          </div>
-        );
+        return <JsonField field={field as any} value={value} error={error} />;
 
       default:
         // Unknown field type
