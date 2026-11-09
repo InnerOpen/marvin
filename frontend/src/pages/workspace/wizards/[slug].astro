@@ -101,8 +101,7 @@ let genStep: Step | null = null; // a gallery's generate action, as the run step
 // A shown text field that holds another entry's slug (`ref`) is a pick list. In a wizard the list is narrowed by the entries chosen so
 // far that the referenced type has a field for (a cast member's actor comes from the chosen world's troupe, not every actor).
 let refs: Record<string, RefOption[]> = {};
-const chosen = Object.fromEntries(Object.entries(ctx).filter(([key]) => entries[key]));
-const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, chosen);
+const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, ctx);
 
 // Drawn whatever happened to a post: an error shows above a complete page, never an empty one.
 if (authToken && def && step) {
