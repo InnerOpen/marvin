@@ -117,3 +117,7 @@ Blueprints and the core catalog: 1.0.0-rc.84 to rc.97. `entry_fields`, `incoming
 - [Collections](collections.md) — the smart rules the core catalog demonstrates.
 - SDK contract: [marvin-integration-sdk](https://github.com/InnerOpen/marvin-integration-sdk) `ContentBlueprint`.
 - [Glossary](../glossary.md)
+
+## Pick lists for fields that name another entry
+
+A text field with `"ref": "voice"` (an entry type's slug) is shown as a pick list of that type's entries, saving the chosen one's slug. Add `"ref_via": {"entry_type": "cast-member", "field": "voice", "match": {"story": "story"}}` to put first the entries that other entries name: here, the voices of the characters cast in the story this entry belongs to (`match` pairs the other type's field with this entry's own). They are listed under "Cast in this story", and every other entry stays below under "Other voices", so nothing is out of reach. With nobody cast yet, or no value to match on, the list is the whole type as before. Screenplay Studio uses it on the voice of a take and of a speech line.

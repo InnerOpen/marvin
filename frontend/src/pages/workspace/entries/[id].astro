@@ -389,7 +389,7 @@ if (entry && entryType && authToken) {
   }
 }
 // A text field that holds another entry's slug (`ref`) is a pick list of that type's entries, the whole workspace's.
-const refs = entry && entryType ? await refOptionsFor(entryType.schemaJson as any, authToken) : {};
+const refs = entry && entryType ? await refOptionsFor(entryType.schemaJson as any, authToken, undefined, entry.dataJson as Record<string, unknown> | null) : {};
 // "Use as <field>": the type's single-asset field can be pointed at any asset attached here (a speech line keeps every recording attached).
 const assetField = assetFieldOf(entryType?.schemaJson as any);
 const currentFieldAsset = assetField ? (entry?.dataJson as any)?.[assetField.key] : null;
