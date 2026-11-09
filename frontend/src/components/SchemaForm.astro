@@ -10,6 +10,7 @@ import LinkedItemsField from "./schema-fields/LinkedItemsField.astro";
 import type { CueSpec } from "@/lib/cueFields";
 import MarkdownField from "./schema-fields/MarkdownField.astro";
 import NumberField from "./schema-fields/NumberField.astro";
+import RefField from "./schema-fields/RefField.astro";
 import SelectField from "./schema-fields/SelectField.astro";
 import TextareaField from "./schema-fields/TextareaField.astro";
 /**
@@ -18,6 +19,7 @@ import TextareaField from "./schema-fields/TextareaField.astro";
  */
 import TextField from "./schema-fields/TextField.astro";
 import type { LinkedItem } from "@/lib/linkedItems";
+import type { RefOption } from "@/lib/refFields";
 
 export interface FieldSchema {
   key: string;
@@ -42,9 +44,11 @@ export interface Props {
   resources?: LinkedItem[];
   /** JSON fields that place other entries in time (a beat's sounds), edited as cue lists: by field key, the shape and the options. */
   cues?: Record<string, { spec: CueSpec; options: CueOption[] }>;
+  /** Text fields that hold another entry's slug (`ref`), offered as a pick list: by field key, that type's entries (lib/refFieldsApi.ts). */
+  refs?: Record<string, RefOption[]>;
 }
 
-const { schema, values = {}, errors = {}, assets = [], resources = [], cues = {} } = Astro.props;
+const { schema, values = {}, errors = {}, assets = [], resources = [], cues = {}, refs = {} } = Astro.props;
 // An asset field can upload from its own dialog, which sends a picture through the page's cropper: one cropper per page, only when needed.
 const hasAssetField = (schema.fields ?? []).some((f: { type?: string }) => f.type === "asset" || f.type === "asset-list");
 
@@ -73,6 +77,7 @@ function getFieldError(key: string) {
     // Render appropriate component based on field type
     switch (field.type) {
       case 'text':
+        if (field.ref && refs[field.key] && !field.readOnly) return <RefField field={field as any} value={value} error={error} options={refs[field.key]} />;
         return <TextField field={field as any} value={value} error={error} />;
 
       case 'textarea':

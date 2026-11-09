@@ -17,9 +17,10 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
 - ``list``: the entries of ``entry_type`` whose ``parent_field`` holds context key ``parent``, with the ``columns`` editable in place and
   ``add`` to make another.
 - ``gallery``: the entries of ``entry_type`` as picture cards (a troupe of actors, a story's cast), scoped like a list (``parent_field`` holds
-  context key ``parent``; both or neither). ``picture`` is the asset field shown, ``subtitle`` a field under the name, ``badges`` fields shown
-  as pills. Actions, each optional: ``add`` ({fields, data?}: a form), ``upload`` ({field}: a picture becomes a new entry, named for the
-  file), ``generate`` ({workflow, inputs, button, prompt?: {name, label}}: a run, as a run step, with a text the person types).
+  context key ``parent``; both or neither). ``picture`` is the asset field shown, ``audio`` an asset field played from the card, ``subtitle``
+  a field under the name, ``badges`` fields shown as pills. Actions, each optional: ``add`` ({fields, data?}: a form), ``upload`` ({field,
+  accept?}: a file becomes a new entry, named for the file; ``accept`` is the file input's accept, ``image/*`` unless it says, e.g.,
+  ``audio/*``), ``generate`` ({workflow, inputs, button, prompt?: {name, label}}: a run, as a run step, with a text the person types).
 - ``run``: a button that starts the workflow ``workflow`` (by slug, one the same package brings) with ``inputs`` ({name: "${key}" | literal}),
   e.g. cutting the beats of a script once it is uploaded. ``requires`` ({entry, field}) keeps the button off until that field holds something.
   A workflow that is off is never turned on from here: the page says so.
@@ -45,6 +46,9 @@ CHECK_OPS = ("gt", "gte", "eq", "lte", "lt")
 UPLOAD_MODES = ("asset", "text")
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+# A file input's accept: MIME patterns (audio/*, image/png) or extensions (.webp), comma-separated.
+_ACCEPT_PART = r"(?:[a-z]+/(?:\*|[a-z0-9.+-]+)|\.[a-z0-9]{1,10})"
+_ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IGNORECASE)
 RESERVED_KEYS = ("step", "notice")  # address parameters the page uses for itself: never a context key
 _STEP_ID = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
@@ -279,15 +283,18 @@ def _check_gallery(s: _Step) -> str | None:
         return f"{s.label}: parent and parent_field go together (or neither)"
     if scoped and not _NAME.match(str(step.get("parent_field"))):
         return f"{s.label}: parent_field must be a field key"
-    for key in ("picture", "subtitle"):
+    for key in ("picture", "audio", "subtitle"):
         if step.get(key) is not None and not _NAME.match(str(step[key])):
             return f"{s.label}: {key} must be a field key"
     if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
         return problem
     if step.get("add") is not None and (problem := _check_create(s, step["add"])):
         return problem.replace("create", "add")
-    if step.get("upload") is not None and not (isinstance(step["upload"], dict) and _NAME.match(str(step["upload"].get("field")))):
-        return f"{s.label}: upload needs the asset field the picture goes into"
+    if (upload := step.get("upload")) is not None:
+        if not (isinstance(upload, dict) and _NAME.match(str(upload.get("field")))):
+            return f"{s.label}: upload needs the asset field the file goes into"
+        if upload.get("accept") is not None and not (isinstance(upload["accept"], str) and _ACCEPT.match(upload["accept"])):
+            return f"{s.label}: upload.accept is a file input's accept, like audio/* or image/png,.webp"
     if (gen := step.get("generate")) is not None:
         if not isinstance(gen, dict):
             return f"{s.label}: generate must be an object like a run step"

@@ -10,6 +10,7 @@
  */
 
 import { getAuthToken } from "@/lib/api/client";
+import { listEntryTypes } from "@/lib/api/entryTypes";
 import { getEmbedProviders } from "@/lib/api/mediaEmbeds";
 
 export interface Props {
@@ -54,6 +55,17 @@ try {
   embedProviders = providers.map((p) => ({ key: p.key, name: p.name }));
 } catch (e) {
   console.warn("[SchemaEditor] Could not load media embed providers:", e);
+}
+
+// The workspace's entry types, for a text field's "Refers to": the field then holds an entry's slug, picked from that type's entries.
+// Best-effort too: without them the select offers only the field's current ref.
+let refTypes: Array<{ slug: string; name: string }> = [];
+try {
+  refTypes = (await listEntryTypes(getAuthToken(Astro.cookies) ?? ""))
+    .map((t) => ({ slug: t.slug, name: t.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+} catch (e) {
+  console.warn("[SchemaEditor] Could not load entry types:", e);
 }
 ---
 
@@ -353,7 +365,7 @@ try {
   }
 </style>
 
-<script define:vars={{ initialSchema, fieldTypes, embedProviders }}>
+<script define:vars={{ initialSchema, fieldTypes, embedProviders, refTypes }}>
   // Schema state
   let schema = JSON.parse(JSON.stringify(initialSchema));
 
@@ -518,6 +530,23 @@ try {
         ),
       );
     }
+    if (field.type === 'text') {
+      const known = refTypes.some(t => t.slug === field.ref);
+      body.append(
+        formGroup(
+          'full-width',
+          ['Refers to (entry type) ', labelHint('— the field holds the slug of an entry of this type, picked from a list')],
+          el(
+            'select',
+            { className: 'field-ref' },
+            new Option('— nothing (plain text) —', '', !field.ref, !field.ref),
+            ...refTypes.map(t => new Option(`${t.name} (${t.slug})`, t.slug, t.slug === field.ref, t.slug === field.ref)),
+            // A ref to a type this workspace does not have (yet) stays as it is rather than being cleared by the next edit.
+            ...(field.ref && !known ? [new Option(`${field.ref} (not found)`, field.ref, true, true)] : []),
+          ),
+        ),
+      );
+    }
     if (field.type === 'markdown') {
       body.append(
         checkboxGroup(
@@ -597,7 +626,7 @@ try {
     });
 
     // Update field on other input changes (placeholder, help text, type, required, etc.)
-    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-role, .field-providers, .field-auto-embed').forEach(input => {
+    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-role, .field-providers, .field-auto-embed, .field-ref').forEach(input => {
       input.addEventListener('input', () => updateField(index, div));
     });
 
@@ -625,6 +654,17 @@ try {
       if (optionsInput) {
         field.options = optionsInput.value.split(',').map(s => s.trim()).filter(Boolean);
       }
+    }
+
+    // A text field may refer to an entry type (`ref`): its value is then an entry's slug. Only text fields carry the key.
+    if (field.type === 'text') {
+      const refInput = fieldEl.querySelector('.field-ref');
+      if (refInput) {
+        if (refInput.value) field.ref = refInput.value;
+        else delete field.ref;
+      }
+    } else {
+      delete field.ref;
     }
 
     // Embed fields may limit providers (registry keys; empty = all). Only embed fields carry the key.

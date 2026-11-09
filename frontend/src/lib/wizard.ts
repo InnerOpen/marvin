@@ -184,6 +184,18 @@ export function cardPicture(assets: AttachedAsset[] | undefined, pictureField: s
   return hit?.publicUrl ?? null;
 }
 
+/** The sound a card plays: the asset attached in the audio field's role, as the picture is found. */
+export function cardAudio(assets: AttachedAsset[] | undefined, audioField: string | undefined): string | null {
+  if (!audioField) return null;
+  const hit = (assets ?? []).find((a) => a.role === audioField && a.publicUrl && (a.mimeType ?? "").startsWith("audio/"));
+  return hit?.publicUrl ?? null;
+}
+
+/** What a gallery's upload takes: its `upload.accept` (a picture unless it says otherwise). */
+export function galleryAccept(step: Step): string {
+  return typeof step.upload?.accept === "string" && step.upload.accept.trim() ? step.upload.accept.trim() : "image/*";
+}
+
 /** A gallery's generate action as the run step it is: the step's own keys plus the typed prompt as a context value. */
 export function generateAsRun(step: Step, promptValue: string | undefined): { run: Step; extra: Ctx } {
   const gen = step.generate ?? {};

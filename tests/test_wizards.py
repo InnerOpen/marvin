@@ -162,6 +162,10 @@ def _bad(mutate) -> str | None:
         (lambda p: p["steps"][7].pop("parent_field"), "go together"),
         (lambda p: p["steps"][7].update(badges="status"), "badges"),
         (lambda p: p["steps"][7].update(upload={}), "upload needs"),
+        (lambda p: p["steps"][7].update(audio="Voice Sample"), "audio must be a field key"),
+        (lambda p: p["steps"][7]["upload"].update(accept=["audio/*"]), "upload.accept"),
+        (lambda p: p["steps"][7]["upload"].update(accept="sounds please"), "upload.accept"),
+        (lambda p: p["steps"][7]["upload"].update(accept="audio/*,"), "upload.accept"),
         (lambda p: p["steps"][7]["generate"].update(inputs={"x": "${nope}"}), "nope"),
         (lambda p: p["steps"][7]["generate"].update(prompt={"name": "Bad Name"}), "prompt needs"),
     ],
@@ -169,6 +173,19 @@ def _bad(mutate) -> str | None:
 def test_a_wrong_wizard_says_what_is_wrong(mutate, words):
     problem = _bad(mutate)
     assert problem is not None and words in problem
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p["steps"][7].update(audio="voice_sample"),
+        lambda p: p["steps"][7]["upload"].update(accept="audio/*"),
+        lambda p: p["steps"][7]["upload"].update(accept="image/png, .webp"),
+        lambda p: p["steps"][7]["upload"].update(accept=".mp3,.wav,audio/x-m4a"),
+    ],
+)
+def test_a_gallery_may_play_a_sound_and_take_an_upload_of_any_kind(mutate):
+    assert _bad(mutate) is None
 
 
 def test_a_wizard_is_a_blueprint_kind_that_takes_no_parameters():

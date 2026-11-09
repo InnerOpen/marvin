@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, blocker, cardPicture, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
+  approvalsOf, blocker, cardAudio, cardPicture, galleryAccept, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -153,7 +153,7 @@ test("a step shows done when the data says so: a choice or option that is set", 
   assert.equal(isDone(def.steps[5], { story: "s" }), false); // a list has no mark of its own
 });
 
-test("a card's picture is the asset in the picture field's role, and generate is a run step with the prompt as a choice", () => {
+test("a card's picture (and sound) is the asset in that field's role, and generate is a run step with the prompt as a choice", () => {
   const assets = [
     { role: "age_view", publicUrl: "https://x/young.png", mimeType: "image/png" },
     { role: "general_view", publicUrl: "https://x/now.png", mimeType: "image/png" },
@@ -162,6 +162,12 @@ test("a card's picture is the asset in the picture field's role, and generate is
   assert.equal(cardPicture(assets, "general_view"), "https://x/now.png");
   assert.equal(cardPicture(assets, "voice_sample"), null);
   assert.equal(cardPicture(undefined, "general_view"), null);
+  assert.equal(cardAudio(assets, "voice_sample"), "https://x/v.mp3");
+  assert.equal(cardAudio(assets, "general_view"), null); // a picture is not a sound
+  assert.equal(cardAudio(assets, undefined), null);
+  assert.equal(cardAudio(undefined, "voice_sample"), null);
+  assert.equal(galleryAccept({ upload: { field: "sample", accept: "audio/*" } }), "audio/*");
+  assert.equal(galleryAccept({ upload: { field: "general_view" } }), "image/*"); // a picture unless it says otherwise
   const step = { id: "troupe", kind: "gallery", title: "T", entry_type: "actor", generate: { workflow: "make-actor", inputs: { world: "${world}", brief: "${brief}" }, button: "Make one", prompt: { name: "brief", label: "Who" } } };
   const { run, extra } = generateAsRun(step, "a tall sailor");
   assert.equal(run.kind, "run");
