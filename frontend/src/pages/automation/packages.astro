@@ -234,12 +234,14 @@ const holds = (p: PackageInfo) =>
         setTimeout(() => location.reload(), 900);
       }),
     );
-    card.querySelector<HTMLButtonElement>(".js-download")?.addEventListener("click", (e) =>
-      run(e.currentTarget as HTMLButtonElement, async () => {
+    card.querySelector<HTMLButtonElement>(".js-download")?.addEventListener("click", (e) => {
+      // Taken now: after the await below the event is over and `e.currentTarget` is null.
+      const button = e.currentTarget as HTMLButtonElement;
+      run(button, async () => {
         saveFile(await getPackageFile(slug), slug);
-        (e.currentTarget as HTMLButtonElement).disabled = false;
-      }),
-    );
+        button.disabled = false;
+      });
+    });
     card.querySelector<HTMLButtonElement>(".js-remove")?.addEventListener("click", (e) => {
       if (!confirm(`Remove the package "${card.dataset.name}"?\n\nThis only ungroups it. Nothing it created is deleted.`)) return;
       run(e.currentTarget as HTMLButtonElement, async () => {
