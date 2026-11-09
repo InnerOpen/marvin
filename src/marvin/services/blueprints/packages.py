@@ -416,7 +416,8 @@ def export(session, group_id, request: PackageExportRequest, actor_id=None) -> P
 def list_wizards(session, group_id, entry_type: str | None = None) -> list[WizardSummary]:
     """The guided setups the workspace's packages bring, by name. `entry_type` keeps only those with a button on that type's entries."""
     wizards = (_wizard_of(b, row, with_definition=False) for row, b in _kept_blueprints(session, group_id, "wizard"))
-    return sorted((w for w in wizards if entry_type is None or (w.button is not None and w.button.entry_type == entry_type)), key=lambda w: w.name.lower())
+    here = (w for w in wizards if entry_type is None or (w.button is not None and w.button.entry_type == entry_type))
+    return sorted(here, key=lambda w: w.name.lower())
 
 
 def get_wizard(session, group_id, slug: str) -> WizardRead | None:

@@ -152,7 +152,7 @@ def _check_button(spec: Any, entries: set[str], steps: set[str], slug: str) -> s
     also = spec.get("also")
     if also is not None:
         if not isinstance(also, dict) or len(also) > 4 or not all(k in entries and k != spec["key"] and _is_field(v) for k, v in also.items()):
-            return f"wizard {slug!r}: button.also maps choose-step keys to field keys of the entry, e.g. {{\"story\": \"story\"}}"
+            return f'wizard {slug!r}: button.also maps choose-step keys to field keys of the entry, e.g. {{"story": "story"}}'
     return None
 
 
