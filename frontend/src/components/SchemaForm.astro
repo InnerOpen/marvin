@@ -4,7 +4,9 @@ import DateField from "./schema-fields/DateField.astro";
 import DateTimeField from "./schema-fields/DateTimeField.astro";
 import EmbedField from "./schema-fields/EmbedField.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
+import CueListField, { type CueOption } from "./schema-fields/CueListField.astro";
 import LinkedItemsField from "./schema-fields/LinkedItemsField.astro";
+import type { CueSpec } from "@/lib/cueFields";
 import MarkdownField from "./schema-fields/MarkdownField.astro";
 import NumberField from "./schema-fields/NumberField.astro";
 import SelectField from "./schema-fields/SelectField.astro";
@@ -37,9 +39,11 @@ export interface Props {
   /** The workspace's assets and resources, for the asset / resource fields' pickers (lib/linkedItems.ts shapes them). */
   assets?: LinkedItem[];
   resources?: LinkedItem[];
+  /** JSON fields that place other entries in time (a beat's sounds), edited as cue lists: by field key, the shape and the options. */
+  cues?: Record<string, { spec: CueSpec; options: CueOption[] }>;
 }
 
-const { schema, values = {}, errors = {}, assets = [], resources = [] } = Astro.props;
+const { schema, values = {}, errors = {}, assets = [], resources = [], cues = {} } = Astro.props;
 // An asset field can upload from its own dialog, which sends a picture through the page's cropper: one cropper per page, only when needed.
 const hasAssetField = (schema.fields ?? []).some((f: { type?: string }) => f.type === "asset" || f.type === "asset-list");
 
@@ -103,6 +107,7 @@ function getFieldError(key: string) {
         return <LinkedItemsField field={field as any} value={value} error={error} items={resources} />;
 
       case 'json':
+        if (cues[field.key]) return <CueListField field={field as any} value={value} spec={cues[field.key].spec} options={cues[field.key].options} error={error} />;
         // JSON field - allow free-form JSON input
         return (
           <div class="field-group">
