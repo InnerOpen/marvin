@@ -4,6 +4,7 @@ import AssetLineage from "@/components/AssetLineage.astro";
 import AssetMetaValue from "@/components/AssetMetaValue.astro";
 import AssetTextPreview from "@/components/AssetTextPreview.astro";
 import AssetVersions from "@/components/AssetVersions.astro";
+import ImageCropper from "@/components/ImageCropper.astro";
 import ItemTrashBanner from "@/components/ItemTrashBanner.astro";
 import SuggestionBanner from "@/components/SuggestionBanner.astro";
 import TagChips from "@/components/TagChips.astro";
@@ -92,7 +93,13 @@ const showAiPanel = aiEnabled && isImage;
           <AssetLineage metadata={asset.metadataJson} authToken={authToken} />
           <AssetVersions assetId={asset.id} authToken={authToken} />
         </div>
-        <div style="display:flex;gap:0.75rem;">
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+          {canEdit && isImage && asset.publicUrl && asset.mimeType !== "image/svg+xml" && (
+            <button type="button" id="edit-picture" class="button secondary" data-url={asset.publicUrl} data-name={asset.name} data-slug={asset.slug} data-id={asset.id} data-type={asset.mimeType}
+              title="Crop, rotate or adjust brightness, contrast and saturation. The result is saved as a new version made from this picture; this one stays as it is.">
+              Edit picture…
+            </button>
+          )}
           {access.canAuthor && !inTrash && (
             <a class="button" href={`/workspace/entries/new?asset=${asset.id}`} title="Start a new entry with this asset attached (or in its image field), titled after it.">
               New entry from this asset
@@ -107,6 +114,7 @@ const showAiPanel = aiEnabled && isImage;
         </div>
       </div>
 
+      {canEdit && isImage && <ImageCropper />}
       {inTrash && <ItemTrashBanner kind="asset" id={id!} canChange={access.canEdit} trashCollectionId={trashCollectionId} />}
       {inTrash ? null : canEdit ? (
         <SuggestionBanner suggestion={(asset as any)?.suggestionJson} entity={asset} apiBase="/api/assets" entityId={id!} />
@@ -282,6 +290,53 @@ const showAiPanel = aiEnabled && isImage;
     </>
   ) : null}
 </AppLayout>
+
+<script>
+  import { fetchApi } from "@/lib/api/client";
+  // Edit picture: the file goes through the page's cropper (crop, rotate, brightness, contrast, saturation) and comes back as a NEW
+  // version made from this asset (`derived_from`, so it lists under "Versions made from this"); the picture itself is left as it is.
+  const button = document.getElementById("edit-picture") as HTMLButtonElement | null;
+  if (button) {
+    type CropperClass = new () => { show: (f: File, ok: (b: Blob) => void, no?: () => void) => void };
+    button.addEventListener("click", async () => {
+      const Cropper = (window as unknown as { ImageCropper?: CropperClass }).ImageCropper;
+      if (!Cropper) return;
+      button.disabled = true;
+      const { url, name, slug, id, type } = button.dataset;
+      try {
+        const blob = await (await fetch(url!)).blob();
+        const ext = (type || blob.type || "image/jpeg").split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+        const file = new File([blob], `${slug}.${ext}`, { type: type || blob.type });
+        new Cropper().show(
+          file,
+          async (out) => {
+            const outType = out.type || "image/jpeg";
+            const outExt = outType === "image/png" ? "png" : outType === "image/webp" ? "webp" : "jpg";
+            const body = new FormData();
+            body.append("file", new File([out], `${slug}-edited.${outExt}`, { type: outType }));
+            body.append("slug", `${slug}-edited-${Date.now().toString(36)}`);
+            body.append("name", `${name} (edited)`);
+            body.append("metadata", JSON.stringify({ derived_from: id, derivation: "edited:cropper" }));
+            try {
+              const made = await fetchApi<{ id: string }>("/api/platform/assets/upload", { method: "POST", body });
+              location.href = `/workspace/assets/${made.id}`;
+            } catch (e) {
+              button.disabled = false;
+              button.title = e instanceof Error ? e.message : "The edit could not be saved.";
+              alert(button.title);
+            }
+          },
+          () => {
+            button.disabled = false;
+          },
+        );
+      } catch (e) {
+        button.disabled = false;
+        button.title = e instanceof Error ? e.message : "The picture could not be loaded.";
+      }
+    });
+  }
+</script>
 
 <style>
   .error-banner {
