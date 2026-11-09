@@ -2516,8 +2516,11 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
           if (field) {
             if (field.type === 'checkbox') {
               (field as HTMLInputElement).checked = !!value;
+            } else if (value === null || value === undefined) {
+              field.value = '';
             } else {
-              field.value = value !== null && value !== undefined ? String(value) : '';
+              // A JSON field's list or object goes in as JSON text, not "[object Object]"
+              field.value = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
             }
           }
         }
