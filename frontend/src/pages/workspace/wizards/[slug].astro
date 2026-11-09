@@ -1,5 +1,0 @@
----
-// A guided setup's old address (/workspace/wizards/<slug>): on to /workspace/setups/<slug>, keeping the choices in the query.
-const { slug } = Astro.params;
-return Astro.redirect(`/workspace/setups/${encodeURIComponent(slug ?? "")}${Astro.url.search}`, 301);
----
