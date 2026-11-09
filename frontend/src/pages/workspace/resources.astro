@@ -6,6 +6,7 @@ import { listResources, type ResourceRead } from "@/lib/api/resources";
 import { listTags } from "@/lib/api/tags";
 import { listTrashedResources } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import ListSort from "@/components/ListSort.astro";
 import { filterResources, isFiltered, readResourceView, resourceHref, SORTS } from "@/lib/resourceView";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -56,7 +57,7 @@ const rowFields: Record<string, { label: string; options: { value: string; label
   external: { label: "Has an external ID", options: yesNo },
 };
 const rowValues = Object.keys(rowFields).filter((k) => (view as any)[k]).map((k) => ({ field: k, value: (view as any)[k] as string }));
-const optionsOpen = rowValues.length > 0 || inTrash || view.sort !== "name";
+const optionsOpen = rowValues.length > 0 || inTrash;
 ---
 
 <AppLayout title="Resources" eyebrow="Content">
@@ -97,16 +98,13 @@ const optionsOpen = rowValues.length > 0 || inTrash || view.sort !== "name";
         filtered={isFiltered(view)}
       >
         <Fragment slot="extras">
-          <label>Sort
-            <select name="sort" data-default="name">
-              {Object.entries(SORTS).map(([v, l]) => <option value={v} selected={view.sort === v}>{l}</option>)}
-            </select>
-          </label>
+
           {(trashedResources.length > 0 || inTrash) && (
             <label><input type="checkbox" name="status" value="trashed" checked={inTrash} /> The Trash ({trashedResources.length})</label>
           )}
         </Fragment>
       </FilterSearch>
+      <ListSort options={SORTS} value={view.sort} />
 
       {rows.length === 0 ? (
         <div class="empty-state">

@@ -9,6 +9,8 @@ import {
 } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
 import EntrySearchBar from "@/components/EntrySearchBar.astro";
+import ListSort from "@/components/ListSort.astro";
+import { COLLECTION_SORTS, querySort, readCollectionSort, sortEntries } from "@/lib/entrySort";
 import EntryViews from "@/components/EntryViews.astro";
 import TrashView from "@/components/TrashView.astro";
 import { listEntryTypes } from "@/lib/api/entryTypes";
@@ -80,6 +82,8 @@ const targetType = ((collection as any)?.targetType ?? "entry") as string;
 const pinned: Cond[] = collection && targetType === "entry" && !isTrash ? [{ dim: "collection", op: "is", value: [collection.slug] }] : [];
 const own = readConds(Astro.url.searchParams).filter((c) => c.dim !== "collection");
 const conds: Cond[] = [...pinned, ...own];
+// The order (?sort=): the collection's own (positions) unless asked otherwise; a search asks the query for the same.
+const sort = readCollectionSort(Astro.url.searchParams.get("sort"));
 type QueryResult = { entries: EntryRead[]; total: number; note?: string | null };
 let search: QueryResult | null = null;
 let builderData: Record<string, unknown> | null = null;
@@ -94,13 +98,13 @@ if (pinned.length && authToken && !error) {
   };
   if (own.length) {
     try {
-      search = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: toSpec(conds), limit: 500 }) }, authToken);
+      search = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: { ...toSpec(conds), sort: querySort(sort) }, limit: 500 }) }, authToken);
     } catch (e) {
       search = { entries: [], total: 0, note: e instanceof Error ? e.message : String(e) };
     }
   }
 }
-const shown = search ? search.entries : entries;
+const shown = search ? search.entries : sort === "position" ? entries : sortEntries(entries, sort);
 const searchPath = `/workspace/collections/${id}`;
 const memberHref = (m: CollectionMember) =>
   m.type === "asset"
@@ -150,7 +154,10 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
       {!canEdit && !collection.isSystem && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
 
       {builderData && (
-        <EntrySearchBar conds={conds} pinned={pinned} path={searchPath} builderData={builderData} total={search?.total ?? null} note={search?.note ?? null} />
+        <>
+          <EntrySearchBar conds={conds} pinned={pinned} path={searchPath} builderData={builderData} total={search?.total ?? null} note={search?.note ?? null} />
+          {targetType === "entry" && !isTrash && <ListSort options={COLLECTION_SORTS} value={sort} />}
+        </>
       )}
 
       {isTrash ? (

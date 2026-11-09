@@ -13,13 +13,23 @@ export const ENTRY_SORTS = {
 export type EntrySort = keyof typeof ENTRY_SORTS;
 export const DEFAULT_ENTRY_SORT: EntrySort = "newest";
 
+/** A collection adds its own order (the members' positions) and starts there. */
+export const COLLECTION_SORTS = { position: "Collection order", ...ENTRY_SORTS } as const;
+export type CollectionSort = keyof typeof COLLECTION_SORTS;
+
 export function readEntrySort(value: string | null | undefined): EntrySort {
   return value && value in ENTRY_SORTS ? (value as EntrySort) : DEFAULT_ENTRY_SORT;
 }
 
+export function readCollectionSort(value: string | null | undefined): CollectionSort {
+  return value && value in COLLECTION_SORTS ? (value as CollectionSort) : "position";
+}
+
 /** The query spec's `sort` for this order (services/entries/query.py: `{by, direction}`). */
-export function querySort(sort: EntrySort): { by: string; direction: "asc" | "desc" } {
+export function querySort(sort: EntrySort | CollectionSort): { by: string; direction: "asc" | "desc" } {
   switch (sort) {
+    case "position":
+      return { by: "position", direction: "asc" };
     case "oldest":
       return { by: "created_at", direction: "asc" };
     case "updated":

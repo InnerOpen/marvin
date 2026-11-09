@@ -1,0 +1,37 @@
+---
+/**
+ * ListSort: the order of a list page (Entries, Assets, Resources, a collection), as `?sort=…` in the address. One select, in the open under
+ * the search bar; changing it reloads the same address with the new value, so the search's conditions stay.
+ */
+export interface Props {
+  options: Record<string, string>;
+  value: string;
+  label?: string;
+}
+const { options, value, label = "Sort" } = Astro.props;
+---
+
+<div class="list-sort">
+  <label>
+    {label}
+    <select data-sort-param aria-label={`${label} the list`}>
+      {Object.entries(options).map(([v, l]) => <option value={v} selected={value === v}>{l}</option>)}
+    </select>
+  </label>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLSelectElement>("[data-sort-param]").forEach((select) =>
+    select.addEventListener("change", () => {
+      const url = new URL(location.href);
+      url.searchParams.set("sort", select.value);
+      location.href = url.toString();
+    }),
+  );
+</script>
+
+<style>
+  .list-sort { display: flex; justify-content: flex-end; margin: 0.25rem 0 0.75rem; font-size: 0.875rem; color: var(--muted); }
+  .list-sort label { display: inline-flex; align-items: center; gap: 0.5rem; }
+  .list-sort select { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+</style>

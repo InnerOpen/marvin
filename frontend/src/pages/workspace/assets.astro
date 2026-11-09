@@ -11,6 +11,7 @@ import { listTags } from "@/lib/api/tags";
 import { listTrashedAssets } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { getMimeCategory } from "@/lib/assetCategory";
+import ListSort from "@/components/ListSort.astro";
 import { DECISIONS, isFiltered, isUnsearchableImage, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
 import { decisionOf } from "@/lib/assetLineage";
 import { createSdkClient } from "@/lib/sdk";
@@ -71,7 +72,7 @@ const rowFields: Record<string, { label: string; options: { value: string; label
   searchable: { label: "Searchable", options: [{ value: "no", label: "No (no alt text or description)" }] },
 };
 const rowValues = Object.keys(rowFields).filter((k) => (view as any)[k]).map((k) => ({ field: k, value: (view as any)[k] as string }));
-const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status) || view.sort !== "name";
+const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status);
 ---
 
 <AppLayout title="Assets">
@@ -107,20 +108,16 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
         fields={rowFields}
         rows={rowValues}
         open={optionsOpen}
-        filtered={isFiltered(view) || view.versions || Boolean(view.status) || view.sort !== "name"}
+        filtered={isFiltered(view) || view.versions || Boolean(view.status)}
       >
         <Fragment slot="extras">
-          <label>Sort
-            <select name="sort" data-default="name">
-              {Object.entries(SORTS).map(([v, l]) => <option value={v} selected={view.sort === v}>{l}</option>)}
-            </select>
-          </label>
           <label><input type="checkbox" name="versions" value="show" checked={view.versions} /> Show versions</label>
           {(trashedAssets.length > 0 || view.status === "trashed") && (
             <label><input type="checkbox" name="status" value="trashed" checked={view.status === "trashed"} /> The Trash ({trashedAssets.length})</label>
           )}
         </Fragment>
       </FilterSearch>
+      <ListSort options={SORTS} value={view.sort} />
 
       {rows.length === 0 && (isFiltered(view) || view.status) ? (
         <div class="empty-state">
