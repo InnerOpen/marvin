@@ -217,6 +217,9 @@ def _check_choose(s: _Step) -> str | None:
     scope, create = s.step.get("scope"), s.step.get("create")
     if scope is not None and (not isinstance(scope, dict) or not all(_NAME.match(str(k)) for k in scope)):
         return f"{s.label}: scope must map field keys to values"
+    for key in ("picture", "subtitle"):  # a pick with a picture is drawn as tiles, not a plain list
+        if s.step.get(key) is not None and not _NAME.match(str(s.step[key])):
+            return f"{s.label}: {key} must be a field key"
     return s.sets_context() or s.entry_type() or s.refs_known(scope, "scope") or (create is not None and _check_create(s, create)) or None
 
 
