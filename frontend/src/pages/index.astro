@@ -204,23 +204,10 @@ function getStatusClass(status: string): string {
                     <span class="quick-create-label">New Collection</span>
                   </a>
                 )}
-              </div>
-            </section>
-          )}
-          {(access.canAuthor || access.canEdit) && guided.length > 0 && (
-            <section class="panel">
-              <div class="panel-head">
-                <h3>Guided setups</h3>
-                <a href="/workspace/setups" class="panel-link">All →</a>
-              </div>
-              <div class="guided-list">
-                {guided.slice(0, 4).map((w) => (
-                  <a href={`/workspace/setups/${encodeURIComponent(w.slug)}`} class="guided-item">
+                {guided.slice(0, 3).map((w) => (
+                  <a href={`/workspace/setups/${encodeURIComponent(w.slug)}`} class="quick-create-card" title={w.description || undefined}>
                     <span class="quick-create-icon" aria-hidden="true">🧭</span>
-                    <span class="guided-text">
-                      <strong>{w.name}</strong>
-                      {w.description && <span class="muted">{w.description.length > 110 ? `${w.description.slice(0, 107)}…` : w.description}</span>}
-                    </span>
+                    <span class="quick-create-label">{w.name}</span>
                   </a>
                 ))}
               </div>
@@ -489,11 +476,6 @@ function getStatusClass(status: string): string {
     color: var(--muted);
   }
 
-  .guided-list { display: grid; gap: 8px; }
-  .guided-item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); text-decoration: none; color: inherit; }
-  .guided-item:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
-  .guided-text { display: grid; gap: 2px; min-width: 0; font-size: 14px; }
-  .guided-text .muted { color: var(--muted); }
   /* Quick Create */
   .quick-create-grid {
     display: grid;
