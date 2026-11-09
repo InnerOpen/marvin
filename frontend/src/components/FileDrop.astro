@@ -49,6 +49,8 @@ const recordable = acceptsAudio(accept);
   .file-drop-empty svg { color: var(--muted); }
   .file-drop-empty p { margin: 0.5rem 0 0; }
   .file-drop-picked { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+  /* display: flex beat the hidden attribute, so an empty zone showed "Change file" too. */
+  .file-drop-picked[hidden], .file-drop [hidden] { display: none; }
   .file-drop-picked img { max-width: 100%; max-height: 220px; border-radius: var(--radius, 10px); object-fit: contain; }
   .file-drop-name { margin: 0; font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }
   .file-drop-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
