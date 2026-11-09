@@ -247,6 +247,12 @@ def test_a_view_is_read_by_slug_and_by_entry_type(db_session, workspace):  # noq
     assert service.get_view(db_session, workspace.id, "missing") is None
     assert [v.slug for v in service.list_views(db_session, workspace.id, entry_type="story")] == ["story-timeline"]
     assert service.list_views(db_session, workspace.id, entry_type="beat") == []
+    # The list carries no definition unless asked: by spine type (an entry of that type needs the lanes) or explicitly.
+    assert service.list_views(db_session, workspace.id)[0].definition == {}
+    by_spine = service.list_views(db_session, workspace.id, spine_type="beat")
+    assert [v.slug for v in by_spine] == ["story-timeline"] and by_spine[0].definition["spine"]["entry_type"] == "beat"
+    assert service.list_views(db_session, workspace.id, spine_type="story") == []
+    assert service.list_views(db_session, workspace.id, with_definition=True)[0].definition["kind"] == "timeline"
 
 
 def test_the_view_routes_exist_and_need_a_login(client):

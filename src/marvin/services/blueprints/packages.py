@@ -451,10 +451,21 @@ def _wizard_of(blueprint: dict, row, *, with_definition: bool):
 # --- views: read-only, for anyone in the workspace --------------------------------------------------------------------------------------
 
 
-def list_views(session, group_id, entry_type: str | None = None) -> list[ViewSummary]:
-    """The views the workspace's packages bring, by name; `entry_type` keeps only those of that type (what an entry's page offers)."""
-    views = (_view_of(b, row, with_definition=False) for row, b in _kept_blueprints(session, group_id, "view"))
-    return sorted((v for v in views if entry_type is None or v.entry_type == entry_type), key=lambda v: v.name.lower())
+def list_views(session, group_id, entry_type: str | None = None, spine_type: str | None = None, with_definition: bool = False) -> list[ViewRead]:
+    """The views the workspace's packages bring, by name. `entry_type` keeps only the views *of* that type (what an entry's page offers as a
+    button); `spine_type` only those whose spine is that type (what an entry of the spine type is laid out in: a beat's cue lists come from
+    there) and then carries each definition, as does `with_definition`, so a page needs one call, not one per view."""
+    full = with_definition or spine_type is not None
+    views = (_view_of(b, row, with_definition=True) for row, b in _kept_blueprints(session, group_id, "view"))
+    kept = [
+        v
+        for v in views
+        if (entry_type is None or v.entry_type == entry_type)
+        and (spine_type is None or (v.definition.get("spine") or {}).get("entry_type") == spine_type)
+    ]
+    if not full:
+        kept = [v.model_copy(update={"definition": {}}) for v in kept]
+    return sorted(kept, key=lambda v: v.name.lower())
 
 
 def get_view(session, group_id, slug: str) -> ViewRead | None:
