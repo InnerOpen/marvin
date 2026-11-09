@@ -175,12 +175,33 @@ function getStatusClass(status: string): string {
     </div>
   ) : (
     <div class="dashboard">
+      <div class="view-switch" role="group" aria-label="Dashboard view">
+        <span class="view-switch-label">View</span>
+        <button type="button" data-view="detailed" aria-pressed="true">Detailed</button>
+        <button type="button" data-view="simple" aria-pressed="false">Simple</button>
+      </div>
+      <script is:inline>
+        // Detailed is the whole dashboard; Simple keeps what is waiting, where you left off, Quick create and Recent work. Per browser, like the theme.
+        (function () {
+          var view = "detailed";
+          try { if (localStorage.getItem("dashboardView") === "simple") view = "simple"; } catch (e) {}
+          document.documentElement.dataset.dashboard = view;
+          document.querySelectorAll(".view-switch [data-view]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.view === view)); });
+          document.querySelectorAll(".view-switch [data-view]").forEach(function (b) {
+            b.addEventListener("click", function () {
+              document.documentElement.dataset.dashboard = b.dataset.view;
+              document.querySelectorAll(".view-switch [data-view]").forEach(function (o) { o.setAttribute("aria-pressed", String(o === b)); });
+              try { localStorage.setItem("dashboardView", b.dataset.view); } catch (e) {}
+            });
+          });
+        })();
+      </script>
       <!-- One frame for the whole page: the live panels and this page's own sections share two column stacks
            (DashboardPanels), every section a panel with the same chrome, so nothing pairs off into uneven rows. -->
       <DashboardPanels dashboard={dashboard} aiUsage={aiUsage}>
         <Fragment slot="right-top">
           {(access.canAuthor || access.canEdit) && (
-            <section class="panel">
+            <section class="panel" data-simple>
               <div class="panel-head"><h3>Quick create</h3></div>
               <div class="quick-create-grid">
                 {entryTypes.length > 0 ? (
@@ -216,7 +237,7 @@ function getStatusClass(status: string): string {
         </Fragment>
 
         <Fragment slot="left">
-          <section class="panel">
+          <section class="panel" data-simple>
             <div class="panel-head">
               <h3>Recent work</h3>
               <a href="/workspace/entries" class="panel-link">All entries →</a>
@@ -411,6 +432,16 @@ function getStatusClass(status: string): string {
     </div>
   )}
 </AppLayout>
+
+<style is:global>
+  .view-switch { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 0 12px; font-size: 0.8125rem; color: var(--muted); }
+  .view-switch button { padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink); font: inherit; cursor: pointer; }
+  .view-switch button[aria-pressed="true"] { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+  /* Simple: only the panels marked data-simple, in one column; the status dots and everything else go. */
+  html[data-dashboard="simple"] .dashboard .panel:not([data-simple]) { display: none; }
+  html[data-dashboard="simple"] .dashboard .pulse > :not(.pulse-columns) { display: none; }
+  html[data-dashboard="simple"] .dashboard .pulse-columns { grid-template-columns: minmax(0, 760px); }
+</style>
 
 <style>
   .error-banner {
