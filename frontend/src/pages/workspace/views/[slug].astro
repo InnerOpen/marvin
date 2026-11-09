@@ -12,7 +12,7 @@ import { getWizard } from "@/lib/api/wizards";
 import type { Step } from "@/lib/wizard";
 import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
-import { type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, overlays, progress, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
+import { type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, overlays, progress, quiets, quietWords, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -285,6 +285,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           <small>{Math.round(b.volume * 100)}%{b.muffled ? " · muffled" : ""}{b.audio ? "" : " · no take yet"}</small>
                         </a>
                       ))}
+                    {quiets(track.items, lane).map((q) => (
+                      <span class={`tl-quiet ${q.kind}`} aria-hidden="true" style={`left:${pctIn(track, q.start)};width:${pctIn(track, track.start + q.seconds)}`} title={`${quietWords(q.kind)} (${q.seconds.toFixed(2)} s)\n${timecode(q.start)} → ${timecode(q.start + q.seconds)}`}>
+                        <small>{q.seconds.toFixed(2).replace(/\.?0+$/, "")}</small>
+                      </span>
+                    ))}
                     {track.items.flatMap((item) => item.lanes[lane.id] ?? []).map((p) => (
                       <a
                         class:list={["tl-piece", { estimated: p.estimated, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
@@ -613,6 +618,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-mute:hover, .tl-mute[aria-pressed="true"] { opacity: 1; }
   .tl-lane.is-muted .tl-piece, .tl-lane.is-muted .tl-bed { opacity: 0.45; }
   .tl-piece { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; gap: 5px; padding: 0 7px; border-radius: 6px; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--panel)); color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-decoration: none; }
+  .tl-quiet { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border-bottom: 2px dotted var(--muted); background: color-mix(in srgb, var(--muted) 8%, transparent); color: var(--muted); overflow: hidden; pointer-events: none; }
+  .tl-quiet small { font-size: 10px; letter-spacing: 0.02em; }
+  .tl-quiet.hold { border-bottom-style: dashed; }
   .tl-piece b { font-weight: 600; }
   .tl-piece span { overflow: hidden; text-overflow: ellipsis; }
   .tl-piece.estimated { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--panel)) 0 6px, var(--panel) 6px 10px); border-style: dashed; }
