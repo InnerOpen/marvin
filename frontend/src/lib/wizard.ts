@@ -245,6 +245,25 @@ export function stepHref(wizardSlug: string, ctx: Ctx, stepId: string | null, ex
   return `/workspace/setups/${encodeURIComponent(wizardSlug)}?${params.toString()}`;
 }
 
+/** A button an entry's page shows to open a setup on that entry (the wizard's `button`). */
+export interface WizardButton {
+  entryType: string;
+  label: string;
+  key: string;
+  step?: string | null;
+  also?: Record<string, string>;
+}
+
+/** Where that button goes: the setup with the entry already chosen (and what its fields carry, a line's story), on the step it names. */
+export function buttonHref(wizardSlug: string, button: WizardButton, entry: { slug: string; dataJson?: Record<string, unknown> | null }): string {
+  const ctx: Ctx = { [button.key]: entry.slug };
+  for (const [key, field] of Object.entries(button.also ?? {})) {
+    const value = entry.dataJson?.[field];
+    if (typeof value === "string" && value.trim()) ctx[key] = value.trim();
+  }
+  return stepHref(wizardSlug, ctx, button.step ?? null);
+}
+
 /** The entry type a context key's entries are of: the `choose` step that sets it names it (an `option` choice is no entry). */
 export function entryTypeOf(def: WizardDefinition, key: string): string | undefined {
   return def.steps.find((s) => s.kind === "choose" && s.as === key)?.entry_type;

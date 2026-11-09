@@ -13,6 +13,8 @@ import { type CollectionRead, type EntryRead, getEntry, updateEntry } from "@/li
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { getAssets } from "@/lib/api/platform";
 import { listViews, listViewsOfSpine, type ViewSummary, viewHref } from "@/lib/api/views";
+import { listWizards, type WizardSummary } from "@/lib/api/wizards";
+import { buttonHref } from "@/lib/wizard";
 import { type CueSpec, cueSpecsFor } from "@/lib/cueFields";
 import type { CueOption } from "@/components/schema-fields/CueListField.astro";
 import { listResources } from "@/lib/api/resources";
@@ -354,6 +356,12 @@ const entryType = entry ? entryTypes.find((t) => t.id === entry.entryTypeId) : n
 // A package may bring a view of this type (a story's timeline): a button next to the site link opens the entry in it.
 let views: ViewSummary[] = [];
 if (entry && entryType && authToken) views = await listViews(authToken, entryType.slug).catch(() => []);
+// A package's guided setup may put a button on this type's entries (a speech line's Takes): it opens the setup with this entry chosen.
+let setupButtons: { label: string; href: string }[] = [];
+if (entry && entryType && authToken) {
+  const here: WizardSummary[] = await listWizards(authToken, entryType.slug).catch(() => []);
+  setupButtons = here.filter((w) => w.button).map((w) => ({ label: w.button!.label, href: buttonHref(w.slug, w.button!, entry!) }));
+}
 // A JSON field that places other entries in time (a beat's sound effects) is edited as a list of cues when a package's timeline view
 // declares its shape for this type; the options are the entries of the referenced type, with a take to hear when they have one.
 const cues: Record<string, { spec: CueSpec; options: CueOption[] }> = {};
@@ -757,10 +765,13 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </div>
             )}
 
-            {views.length > 0 && (
+            {(views.length > 0 || setupButtons.length > 0) && (
               <div class="form-group">
                 {views.map((v) => (
                   <a href={viewHref(v.slug, entry!.slug)} class="button secondary">{v.name} →</a>
+                ))}
+                {setupButtons.map((b) => (
+                  <a href={b.href} class="button secondary">{b.label} →</a>
                 ))}
               </div>
             )}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
+  approvalsOf, buttonHref, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -191,4 +191,15 @@ test("a new entry is named for what was typed, else for the file", () => {
   assert.equal(titleFor("  Weightless Hour ", "IMG_1.jpg"), "Weightless Hour");
   assert.equal(titleFor("", "weightless-hour_2.JPG"), "weightless hour 2");
   assert.equal(titleFor("", ""), "");
+});
+
+test("a setup's button opens it on the entry, carrying what the entry's fields hold, on the step it names", () => {
+  const button = { entryType: "speech-line", label: "Takes", key: "line", step: "takes", also: { story: "story", world: "missing" } };
+  const entry = { slug: "granny-advice-line-01-1", dataJson: { story: "granny-advice", text: "People say" } };
+  const url = new URL(buttonHref("takes-of-a-line", button, entry), "http://x");
+  assert.equal(url.pathname, "/workspace/setups/takes-of-a-line");
+  assert.deepEqual(Object.fromEntries(url.searchParams), { step: "takes", line: "granny-advice-line-01-1", story: "granny-advice" });
+  // no step: the setup opens on its first unanswered step; an empty field carries nothing
+  const bare = new URL(buttonHref("x", { entryType: "a", label: "L", key: "k" }, { slug: "s", dataJson: null }), "http://x");
+  assert.deepEqual(Object.fromEntries(bare.searchParams), { k: "s" });
 });

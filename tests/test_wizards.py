@@ -306,3 +306,43 @@ def test_a_choose_step_may_start_a_new_one_from_a_file_and_field_keys_may_be_cam
 def test_a_create_upload_needs_the_asset_field_and_a_real_accept(upload, words):
     problem = _bad(lambda p: p["steps"][1].update(create={"upload": upload}))
     assert words in (problem or "")
+
+
+BUTTON = {"entry_type": "story-note", "label": "Narrate", "key": "story", "step": "how", "also": {"world": "world"}}
+
+
+def test_a_wizard_may_put_a_button_on_an_entry_type():
+    payload = copy.deepcopy(WIZARD)
+    payload["button"] = copy.deepcopy(BUTTON)
+    assert payload_problem(payload, "narrate") is None
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [
+        ({"label": " "}, "button is"),
+        ({"entry_type": "Not A Slug"}, "entry type's slug"),
+        ({"key": "nope"}, "not a key a choose step sets"),
+        ({"step": "missing"}, "not a step"),
+        ({"also": {"story": "story"}}, "button.also"),
+        ({"also": {"nope": "story"}}, "button.also"),
+        ({"also": {"world": "bad key"}}, "button.also"),
+    ],
+)
+def test_a_wrong_button_says_what_is_wrong(change, words):
+    payload = copy.deepcopy(WIZARD)
+    payload["button"] = {**BUTTON, **change}
+    assert words in (payload_problem(payload, "narrate") or "")
+
+
+def test_the_wizards_of_an_entry_type_are_those_with_a_button_on_it(db_session, workspace):  # noqa: F811
+    payload = copy.deepcopy(WIZARD)
+    payload["button"] = copy.deepcopy(BUTTON)
+    service.install(db_session, workspace.id, service.parse_manifest(_with_wizard(payload=payload)), actor_id=workspace.user_id)
+    db_session.commit()
+
+    here = service.list_wizards(db_session, workspace.id, "story-note")
+
+    assert [w.slug for w in here] == ["narrate"] and here[0].button.key == "story" and here[0].button.also == {"world": "world"}
+    assert service.list_wizards(db_session, workspace.id, "beat") == []
+    assert [w.slug for w in service.list_wizards(db_session, workspace.id)] == ["narrate"]

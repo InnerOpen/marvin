@@ -7,6 +7,7 @@ A **guided setup** is a step-by-step page that walks someone through making some
 - **Sidebar → Content → Guided setups** (`/workspace/setups`) lists every setup the workspace has, with a Start button on each. The link is always there; the page says how to get one when there are none.
 - **Dashboard → Quick create** and the **New** menu list each installed setup (up to three and four), next to the entry types, so "Add artwork" is one click from anywhere.
 - **Dashboard view:** a Simple / Detailed switch at the top of the dashboard. Detailed is the whole page; Simple keeps Waiting on you, Pick up where you left off, Quick create and Recent work, in one column, for someone who only adds and edits. It is remembered in that browser, like light and dark.
+- **A button on an entry's page.** A setup can say it belongs to an entry type (`button`: the entry type, a label, the context key the entry fills, optionally the step to open on and fields to carry over, like a line's story). Every entry of that type then shows the button next to its other actions, and it opens the setup with that entry already chosen. Screenplay Studio uses it for **Takes** on a speech line.
 - **Settings → Automation → Packages** shows which package brought a setup.
 
 ## Getting one

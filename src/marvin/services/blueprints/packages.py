@@ -413,11 +413,11 @@ def export(session, group_id, request: PackageExportRequest, actor_id=None) -> P
 # --- wizards: read-only, for anyone in the workspace ------------------------------------------------------------------------------------
 
 
-def list_wizards(session, group_id) -> list[WizardSummary]:
-    """The guided setups the workspace's packages bring, by name."""
-    return sorted(
-        (_wizard_of(b, row, with_definition=False) for row, b in _kept_blueprints(session, group_id, "wizard")), key=lambda w: w.name.lower()
-    )
+def list_wizards(session, group_id, entry_type: str | None = None) -> list[WizardSummary]:
+    """The guided setups the workspace's packages bring, by name. `entry_type` keeps only those with a button on that type's entries."""
+    wizards = (_wizard_of(b, row, with_definition=False) for row, b in _kept_blueprints(session, group_id, "wizard"))
+    here = (w for w in wizards if entry_type is None or (w.button is not None and w.button.entry_type == entry_type))
+    return sorted(here, key=lambda w: w.name.lower())
 
 
 def get_wizard(session, group_id, slug: str) -> WizardRead | None:
@@ -444,6 +444,7 @@ def _wizard_of(blueprint: dict, row, *, with_definition: bool):
         "steps": len(payload.get("steps") or []),
         "package": row.slug,
         "package_name": row.name,
+        "button": payload.get("button"),
     }
     return WizardRead(**fields, definition=payload) if with_definition else WizardSummary(**fields)
 
