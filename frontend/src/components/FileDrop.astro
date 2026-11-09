@@ -1,0 +1,110 @@
+---
+/**
+ * A drop zone for one file in a plain form, the look of the Assets upload page and the asset field's dialog: click or drop, then the
+ * file's name (and a thumbnail for a picture) shows with a Change button. The file rides in a hidden `<input type="file">` of the given
+ * name, so the form posts exactly as it did with a bare file chooser. A required zone stops the submit and shows itself when empty,
+ * because a hidden required input would stop it silently.
+ */
+interface Props {
+  name?: string;
+  accept?: string;
+  required?: boolean;
+  /** The second line: what kind of file goes here. */
+  hint?: string;
+}
+
+const { name = "file", accept, required = true, hint = "One file." } = Astro.props;
+---
+
+<div class="file-drop" data-file-drop data-required={required ? "1" : undefined} role="button" tabindex="0" aria-label="Choose a file, or drop one here">
+  <input type="file" name={name} accept={accept} hidden data-file-drop-input />
+  <div class="file-drop-empty" data-file-drop-empty>
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+      <polyline points="17 8 12 3 7 8"></polyline>
+      <line x1="12" y1="3" x2="12" y2="15"></line>
+    </svg>
+    <p><strong>Click to upload or drag and drop</strong></p>
+    <p class="field-help">{hint}</p>
+  </div>
+  <div class="file-drop-picked" data-file-drop-picked hidden>
+    <img alt="" hidden data-file-drop-thumb />
+    <p class="file-drop-name" data-file-drop-name></p>
+    <button type="button" class="button secondary small">Change file</button>
+  </div>
+</div>
+
+<style>
+  .file-drop { border: 2px dashed var(--line); border-radius: var(--radius, 10px); padding: 1.5rem; text-align: center; cursor: pointer; transition: border-color 0.2s, background-color 0.2s; }
+  .file-drop:hover, .file-drop:focus-visible { border-color: var(--ink); background: var(--panel-2); outline: none; }
+  .file-drop.dragover { border-color: var(--accent, var(--brand)); background: var(--panel-2); }
+  .file-drop.invalid { border-color: var(--color-error, #c0392b); }
+  .file-drop-empty svg { color: var(--muted); }
+  .file-drop-empty p { margin: 0.5rem 0 0; }
+  .file-drop-picked { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+  .file-drop-picked img { max-width: 100%; max-height: 220px; border-radius: var(--radius, 10px); object-fit: contain; }
+  .file-drop-name { margin: 0; font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }
+</style>
+
+<script>
+  function wire(zone: HTMLElement) {
+    const input = zone.querySelector<HTMLInputElement>("[data-file-drop-input]")!;
+    const empty = zone.querySelector<HTMLElement>("[data-file-drop-empty]")!;
+    const picked = zone.querySelector<HTMLElement>("[data-file-drop-picked]")!;
+    const thumb = zone.querySelector<HTMLImageElement>("[data-file-drop-thumb]")!;
+    const nameLine = zone.querySelector<HTMLElement>("[data-file-drop-name]")!;
+    let thumbUrl: string | null = null;
+
+    const show = () => {
+      const file = input.files?.[0];
+      if (thumbUrl) URL.revokeObjectURL(thumbUrl);
+      thumbUrl = file && file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+      thumb.hidden = !thumbUrl;
+      if (thumbUrl) thumb.src = thumbUrl;
+      nameLine.textContent = file ? `${file.name} · ${(file.size / 1024).toFixed(0)} KB` : "";
+      empty.hidden = !!file;
+      picked.hidden = !file;
+      if (file) zone.classList.remove("invalid");
+    };
+
+    // A programmatic input.click() bubbles back up here, so the input's own click is let through untouched.
+    zone.addEventListener("click", (e) => {
+      if (e.target !== input) input.click();
+    });
+    zone.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        input.click();
+      }
+    });
+    input.addEventListener("change", show);
+    zone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      zone.classList.add("dragover");
+    });
+    zone.addEventListener("dragleave", (e) => {
+      if (!zone.contains(e.relatedTarget as Node)) zone.classList.remove("dragover");
+    });
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("dragover");
+      const dropped = e.dataTransfer?.files;
+      if (!dropped?.length) return;
+      const one = new DataTransfer();
+      one.items.add(dropped[0]);
+      input.files = one.files;
+      show();
+    });
+    zone.closest("form")?.addEventListener("submit", (e) => {
+      if (zone.dataset.required && !input.files?.length) {
+        e.preventDefault();
+        zone.classList.add("invalid");
+        zone.focus();
+      }
+    });
+  }
+
+  document.addEventListener("dragover", (e) => e.preventDefault());
+  document.addEventListener("drop", (e) => e.preventDefault());
+  document.querySelectorAll<HTMLElement>("[data-file-drop]").forEach(wire);
+</script>

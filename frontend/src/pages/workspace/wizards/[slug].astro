@@ -1,4 +1,5 @@
 ---
+import FileDrop from "@/components/FileDrop.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
@@ -276,7 +277,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                     <label class="choice"><input type="checkbox" name="replace" value="1" required /> Replace it</label>
                   </div>
                 )}
-                <input class="input" type="file" name="file" required accept={(step.accept ?? []).join(",") || undefined} />
+                <FileDrop accept={(step.accept ?? []).join(",") || undefined} hint={step.accept?.length ? `One ${step.accept.join(", ")} file.` : "One file."} />
                 <div class="actions">
                   <button class="button" type="submit">Upload</button>
                   {after && <a class="button secondary" href={stepHref(slug, ctx, after.id)}>Skip</a>}
@@ -390,7 +391,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                       <form method="post" class="form gform" enctype="multipart/form-data">
                         <input type="hidden" name="action" value="upload" />
                         <p class="muted">The picture becomes a new {typeName.toLowerCase()}, named for the file unless you name it here.</p>
-                        <input class="input" type="file" name="file" accept="image/*" required />
+                        <FileDrop accept="image/*" hint="One picture." />
                         <div class="form-group"><label for="upload_title">Name (optional)</label><input class="input" id="upload_title" name="upload_title" /></div>
                         <div class="actions"><button class="button" type="submit">Upload</button></div>
                       </form>
