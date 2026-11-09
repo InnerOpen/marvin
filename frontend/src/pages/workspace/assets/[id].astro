@@ -293,6 +293,7 @@ const showAiPanel = aiEnabled && isImage;
 
 <script>
   import { fetchApi } from "@/lib/api/client";
+  import { getApiUrl } from "@/lib/api/config";
   // Edit picture: the file goes through the page's cropper (crop, rotate, brightness, contrast, saturation) and comes back as a NEW
   // version made from this asset (`derived_from`, so it lists under "Versions made from this"); the picture itself is left as it is.
   const button = document.getElementById("edit-picture") as HTMLButtonElement | null;
@@ -304,7 +305,11 @@ const showAiPanel = aiEnabled && isImage;
       button.disabled = true;
       const { url, name, slug, id, type } = button.dataset;
       try {
-        const blob = await (await fetch(url!)).blob();
+        // The bytes come from the API (`/content`), not the storage domain: that domain sends no CORS headers, so the browser
+        // blocks reading the picture from there and the button looked dead.
+        const res = await fetch(getApiUrl(`/api/platform/assets/${id}/content`), { credentials: "include" });
+        if (!res.ok) throw new Error(`The picture could not be loaded (${res.status}).`);
+        const blob = await res.blob();
         const ext = (type || blob.type || "image/jpeg").split("/")[1]?.replace("jpeg", "jpg") || "jpg";
         const file = new File([blob], `${slug}.${ext}`, { type: type || blob.type });
         new Cropper().show(
@@ -333,6 +338,7 @@ const showAiPanel = aiEnabled && isImage;
       } catch (e) {
         button.disabled = false;
         button.title = e instanceof Error ? e.message : "The picture could not be loaded.";
+        alert(button.title);
       }
     });
   }
