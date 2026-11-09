@@ -163,6 +163,8 @@ def _bad(mutate) -> str | None:
         (lambda p: p["steps"][7].update(badges="status"), "badges"),
         (lambda p: p["steps"][7].update(upload={}), "upload needs"),
         (lambda p: p["steps"][7].update(audio="Voice Sample"), "audio must be a field key"),
+        (lambda p: p["steps"][1].update(picture="Head Shot"), "picture must be a field key"),
+        (lambda p: p["steps"][1].update(subtitle=["build"]), "subtitle must be a field key"),
         (lambda p: p["steps"][7]["upload"].update(accept=["audio/*"]), "upload.accept"),
         (lambda p: p["steps"][7]["upload"].update(accept="sounds please"), "upload.accept"),
         (lambda p: p["steps"][7]["upload"].update(accept="audio/*,"), "upload.accept"),
@@ -179,6 +181,7 @@ def test_a_wrong_wizard_says_what_is_wrong(mutate, words):
     "mutate",
     [
         lambda p: p["steps"][7].update(audio="voice_sample"),
+        lambda p: p["steps"][1].update(picture="general_view", subtitle="build"),  # a pick drawn as tiles
         lambda p: p["steps"][7]["upload"].update(accept="audio/*"),
         lambda p: p["steps"][7]["upload"].update(accept="image/png, .webp"),
         lambda p: p["steps"][7]["upload"].update(accept=".mp3,.wav,audio/x-m4a"),
