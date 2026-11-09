@@ -3,7 +3,8 @@
 import json
 from typing import Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
+import httpx
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import UUID4
 
 from marvin.db.models.users.roles import WorkspaceRole
@@ -19,6 +20,8 @@ from marvin.services.event_bus_service.event_types import EventAssetData, EventT
 from marvin.services.storage import StorageConfigError
 from marvin.services.storage.keys import content_disposition
 from marvin.services.storage.provider_factory import provider_for, public_url_for
+
+MAX_CONTENT_BYTES = 50_000_000  # what /content will carry
 
 router = APIRouter(prefix="/assets")
 
@@ -339,3 +342,29 @@ class AssetsController(BaseUserController):
         # For remote providers, redirect to the file's URL (the workspace's public domain when it has
         # one); the object carries its Content-Disposition from the upload.
         return RedirectResponse(url=public_url_for(asset.storage_provider, asset.storage_key, self.group_id, provider=storage_provider))
+
+    @router.get("/{item_id}/content", summary="Serve Asset Bytes (never redirects)")
+    def serve_asset_content(self, item_id: UUID4):
+        """
+        The file's bytes, from this API in every case.
+
+        ``/file`` redirects to the storage domain for remote storage, and a page that has to read the picture itself (the
+        cropper behind Edit picture) can't follow that: the browser blocks the cross-origin read when that domain sends
+        no CORS headers. So for a remote file the API fetches it from its storage URL and hands the bytes on. Up to
+        ``MAX_CONTENT_BYTES``: larger files answer 413 (this is for editing pictures, not for serving video).
+        """
+        from fastapi.responses import RedirectResponse
+
+        served = self.serve_asset_file(item_id)
+        if not isinstance(served, RedirectResponse):
+            return served
+        asset = self.repos.assets.get_one(item_id)
+        try:
+            got = httpx.get(served.headers["location"], timeout=30, follow_redirects=True)
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"The file could not be fetched from storage: {e}") from e
+        if got.status_code != 200:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Storage answered {got.status_code} for the file.")
+        if len(got.content) > MAX_CONTENT_BYTES:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="That file is too large to read through the API.")
+        return Response(content=got.content, media_type=asset.mime_type or got.headers.get("content-type") or "application/octet-stream")

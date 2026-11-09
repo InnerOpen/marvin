@@ -272,6 +272,49 @@ def test_download_serves_local_and_remote_rows_side_by_side(workspace):
         app.dependency_overrides.pop(get_current_user, None)
 
 
+def test_content_hands_over_the_bytes_of_local_and_remote_rows_without_a_redirect(workspace, monkeypatch):
+    """/content is what a page reads when it must hold the picture itself (the cropper): a redirect to the storage domain is a cross-origin read."""
+    from fastapi.testclient import TestClient
+
+    from marvin.app import app
+    from marvin.core.dependencies import get_current_user
+    from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
+    from marvin.routes.platform import assets_controller
+
+    fetched = []
+
+    def fake_get(url, **kwargs):
+        fetched.append(url)
+        return SimpleNamespace(status_code=200, content=b"from the bucket", headers={})
+
+    monkeypatch.setattr(assets_controller.httpx, "get", fake_get)
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id=workspace.uid,
+        group_id=workspace.gid,
+        active_group_id=workspace.gid,
+        admin=True,
+        is_superuser=False,
+        full_name="Store User",
+        email="s@x.test",
+        platform_role=PlatformRole.NONE,
+        workspace_memberships=[SimpleNamespace(group_id=workspace.gid, workspace_role=WorkspaceRole.ADMIN)],
+        get_workspace_role=lambda group_id: WorkspaceRole.ADMIN,
+    )
+    try:
+        client = TestClient(app)
+        local = client.get(f"/api/platform/assets/{workspace.old}/content", follow_redirects=False)
+        assert local.status_code == 200 and local.content == b"from disk" and fetched == []
+        remote = client.get(f"/api/platform/assets/{workspace.new}/content", follow_redirects=False)
+        assert remote.status_code == 200 and remote.content == b"from the bucket"
+        assert fetched == ["https://cdn.example.test/ws/assets/new.txt"]
+        monkeypatch.setattr(assets_controller, "MAX_CONTENT_BYTES", 4)
+        assert client.get(f"/api/platform/assets/{workspace.new}/content").status_code == 413
+        monkeypatch.setattr(assets_controller.httpx, "get", lambda url, **kw: SimpleNamespace(status_code=404, content=b"", headers={}))
+        assert client.get(f"/api/platform/assets/{workspace.new}/content").status_code == 502
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
 def test_delete_and_reads_use_the_rows_provider(db_session, workspace, remote_active):
     from marvin.db.models.platform import Assets
     from marvin.repos.all_repositories import get_repositories
