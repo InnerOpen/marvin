@@ -41,6 +41,28 @@ export function getAuthToken(cookies?: { get: (name: string) => { value?: string
 }
 
 /**
+ * A file's bytes from the API (`/api/platform/assets/{id}/content`), for a page that has to hold the file itself (the picture cropper):
+ * the same address, cookie or token and error class as `fetchApi`, but the answer is a Blob, not JSON. One try, no retries: the
+ * caller shows the error.
+ */
+export async function fetchApiBlob(path: string, authToken?: string): Promise<Blob> {
+  if (!hasApiBackend()) {
+    throw new Error("MARVIN_API_URL is not configured.");
+  }
+  const url = getApiUrl(path);
+  const headers = new Headers();
+  if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
+  const response = await fetch(url, { headers, credentials: "include" });
+  if (response.status === 401) {
+    throw new ApiRequestError("Unauthorized - please log in", response.status, url.toString());
+  }
+  if (!response.ok) {
+    throw new ApiRequestError(`The file could not be read (${response.status}).`, response.status, url.toString());
+  }
+  return response.blob();
+}
+
+/**
  * Main API client function with retry logic and improved error handling
  *
  * @param path - API endpoint path
