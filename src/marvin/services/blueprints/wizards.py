@@ -10,7 +10,9 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
 - ``option``: pick one of a few labelled values (``options: [{value, label}]``); sets the context key ``as``. Only there to branch on.
 - ``choose``: pick an entry of ``entry_type`` (or create one), sets the context key ``as`` to its slug. ``scope`` ({field: "${key}"})
   narrows the list to entries whose field holds an earlier choice; ``create`` ({fields: [...], data: {field: "${key}" | literal}}) lets
-  the person make a new one, arriving with ``data`` filled in; ``optional`` lets them skip it.
+  the person make a new one, arriving with ``data`` filled in; ``optional`` lets them skip it. ``create.upload`` ({field, accept?}) makes
+  the new one from a file: the picture (or sound) goes into the asset ``field`` and the entry is named for what the person typed, or for
+  the file when they typed nothing, so a wizard can start from "upload, or choose one".
 - ``form``: edit some ``fields`` of the entry in context key ``entry``.
 - ``upload``: a file for the entry in context key ``entry``. ``mode: "asset"`` stores it as an asset in ``field``; ``mode: "text"``
   reads it as text into ``field`` (a script, a beat sheet). ``accept`` lists extensions.
@@ -45,7 +47,8 @@ WHEN_OPS = ("eq", "neq", "set", "unset")
 CHECK_OPS = ("gt", "gte", "eq", "lte", "lt")
 UPLOAD_MODES = ("asset", "text")
 
-_NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+_NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")  # a context key, or a workflow input
+_FIELD = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")  # an entry type's field key, which may be camelCase (sellOnline)
 # A file input's accept: MIME patterns (audio/*, image/png) or extensions (.webp), comma-separated.
 _ACCEPT_PART = r"(?:[a-z]+/(?:\*|[a-z0-9.+-]+)|\.[a-z0-9]{1,10})"
 _ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IGNORECASE)
@@ -54,6 +57,10 @@ _STEP_ID = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
 _REF = re.compile(r"\$\{([^}]*)\}")
 _EXT = re.compile(r"^\.[a-z0-9]{1,10}$")
+
+
+def _is_field(value: Any) -> bool:
+    return isinstance(value, str) and bool(_FIELD.match(value))
 
 
 def _refs(value: Any) -> list[str]:
@@ -68,7 +75,7 @@ def _refs(value: Any) -> list[str]:
 
 
 def _keys(value: Any, what: str) -> str | None:
-    if not isinstance(value, list) or not value or not all(isinstance(k, str) and _NAME.match(k) for k in value):
+    if not isinstance(value, list) or not value or not all(isinstance(k, str) and _FIELD.match(k) for k in value):
         return f"{what} must be a non-empty list of field keys"
     return None
 
@@ -203,6 +210,15 @@ def _check_option(s: _Step) -> str | None:
     return s.sets_context()
 
 
+def _check_upload_spec(s: _Step, upload: Any, what: str) -> str | None:
+    """`upload` of a gallery or of a choose step's `create`: {field, accept?}, the asset field a file goes into and the file input's accept."""
+    if not (isinstance(upload, dict) and _is_field(upload.get("field"))):
+        return f"{s.label}: {what} needs the asset field the file goes into"
+    if upload.get("accept") is not None and not (isinstance(upload["accept"], str) and _ACCEPT.match(upload["accept"])):
+        return f"{s.label}: {what}.accept is a file input's accept, like audio/* or image/png,.webp"
+    return None
+
+
 def _check_create(s: _Step, create: Any) -> str | None:
     if not isinstance(create, dict):
         return f"{s.label}: create must be an object like {{fields: [...], data: {{...}}}}"
@@ -210,15 +226,17 @@ def _check_create(s: _Step, create: Any) -> str | None:
         return problem
     if create.get("data") is not None and not isinstance(create["data"], dict):
         return f"{s.label}: create.data must be an object"
+    if create.get("upload") is not None and (problem := _check_upload_spec(s, create["upload"], "create.upload")):
+        return problem
     return s.refs_known(create.get("data"), "create.data")
 
 
 def _check_choose(s: _Step) -> str | None:
     scope, create = s.step.get("scope"), s.step.get("create")
-    if scope is not None and (not isinstance(scope, dict) or not all(_NAME.match(str(k)) for k in scope)):
+    if scope is not None and (not isinstance(scope, dict) or not all(_is_field(k) for k in scope)):
         return f"{s.label}: scope must map field keys to values"
     for key in ("picture", "subtitle"):  # a pick with a picture is drawn as tiles, not a plain list
-        if s.step.get(key) is not None and not _NAME.match(str(s.step[key])):
+        if s.step.get(key) is not None and not _is_field(s.step[key]):
             return f"{s.label}: {key} must be a field key"
     return s.sets_context() or s.entry_type() or s.refs_known(scope, "scope") or (create is not None and _check_create(s, create)) or None
 
@@ -231,7 +249,7 @@ def _check_upload(s: _Step) -> str | None:
     accept = s.step.get("accept", [])
     if s.step.get("mode") not in UPLOAD_MODES:
         return f"{s.label}: mode must be asset or text"
-    if not _NAME.match(str(s.step.get("field"))):
+    if not _is_field(s.step.get("field")):
         return f"{s.label} needs the field key the file goes into"
     if not isinstance(accept, list) or not all(isinstance(a, str) and _EXT.match(a) for a in accept):
         return f"{s.label}: accept is a list of extensions like .fountain"
@@ -239,7 +257,7 @@ def _check_upload(s: _Step) -> str | None:
 
 
 def _check_list(s: _Step) -> str | None:
-    if not _NAME.match(str(s.step.get("parent_field"))):
+    if not _is_field(s.step.get("parent_field")):
         return f"{s.label} needs parent_field, the field that holds the parent's slug"
     return (
         s.entry_type()
@@ -272,7 +290,7 @@ def _check_run(s: _Step) -> str | None:
         return f"{s.label}: button must be text"
     requires = s.step.get("requires")
     if requires is not None:
-        if not isinstance(requires, dict) or not _NAME.match(str(requires.get("field"))):
+        if not isinstance(requires, dict) or not _is_field(requires.get("field")):
             return f"{s.label}: requires must be {{entry, field}}, the field that has to hold something before it can run"
         if (problem := _Step(requires, s.known, s.entries, s.label).ctx("entry")) is not None:
             return problem
@@ -284,20 +302,17 @@ def _check_gallery(s: _Step) -> str | None:
     scoped = [k for k in ("parent", "parent_field") if step.get(k) is not None]
     if len(scoped) == 1:
         return f"{s.label}: parent and parent_field go together (or neither)"
-    if scoped and not _NAME.match(str(step.get("parent_field"))):
+    if scoped and not _is_field(step.get("parent_field")):
         return f"{s.label}: parent_field must be a field key"
     for key in ("picture", "audio", "subtitle"):
-        if step.get(key) is not None and not _NAME.match(str(step[key])):
+        if step.get(key) is not None and not _is_field(step[key]):
             return f"{s.label}: {key} must be a field key"
     if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
         return problem
     if step.get("add") is not None and (problem := _check_create(s, step["add"])):
         return problem.replace("create", "add")
-    if (upload := step.get("upload")) is not None:
-        if not (isinstance(upload, dict) and _NAME.match(str(upload.get("field")))):
-            return f"{s.label}: upload needs the asset field the file goes into"
-        if upload.get("accept") is not None and not (isinstance(upload["accept"], str) and _ACCEPT.match(upload["accept"])):
-            return f"{s.label}: upload.accept is a file input's accept, like audio/* or image/png,.webp"
+    if (upload := step.get("upload")) is not None and (problem := _check_upload_spec(s, upload, "upload")):
+        return problem
     if (gen := step.get("generate")) is not None:
         if not isinstance(gen, dict):
             return f"{s.label}: generate must be an object like a run step"

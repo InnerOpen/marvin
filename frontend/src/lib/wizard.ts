@@ -184,6 +184,20 @@ export function cardPicture(assets: AttachedAsset[] | undefined, pictureField: s
   return hit?.publicUrl ?? null;
 }
 
+/** The role an asset field's file is attached under: the field's own `role` when its type names one (the artwork `image` is role `featured`), else its key. */
+export function fieldRole(type: { schemaJson?: { fields?: { key?: string; role?: string }[] } } | null | undefined, key: string | undefined): string | undefined {
+  if (!key) return undefined;
+  const field = type?.schemaJson?.fields?.find((f) => f.key === key);
+  return typeof field?.role === "string" && field.role ? field.role : key;
+}
+
+/** The title a new entry gets: what the person typed, else the file's name without its ending, as words. */
+export function titleFor(typed: string, fileName: string): string {
+  const own = typed.trim();
+  if (own) return own;
+  return fileName.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim();
+}
+
 /** The sound a card plays: the asset attached in the audio field's role, as the picture is found. */
 export function cardAudio(assets: AttachedAsset[] | undefined, audioField: string | undefined): string | null {
   if (!audioField) return null;

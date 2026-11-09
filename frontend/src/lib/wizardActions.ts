@@ -1,7 +1,7 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
 import { acceptKind, isKind } from "./acceptKind";
-import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, galleryAccept, generateAsRun, hasValue, listSpec, missingForNewRow, runInputs, sameValue, suppliedData, withoutLater } from "./wizard";
+import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, fieldRole, galleryAccept, generateAsRun, hasValue, listSpec, missingForNewRow, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
 import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, entryOfType, findEntries, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
@@ -23,12 +23,24 @@ async function choose(def: WizardDefinition, step: Step, form: FormData, ctx: Ct
   const action = text(form, "action"); // which button: pick | create | skip (each form has one, so a ticked radio can't beat Create)
   let value: string | undefined;
   if (action === "create") {
-    const title = text(form, "create_title");
+    const up = step.create?.upload as { field: string; accept?: string } | undefined; // the new one starts from a file
+    const file = form.get("file");
+    const given = up && file instanceof File && file.size > 0 ? file : null;
+    const title = titleFor(text(form, "create_title"), given?.name ?? "");
     const type = await typeBySlug(step.entry_type, authToken);
-    if (!title) throw new StepError("Give the new one a name.", ["create_title"]);
+    if (!title) throw new StepError(up ? "Upload a file, or give the new one a name." : "Give the new one a name.", up ? ["file", "create_title"] : ["create_title"]);
     if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
     const supplied = suppliedData(step, ctx);
-    const data = withAutoSlug(type, { ...supplied, ...postedData(form, type, askedKeys(type, step.create?.fields, Object.keys(supplied))) }, title);
+    const fromFile: Record<string, string> = {};
+    if (up && given) {
+      const kind = acceptKind(up.accept ?? "image/*");
+      const words = UPLOAD_WORDS[kind];
+      if (!isKind(given, kind)) throw new StepError(words.notOne, ["file"]);
+      if (given.size > MAX_UPLOAD_BYTES) throw new StepError(`That ${words.noun} is too big (25 MB at most).`, ["file"]);
+      const ending = /\.[a-z0-9]{1,5}$/i.exec(given.name)?.[0] ?? "";
+      fromFile[up.field] = await uploadAsset(given, `${step.entry_type}-${title}`, authToken, `${title}${ending}`);
+    }
+    const data = withAutoSlug(type, { ...supplied, ...postedData(form, type, askedKeys(type, step.create?.fields, Object.keys(supplied))), ...fromFile }, title);
     value = (await createOf(type, title, data, authToken)).slug;
   } else if (action === "pick") {
     const picked = text(form, "pick");
@@ -48,9 +60,12 @@ async function choose(def: WizardDefinition, step: Step, form: FormData, ctx: Ct
 async function upload(def: WizardDefinition, step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
   const file = form.get("file");
   if (!(file instanceof File) || file.size === 0) throw new StepError("Choose a file to upload.", ["file"]);
-  const { entry } = await entryFor(def, step, ctx, authToken);
-  // An upload replaces what the field holds, and a script is work someone did: it only goes ahead when they said so.
-  if (hasValue(entry.dataJson?.[step.field]) && text(form, "replace") !== "1") {
+  const { entry, type } = await entryFor(def, step, ctx, authToken);
+  // An upload replaces what the field holds, and a script is work someone did: it only goes ahead when they said so. A picture attached
+  // under the field's role counts too (a work whose photo was attached by hand has an empty field).
+  const role = fieldRole(type, step.field);
+  const held = hasValue(entry.dataJson?.[step.field]) || ((entry as { assets?: { role?: string }[] }).assets ?? []).some((a) => a.role === role);
+  if (held && text(form, "replace") !== "1") {
     throw new StepError(`“${step.field}” on ${entry.title} already has content. Tick “Replace it” to upload over it.`, ["replace"]);
   }
   if (step.mode === "text") {

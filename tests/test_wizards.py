@@ -288,3 +288,21 @@ def test_the_wizard_routes_exist_and_need_a_login(client):
     paths = {(tuple(sorted(r.methods - {"HEAD", "OPTIONS"})), r.path) for r in api_routes(app) if "/groups/wizards" in r.path}
     assert (("GET",), "/api/groups/wizards") in paths and (("GET",), "/api/groups/wizards/{slug}") in paths
     assert client.get("/api/groups/wizards").status_code in (401, 403)
+
+
+def test_a_choose_step_may_start_a_new_one_from_a_file_and_field_keys_may_be_camel_case():
+    payload = copy.deepcopy(WIZARD)
+    step = payload["steps"][1]
+    assert step["kind"] == "choose"
+    step["create"] = {"fields": ["sellOnline", "shippingFee"], "upload": {"field": "image", "accept": "image/*"}}
+    step["picture"] = "image"
+    assert payload_problem(payload, "narrate") is None
+
+
+@pytest.mark.parametrize(
+    "upload, words",
+    [({"accept": "image/*"}, "asset field"), ({"field": "9bad"}, "asset field"), ({"field": "image", "accept": "pictures"}, "accept")],
+)
+def test_a_create_upload_needs_the_asset_field_and_a_real_accept(upload, words):
+    problem = _bad(lambda p: p["steps"][1].update(create={"upload": upload}))
+    assert words in (problem or "")
