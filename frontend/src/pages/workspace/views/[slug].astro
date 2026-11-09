@@ -93,7 +93,7 @@ if (spec && authToken) {
         const after = wizard?.definition.steps[(wizard?.definition.steps.indexOf(choose as Step) ?? -1) + 1];
         if (choose && after) params.set("step", after.id);
         const query = params.toString();
-        const href = `/workspace/wizards/${encodeURIComponent(action.wizard)}${query ? `?${query}` : ""}`;
+        const href = `/workspace/setups/${encodeURIComponent(action.wizard)}${query ? `?${query}` : ""}`;
         actions.push({ label: action.label, href });
       } else if (action.workflow) {
         const state = await workflowState(action.workflow, authToken);

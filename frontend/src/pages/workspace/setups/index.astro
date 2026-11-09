@@ -1,0 +1,135 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getWizard, listWizards, type WizardSummary } from "@/lib/api/wizards";
+
+const authToken = getAuthToken(Astro.cookies);
+let wizards: WizardSummary[] = [];
+let error: string | null = null;
+if (!authToken) {
+  error = "Sign in to see the guided setups.";
+} else {
+  try {
+    wizards = await listWizards(authToken);
+  } catch (e) {
+    error = e instanceof Error ? e.message : "Could not load the guided setups.";
+  }
+}
+
+// Each card shows its steps' titles as a short trail: one definition call per wizard, in parallel. A definition that
+// fails to load only loses its trail; the card still shows.
+const TRAIL_MAX = 4;
+const trails = new Map<string, string[]>();
+if (authToken && wizards.length) {
+  const defs = await Promise.allSettled(wizards.map((w) => getWizard(w.slug, authToken)));
+  defs.forEach((d, i) => {
+    const titles = d.status === "fulfilled" ? (d.value?.definition?.steps ?? []).map((s) => s.title).filter(Boolean) : [];
+    if (titles.length) trails.set(wizards[i].slug, titles);
+  });
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+/** One or two letters for the card's mark: the first letters of the first two words that are not small joining words
+ * ("Narrate a story" → "NS", "Open call" → "OC"). */
+const SMALL_WORDS = new Set(["a", "an", "and", "the", "of", "to", "for", "in", "on", "with"]);
+const monogram = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter((word) => word && !SMALL_WORDS.has(word.toLowerCase()))
+    .slice(0, 2)
+    .map((word) => word[0]!.toUpperCase())
+    .join("") || "?";
+---
+
+<AppLayout crumb="workspace.wizards" width="page">
+  <div class="page-header">
+    <h2>Guided setups</h2>
+    <p>Step-by-step flows that a package brings: each walks you through making something, a page at a time, and can be left and picked up again.</p>
+  </div>
+
+  {error && <div class="alert alert-error">{error}</div>}
+
+  {
+    !error && wizards.length === 0 && (
+      <div class="empty-state">
+        <p>
+          No guided setups here yet: <a href="/automation/packages">install a package that brings one</a>.
+        </p>
+      </div>
+    )
+  }
+
+  {
+    wizards.length > 0 && (
+      <ul class="wiz-grid">
+        {wizards.map((w, i) => {
+          const href = `/workspace/setups/${encodeURIComponent(w.slug)}`;
+          const trail = trails.get(w.slug) ?? [];
+          return (
+            <li class:list={["card", "wiz", { alt: i % 2 === 1 }]}>
+              <div class="wiz-head">
+                <span class="wiz-mark" aria-hidden="true">{monogram(w.name)}</span>
+                <h3>
+                  <a class="wiz-link" href={href} title={w.description || undefined}>{w.name}</a>
+                </h3>
+              </div>
+              {w.description && <p class="wiz-desc">{w.description}</p>}
+              <div class="meta">
+                <span class="pill">{plural(w.steps, "step")}</span>
+                {w.packageName && <span class="pill pkg" title={`From the ${w.packageName} package`}>{w.packageName}</span>}
+              </div>
+              {trail.length > 0 && (
+                <ol class="wiz-trail" aria-label="Steps">
+                  {trail.slice(0, TRAIL_MAX).map((t) => <li>{t}</li>)}
+                  {trail.length > TRAIL_MAX && <li class="more">+{trail.length - TRAIL_MAX} more</li>}
+                </ol>
+              )}
+              <div class="wiz-foot">
+                <a class="button wiz-start" href={href} aria-label={`Start ${w.name}`}>
+                  Start <span aria-hidden="true">→</span>
+                </a>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    )
+  }
+</AppLayout>
+
+<style>
+  .empty-state p { margin: 0; }
+  .empty-state a { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+
+  .wiz-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+
+  /* The whole card opens the setup: the title's link stretches over it (::after), and Start sits above that layer. */
+  .wiz { --wiz-hue: var(--accent); position: relative; display: flex; flex-direction: column; gap: 14px; padding: 26px; border-radius: 12px; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+  .wiz.alt { --wiz-hue: var(--accent-2); }
+  .wiz:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: 0 8px 24px rgb(0 0 0 / 0.1); transform: translateY(-2px); }
+  .wiz:has(.wiz-link:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .wiz-head { display: flex; align-items: center; gap: 12px; }
+  .wiz-mark { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; color: var(--wiz-hue); background: color-mix(in srgb, var(--wiz-hue) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--wiz-hue) 30%, var(--line)); }
+  .wiz h3 { font-size: 16px; font-weight: 600; line-height: 1.3; }
+  .wiz-link { color: var(--ink); text-decoration: none; outline: none; }
+  .wiz-link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+  .wiz:hover .wiz-link { color: var(--accent); }
+
+  .wiz .wiz-desc { margin: 0; font-size: 14px; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+  .wiz-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
+  .wiz-trail li { display: inline-flex; align-items: center; gap: 6px; }
+  .wiz-trail li + li::before { content: "›"; color: color-mix(in srgb, var(--muted) 60%, transparent); }
+  .wiz-trail .more { font-style: italic; }
+
+  .wiz-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+  .wiz .meta { margin: 0; }
+  .wiz .pill { font-weight: 600; border: 1px solid var(--line); }
+  .wiz .pill.pkg { color: var(--muted); }
+  .wiz-start { position: relative; z-index: 1; min-height: 34px; padding: 6px 14px; text-decoration: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wiz, .wiz:hover { transition: none; transform: none; }
+  }
+</style>

@@ -242,7 +242,7 @@ export function stepHref(wizardSlug: string, ctx: Ctx, stepId: string | null, ex
   const params = new URLSearchParams();
   if (stepId) params.set(STEP_PARAM, stepId);
   for (const [key, value] of Object.entries({ ...ctx, ...extra })) params.set(key, value);
-  return `/workspace/wizards/${encodeURIComponent(wizardSlug)}?${params.toString()}`;
+  return `/workspace/setups/${encodeURIComponent(wizardSlug)}?${params.toString()}`;
 }
 
 /** The entry type a context key's entries are of: the `choose` step that sets it names it (an `option` choice is no entry). */

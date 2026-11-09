@@ -5,6 +5,7 @@ import { listedTypes } from "@/lib/entryTypeListing";
 import { listCollections } from "@/lib/api/collections";
 import { listEntries } from "@/lib/api/entries";
 import { listEntryTypes } from "@/lib/api/entryTypes";
+import { listWizards } from "@/lib/api/wizards";
 import { getSiteClients } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
@@ -32,6 +33,7 @@ let resources: ResourceRead[] = [];
 // The workspace's counts and the live panels (/workspace used to show these; the two dashboards are one now).
 let stats: any = null;
 let dashboard: any = null;
+let guided: { slug: string; name: string; description: string; steps: number }[] = []; // the guided setups the workspace's packages bring
 let aiUsage: any = null; // this month and today against the workspace's AI limits
 let error: string | null = null;
 
@@ -40,7 +42,7 @@ if (!authToken) {
 } else {
   try {
     let clients: APIClientRead[] | null;
-    [entries, clients, collections, entryTypes, resources, stats, dashboard, aiUsage] = await Promise.all([
+    [entries, clients, collections, entryTypes, resources, stats, dashboard, aiUsage, guided] = await Promise.all([
       listEntries(authToken),
       nullIfForbidden(getSiteClients(authToken)),
       listCollections(authToken),
@@ -49,6 +51,7 @@ if (!authToken) {
       fetchApi<any>("/api/platform/stats", { method: "GET" }, authToken).catch(() => null),
       fetchApi<any>("/api/platform/stats/dashboard", { method: "GET" }, authToken).catch(() => null),
       fetchApi<any>("/api/groups/ai-settings/usage", { method: "GET" }, authToken).catch(() => null),
+      listWizards(authToken).catch(() => []),
     ]);
     siteClients = clients ?? [];
     canSeeClients = clients !== null;
@@ -201,6 +204,25 @@ function getStatusClass(status: string): string {
                     <span class="quick-create-label">New Collection</span>
                   </a>
                 )}
+              </div>
+            </section>
+          )}
+          {(access.canAuthor || access.canEdit) && guided.length > 0 && (
+            <section class="panel">
+              <div class="panel-head">
+                <h3>Guided setups</h3>
+                <a href="/workspace/setups" class="panel-link">All →</a>
+              </div>
+              <div class="guided-list">
+                {guided.slice(0, 4).map((w) => (
+                  <a href={`/workspace/setups/${encodeURIComponent(w.slug)}`} class="guided-item">
+                    <span class="quick-create-icon" aria-hidden="true">🧭</span>
+                    <span class="guided-text">
+                      <strong>{w.name}</strong>
+                      {w.description && <span class="muted">{w.description.length > 110 ? `${w.description.slice(0, 107)}…` : w.description}</span>}
+                    </span>
+                  </a>
+                ))}
               </div>
             </section>
           )}
@@ -467,6 +489,11 @@ function getStatusClass(status: string): string {
     color: var(--muted);
   }
 
+  .guided-list { display: grid; gap: 8px; }
+  .guided-item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); text-decoration: none; color: inherit; }
+  .guided-item:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+  .guided-text { display: grid; gap: 2px; min-width: 0; font-size: 14px; }
+  .guided-text .muted { color: var(--muted); }
   /* Quick Create */
   .quick-create-grid {
     display: grid;
