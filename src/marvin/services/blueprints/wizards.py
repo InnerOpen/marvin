@@ -117,7 +117,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             known.add(step["as"])
         if kind == "choose":
             entries.add(step["as"])
-    return _check_open(payload.get("open"), entries, slug)
+    return _check_open(payload.get("open"), entries, slug) or _check_button(payload.get("button"), entries, seen, slug)
 
 
 def _check_open(spec: Any, entries: set[str], slug: str) -> str | None:
@@ -131,6 +131,28 @@ def _check_open(spec: Any, entries: set[str], slug: str) -> str | None:
         return f"wizard {slug!r}: open names {spec.get('entry')!r}, which no choose step sets"
     if spec.get("view") is not None and not (isinstance(spec["view"], str) and _SLUG.match(spec["view"])):
         return f"wizard {slug!r}: open.view must be the slug of a view"
+    return None
+
+
+def _check_button(spec: Any, entries: set[str], steps: set[str], slug: str) -> str | None:
+    """``button``: a button on the page of an entry of ``entry_type`` that opens this setup on it, ``{entry_type, label, key, step?, also?}``.
+    ``key`` is the choose step's context key the entry fills (so that step is already answered), ``step`` the step to open on, and ``also``
+    carries more context from the entry's own fields ({context key: field key}), for the choices before ``key`` (a line's story)."""
+    if spec is None:
+        return None
+    shape = f"wizard {slug!r}: button is {{entry_type, label, key, step?, also?}}, a button on an entry's page that opens this setup on it"
+    if not isinstance(spec, dict) or not isinstance(spec.get("label"), str) or not spec["label"].strip():
+        return shape
+    if not (isinstance(spec.get("entry_type"), str) and _SLUG.match(spec["entry_type"])):
+        return f"wizard {slug!r}: button.entry_type must be an entry type's slug"
+    if spec.get("key") not in entries:
+        return f"wizard {slug!r}: button.key {spec.get('key')!r} is not a key a choose step sets"
+    if spec.get("step") is not None and spec["step"] not in steps:
+        return f"wizard {slug!r}: button.step {spec.get('step')!r} is not a step of this wizard"
+    also = spec.get("also")
+    if also is not None:
+        if not isinstance(also, dict) or len(also) > 4 or not all(k in entries and k != spec["key"] and _is_field(v) for k, v in also.items()):
+            return f"wizard {slug!r}: button.also maps choose-step keys to field keys of the entry, e.g. {{\"story\": \"story\"}}"
     return None
 
 

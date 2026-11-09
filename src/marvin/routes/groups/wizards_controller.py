@@ -20,9 +20,9 @@ class WizardsController(BaseUserController):
     """The guided setups the active workspace's packages bring."""
 
     @router.get("", response_model=list[WizardSummary])
-    def list_wizards(self):
-        """Every wizard installed here, by name."""
-        return service.list_wizards(self.session, self.group_id)
+    def list_wizards(self, entry_type: str | None = None):
+        """Every wizard installed here, by name. `entry_type` keeps only those that put a button on that type's entries."""
+        return service.list_wizards(self.session, self.group_id, entry_type)
 
     @router.get("/{slug}", response_model=WizardRead)
     def get_wizard(self, slug: str):
