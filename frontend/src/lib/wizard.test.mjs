@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, blocker, cardAudio, cardPicture, galleryAccept, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
+  approvalsOf, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -174,4 +174,21 @@ test("a card's picture (and sound) is the asset in that field's role, and genera
   assert.equal(run.workflow, "make-actor");
   assert.deepEqual(extra, { brief: "a tall sailor" });
   assert.deepEqual(listSpec({ id: "g", kind: "gallery", title: "G", entry_type: "actor" }, {}), { entry_type: "actor" });
+});
+
+test("a field's file is attached under its role when its type names one, else under its key", () => {
+  const type = { schemaJson: { fields: [{ key: "image", type: "asset", role: "featured" }, { key: "general_view", type: "asset" }] } };
+  assert.equal(fieldRole(type, "image"), "featured");
+  assert.equal(fieldRole(type, "general_view"), "general_view");
+  assert.equal(fieldRole(type, "missing"), "missing");
+  assert.equal(fieldRole(null, "image"), "image");
+  assert.equal(fieldRole(type, undefined), undefined);
+  const assets = [{ role: "featured", publicUrl: "https://x/art.jpg", mimeType: "image/jpeg" }];
+  assert.equal(cardPicture(assets, fieldRole(type, "image")), "https://x/art.jpg");
+});
+
+test("a new entry is named for what was typed, else for the file", () => {
+  assert.equal(titleFor("  Weightless Hour ", "IMG_1.jpg"), "Weightless Hour");
+  assert.equal(titleFor("", "weightless-hour_2.JPG"), "weightless hour 2");
+  assert.equal(titleFor("", ""), "");
 });

@@ -1,6 +1,7 @@
 ---
 import AudioRecorder from "@/components/AudioRecorder.astro";
 import FileDrop from "@/components/FileDrop.astro";
+import WizardCreate from "@/components/WizardCreate.astro";
 import PlayButton from "@/components/PlayButton.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -12,7 +13,7 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  StepError, cardAudio, cardPicture, galleryAccept, generateAsRun, isDone, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, generateAsRun, isDone, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -96,6 +97,11 @@ let decidedCards: ApprovalCard[] = [];
 let watchIds: string[] = [];
 let lacking: string | null = null; // a run step's `requires` not met
 let cards: Row[] = [];
+const LONG_LIST = 8; // a pick list longer than this puts "make a new one" above it, so it is not lost at the bottom
+let pictureRole: string | undefined; // the role the picture field's file is attached under (a field's `role` may differ from its key)
+let currentPicture: string | null = null; // an upload step's picture as it is now
+let createFirst = false; // the choose step's make-a-new-one form comes before the list
+let uploadHeld = false; // the upload step's field already holds something (a value, or a file attached under its role)
 let addFields: any[] = [];
 let genStep: Step | null = null; // a gallery's generate action, as the run step it is
 // A shown text field that holds another entry's slug (`ref`) is a pick list. In a wizard the list is narrowed by the entries chosen so
@@ -111,6 +117,8 @@ if (authToken && def && step) {
     typeName = type?.name ?? step.entry_type;
     if (step.kind === "choose") {
       choices = (await findEntries(chooseSpec(step, ctx), authToken)).entries;
+      pictureRole = fieldRole(type, step.picture);
+      createFirst = !!step.create && (!!step.create.upload || choices.length > LONG_LIST);
       formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields, Object.keys(suppliedData(step, ctx)))));
       refs = await refsFor(formFields);
     } else {
@@ -120,6 +128,12 @@ if (authToken && def && step) {
     }
   } else if (step.kind === "form" || step.kind === "upload") {
     entry = entries[step.entry] ?? null;
+    if (step.kind === "upload" && entry) {
+      const role = fieldRole(await typeBySlug(entryTypeOf(def, step.entry), authToken), step.field);
+      const attached = (entry.assets ?? []) as { role?: string }[];
+      currentPicture = step.mode === "asset" ? cardPicture(entry.assets, role) : null;
+      uploadHeld = hasValue(entry.dataJson?.[step.field]) || attached.some((a) => a.role === role);
+    }
     if (step.kind === "form") {
       const type = await typeBySlug(entryTypeOf(def, step.entry), authToken);
       const all = fieldsOf(type, step.fields);
@@ -132,6 +146,7 @@ if (authToken && def && step) {
     missingType = !type;
     typeName = type?.name ?? step.entry_type;
     cards = (await findEntries(listSpec(step, ctx), authToken)).entries;
+    pictureRole = fieldRole(type, step.picture);
     addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
     refs = await refsFor(addFields);
     if (step.generate) {
@@ -234,16 +249,18 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
           {step.kind === "choose" && (
             <div class="form">
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet, so there is nothing to pick. Install the package’s types first.</div>}
+              {step.create && !missingType && createFirst && <WizardCreate step={step} typeName={typeName} hasChoices={choices.length > 0} first={true} formFields={formFields} refs={refs} badFields={badFields} />}
               {choices.length > 0 && (
                 <form method="post" class="form">
                   <input type="hidden" name="action" value="pick" />
-                  <p class="label">Pick one you have</p>
+                  <p class="label">{createFirst ? `Or pick one you have (${choices.length})` : "Pick one you have"}</p>
+                  {choices.length > LONG_LIST && <input type="search" class="input pick-search" placeholder={`Search ${typeName.toLowerCase()}s by name…`} data-pick-search aria-label="Search by name" autocomplete="off" />}
                   {step.picture ? (
                     <div class="tiles" role="radiogroup">
                       {choices.map((c) => {
-                        const pic = cardPicture(c.assets, step.picture);
+                        const pic = cardPicture(c.assets, pictureRole);
                         return (
-                          <label class="tile">
+                          <label class="tile" data-pick-item>
                             <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} />
                             <span class="tpic">{pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(c.title || "?").slice(0, 1)}</span>}</span>
                             <strong>{c.title}</strong>
@@ -255,7 +272,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                   ) : (
                     <div class="choices">
                       {choices.map((c) => (
-                        <label class="choice">
+                        <label class="choice" data-pick-item>
                           <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} /> {c.title}
                         </label>
                       ))}
@@ -264,20 +281,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                   <div class="actions"><button class="button" type="submit">Use this {typeName.toLowerCase()}</button></div>
                 </form>
               )}
-              {step.create && !missingType && (
-                <form method="post" class="form">
-                  <input type="hidden" name="action" value="create" />
-                  <fieldset class="create">
-                    <legend>{choices.length > 0 ? "Or make a new one" : `Make a new ${typeName.toLowerCase()}`}</legend>
-                    <div class="form-group">
-                      <label for="create_title">Name <span class="req" title="Required">*</span></label>
-                      <input class:list={["input", bad("create_title")]} id="create_title" name="create_title" required />
-                    </div>
-                    <SchemaForm schema={{ fields: formFields }} refs={refs} />
-                    <div class="actions"><button class="button secondary" type="submit">Create and continue</button></div>
-                  </fieldset>
-                </form>
-              )}
+              {step.create && !missingType && !createFirst && <WizardCreate step={step} typeName={typeName} hasChoices={choices.length > 0} first={false} formFields={formFields} refs={refs} badFields={badFields} />}
               {step.optional && (
                 <form method="post" class="actions">
                   <input type="hidden" name="action" value="skip" />
@@ -303,9 +307,15 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                 <p class="muted">
                   {step.mode === "text" ? `Its text goes into “${step.field}” on ${entry.title}.` : `The file is kept as an asset in “${step.field}” on ${entry.title}.`}
                 </p>
-                {hasValue(entry.dataJson?.[step.field]) && (
+                {currentPicture && (
+                  <figure class="current">
+                    <img src={currentPicture} alt={`${entry.title} as it is now`} />
+                    <figcaption>Now: {entry.title}</figcaption>
+                  </figure>
+                )}
+                {uploadHeld && (
                   <div class="alert alert-info replace">
-                    <strong>{entry.title} already has {step.mode === "text" ? `a ${step.field} (${String(entry.dataJson?.[step.field]).length.toLocaleString()} characters)` : `something in ${step.field}`}.</strong>
+                    <strong>{entry.title} already has {step.mode === "text" ? `a ${step.field} (${String(entry.dataJson?.[step.field]).length.toLocaleString()} characters)` : currentPicture ? "this picture" : `something in ${step.field}`}.</strong>
                     Uploading replaces it, and this page cannot bring it back.
                     <label class="choice"><input type="checkbox" name="replace" value="1" required /> Replace it</label>
                   </div>
@@ -398,7 +408,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
               {!missingType && (
                 <div class="cards">
                   {cards.map((r) => {
-                    const pic = cardPicture(r.assets, step.picture);
+                    const pic = cardPicture(r.assets, pictureRole);
                     const sound = cardAudio(r.assets, step.audio);
                     const badges = ((step.badges ?? []) as string[]).filter((b) => r.dataJson?.[b]);
                     return (
@@ -575,6 +585,26 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
 
 <script>
   import { fetchApi } from "@/lib/api/client";
+  // A pick list longer than a few: type to narrow it by name (and by the line under it), as you type.
+  const search = document.querySelector<HTMLInputElement>("[data-pick-search]");
+  if (search) {
+    const items = Array.from(document.querySelectorAll<HTMLElement>("[data-pick-item]"));
+    const none = document.createElement("p");
+    none.className = "muted";
+    none.textContent = "Nothing matches. Clear the search, or add a new one above.";
+    none.hidden = true;
+    items[0]?.parentElement?.after(none);
+    search.addEventListener("input", () => {
+      const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+      let shown = 0;
+      for (const el of items) {
+        const hit = words.every((w) => (el.textContent ?? "").toLowerCase().includes(w));
+        el.hidden = !hit;
+        if (hit) shown += 1;
+      }
+      none.hidden = shown > 0;
+    });
+  }
   // A run step with something going on (just started, or a card waiting): reload when the set of cards for it changes, for ten minutes at most.
   const run = document.querySelector<HTMLElement>(".run[data-watch], .gallery[data-watch]");
   if (run) {
@@ -619,6 +649,11 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .label { margin: 0; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
   .choices { display: grid; gap: 8px; }
   /* A pick with pictures: the art leads. The radio is hidden; the tile shows the choice with a tint and a check. */
+  .pick-search { max-width: 28rem; }
+  .tile[hidden], .choice[hidden] { display: none; }
+  .current { margin: 0 0 12px; display: grid; gap: 6px; justify-items: start; }
+  .current img { max-width: min(100%, 22rem); max-height: 20rem; border-radius: var(--radius); border: 1px solid var(--line); object-fit: contain; background: var(--bg); }
+  .current figcaption { color: var(--muted); font-size: 14px; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
   .tile { position: relative; display: grid; justify-items: center; align-content: start; gap: 8px; padding: 14px 10px 12px; text-align: center; cursor: pointer; border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px); background: var(--bg); font-size: 15px; transition: border-color 0.15s, background-color 0.15s; }
   .tile:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }

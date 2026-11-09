@@ -1,0 +1,42 @@
+---
+/**
+ * A choose step's "make a new one" form. With `create.upload` it starts from a file: the picture (or sound) is the way in, the name is
+ * optional (the file's own name is used when it is left empty), and the entry is made from both. Without, it is the name and the
+ * asked fields.
+ */
+import FileDrop from "@/components/FileDrop.astro";
+import SchemaForm from "@/components/SchemaForm.astro";
+import type { RefOption } from "@/lib/refFields";
+import type { Step } from "@/lib/wizard";
+
+interface Props {
+  step: Step;
+  typeName: string;
+  /** The step also has existing ones to pick: the legend then says "Or make a new one" (or "Add a new …" when it comes first). */
+  hasChoices: boolean;
+  /** It sits above the list (a long one, or it starts from a file). */
+  first: boolean;
+  formFields: any[];
+  refs: Record<string, RefOption[]>;
+  badFields: string[];
+}
+const { step, typeName, hasChoices, first, formFields, refs, badFields } = Astro.props;
+const upload = step.create?.upload as { field: string; accept?: string } | undefined;
+const accept = upload?.accept?.trim() || "image/*";
+const noun = accept.startsWith("audio") ? "sound" : accept.startsWith("image") ? "picture" : "file";
+const bad = (name: string) => (badFields.includes(name) ? "invalid" : undefined);
+---
+
+<form method="post" class="form" enctype={upload ? "multipart/form-data" : undefined}>
+  <input type="hidden" name="action" value="create" />
+  <fieldset class="create">
+    <legend>{upload || first ? `Add a new ${typeName.toLowerCase()}` : hasChoices ? "Or make a new one" : `Make a new ${typeName.toLowerCase()}`}</legend>
+    {upload && <FileDrop accept={accept} required={false} hint={`One ${noun}. It starts the new ${typeName.toLowerCase()}.`} nameFrom="create_title" />}
+    <div class="form-group">
+      <label for="create_title">Name {!upload && <span class="req" title="Required">*</span>}</label>
+      <input class:list={["input", bad("create_title")]} id="create_title" name="create_title" required={!upload} placeholder={upload ? `Left empty, the ${noun}'s file name is used` : undefined} />
+    </div>
+    <SchemaForm schema={{ fields: formFields }} refs={refs} />
+    <div class="actions"><button class="button secondary" type="submit">Create and continue</button></div>
+  </fieldset>
+</form>
