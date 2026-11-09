@@ -12,7 +12,9 @@ import { listCollections } from "@/lib/api/collections";
 import { type CollectionRead, type EntryRead, getEntry, updateEntry } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { getAssets } from "@/lib/api/platform";
-import { listViews, type ViewSummary, viewHref } from "@/lib/api/views";
+import { listViews, listViewsOfSpine, type ViewSummary, viewHref } from "@/lib/api/views";
+import { type CueSpec, cueSpecsFor } from "@/lib/cueFields";
+import type { CueOption } from "@/components/schema-fields/CueListField.astro";
 import { listResources } from "@/lib/api/resources";
 import { createTag, listTags, type TagRead } from "@/lib/api/tags";
 import { keysHint } from "@/lib/disclosure";
@@ -351,6 +353,32 @@ const entryType = entry ? entryTypes.find((t) => t.id === entry.entryTypeId) : n
 // A package may bring a view of this type (a story's timeline): a button next to the site link opens the entry in it.
 let views: ViewSummary[] = [];
 if (entry && entryType && authToken) views = await listViews(authToken, entryType.slug).catch(() => []);
+// A JSON field that places other entries in time (a beat's sound effects) is edited as a list of cues when a package's timeline view
+// declares its shape for this type; the options are the entries of the referenced type, with a take to hear when they have one.
+const cues: Record<string, { spec: CueSpec; options: CueOption[] }> = {};
+if (entry && entryType && authToken) {
+  try {
+    const defs = await listViewsOfSpine(authToken, entryType.slug);
+    for (const spec of cueSpecsFor(defs, entryType.slug)) {
+      const found = await fetchApi<{ entries?: { slug: string; title: string; dataJson?: Record<string, unknown>; assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null }[] }[] }>(
+        "/api/platform/entries/query",
+        { method: "POST", body: JSON.stringify({ spec: { entry_type: spec.entryType }, limit: 500 }) },
+        authToken,
+      ).catch(() => ({ entries: [] }));
+      const options: CueOption[] = (found.entries ?? [])
+        .map((r) => ({
+          slug: r.slug,
+          name: r.title,
+          audioUrl: spec.audio ? (r.assets ?? []).find((a) => a.role === spec.audio && (a.mimeType ?? "").startsWith("audio/") && a.publicUrl)?.publicUrl ?? null : null,
+          seconds: spec.seconds && typeof r.dataJson?.[spec.seconds] === "number" ? (r.dataJson![spec.seconds] as number) : null,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      cues[spec.field] = { spec, options };
+    }
+  } catch {
+    /* the JSON box stays */
+  }
+}
 // "Use as <field>": the type's single-asset field can be pointed at any asset attached here (a speech line keeps every recording attached).
 const assetField = assetFieldOf(entryType?.schemaJson as any);
 const currentFieldAsset = assetField ? (entry?.dataJson as any)?.[assetField.key] : null;
@@ -528,6 +556,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                   values={entry.dataJson || {}}
                   assets={allAssets.map(assetItem)}
                   resources={allResources.map(resourceItem)}
+                  cues={cues}
                 />
               </div>
             ) : (

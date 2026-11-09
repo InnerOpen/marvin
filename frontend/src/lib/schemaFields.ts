@@ -25,6 +25,15 @@ export function coerceDataJsonValue(fieldType: string | undefined, value: string
     const parsed = Number(value);
     return Number.isNaN(parsed) ? null : parsed;
   }
+  // A json field posts its JSON as text; saved as text, readers expecting the list (a timeline's placed cues) see nothing. Text that
+  // does not parse is kept as it was typed rather than wiped.
+  if (fieldType === "json") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
   // Back-compat: a checkbox with no declared type still posts 'true'/'false'.
   if (value === "true" || value === "false") return value === "true";
   return value;

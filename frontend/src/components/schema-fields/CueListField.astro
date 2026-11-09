@@ -1,0 +1,147 @@
+---
+/**
+ * CueListField: a JSON field that places other entries in time (a beat's sound effects: which sound, how many seconds in), edited as a
+ * list of cues instead of raw JSON. The shape comes from the package's timeline view (lib/cueFields.ts); the options are the entries of
+ * the referenced type. The field's real input is the hidden textarea the page already posts; the rows write JSON into it.
+ */
+import PlayButton from "@/components/PlayButton.astro";
+import { type Cue, type CueSpec, parseCues, serializeCues } from "@/lib/cueFields";
+
+export interface CueOption {
+  slug: string;
+  name: string;
+  audioUrl?: string | null;
+  seconds?: number | null;
+}
+
+export interface Props {
+  field: { key: string; label: string; required?: boolean; helpText?: string };
+  value?: unknown;
+  spec: CueSpec;
+  options: CueOption[];
+  error?: string;
+}
+
+const { field, value, spec, options, error } = Astro.props;
+const cues: Cue[] = parseCues(value, spec);
+const known = new Map(options.map((o) => [o.slug, o] as const));
+const inputId = `field-${field.key}`;
+const noun = spec.title.toLowerCase().replace(/s$/, "");
+---
+
+<div class="field-group cue-field" data-cue-field data-ref={spec.ref} data-at={spec.at}>
+  <label for={inputId}>
+    {field.label}
+    {field.required && <span class="required">*</span>}
+  </label>
+  <textarea id={inputId} name={`dataJson.${field.key}`} class="json-field" hidden data-cue-json>{serializeCues(cues, spec)}</textarea>
+
+  <ol class="cue-rows" data-cue-rows>
+    {cues.map((cue) => (
+      <li class="cue-row" data-cue-row data-extra={JSON.stringify(cue.rest)}>
+        <select class="cue-ref" data-cue-ref aria-label={noun}>
+          <option value="">Pick a {noun}…</option>
+          {!known.has(cue.ref) && cue.ref && <option value={cue.ref} selected>{cue.ref} (not in the library)</option>}
+          {options.map((o) => <option value={o.slug} selected={o.slug === cue.ref}>{o.name}{o.seconds ? ` · ${o.seconds.toFixed(1)} s` : ""}{o.audioUrl ? "" : " · no take"}</option>)}
+        </select>
+        <label class="cue-at-label">at <input type="number" class="cue-at" data-cue-at min="0" step="any" value={cue.at} aria-label="seconds into this entry" /> s</label>
+        <span class="cue-play" data-cue-play>{known.get(cue.ref)?.audioUrl && <PlayButton src={known.get(cue.ref)!.audioUrl!} label={`Play ${known.get(cue.ref)!.name}`} />}</span>
+        <button type="button" class="cue-remove" data-cue-remove aria-label="Remove this cue">×</button>
+      </li>
+    ))}
+  </ol>
+  <template data-cue-template>
+    <li class="cue-row" data-cue-row data-extra="{}">
+      <select class="cue-ref" data-cue-ref aria-label={noun}>
+        <option value="">Pick a {noun}…</option>
+        {options.map((o) => <option value={o.slug}>{o.name}{o.seconds ? ` · ${o.seconds.toFixed(1)} s` : ""}{o.audioUrl ? "" : " · no take"}</option>)}
+      </select>
+      <label class="cue-at-label">at <input type="number" class="cue-at" data-cue-at min="0" step="any" value="0" aria-label="seconds into this entry" /> s</label>
+      <span class="cue-play" data-cue-play></span>
+      <button type="button" class="cue-remove" data-cue-remove aria-label="Remove this cue">×</button>
+    </li>
+  </template>
+  <script type="application/json" data-cue-audio set:html={JSON.stringify(Object.fromEntries(options.filter((o) => o.audioUrl).map((o) => [o.slug, o.audioUrl]))).replace(/</g, "\\u003c")} />
+  <div class="cue-actions">
+    <button type="button" class="button secondary" data-cue-add>Add a {noun}</button>
+    {options.length === 0 && <span class="field-help">No {spec.title.toLowerCase()} in the library yet.</span>}
+  </div>
+  <p class="field-help">{field.helpText || `Which ${noun} plays, and how many seconds into this entry it starts. The timeline shows them in their lane.`}</p>
+  {error && <p class="field-error">{error}</p>}
+</div>
+
+<script>
+  // Rows → the hidden JSON the form posts. The textarea gets change/input events so the page's unsaved-changes tracking still works.
+  document.querySelectorAll<HTMLElement>("[data-cue-field]").forEach((root) => {
+    const json = root.querySelector<HTMLTextAreaElement>("[data-cue-json]")!;
+    const rows = root.querySelector<HTMLOListElement>("[data-cue-rows]")!;
+    const template = root.querySelector<HTMLTemplateElement>("[data-cue-template]")!;
+    const audio: Record<string, string> = JSON.parse(root.querySelector("[data-cue-audio]")?.textContent || "{}");
+    const refKey = root.dataset.ref || "ref";
+    const atKey = root.dataset.at || "at";
+    const write = () => {
+      const cues = [...rows.querySelectorAll<HTMLElement>("[data-cue-row]")]
+        .map((row) => {
+          const ref = row.querySelector<HTMLSelectElement>("[data-cue-ref]")!.value;
+          const at = Math.max(0, Number(row.querySelector<HTMLInputElement>("[data-cue-at]")!.value) || 0);
+          let extra: Record<string, unknown> = {};
+          try {
+            extra = JSON.parse(row.dataset.extra || "{}");
+          } catch {
+            /* a row made here */
+          }
+          return { ...extra, [refKey]: ref, [atKey]: Number(at.toFixed(3)) };
+        })
+        .filter((c) => c[refKey])
+        .sort((a, b) => (a[atKey] as number) - (b[atKey] as number));
+      json.value = JSON.stringify(cues, null, 2);
+      json.dispatchEvent(new Event("input", { bubbles: true }));
+      json.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    const refreshPlay = (row: HTMLElement) => {
+      const slug = row.querySelector<HTMLSelectElement>("[data-cue-ref]")!.value;
+      const holder = row.querySelector<HTMLElement>("[data-cue-play]")!;
+      holder.textContent = "";
+      if (audio[slug]) {
+        const a = document.createElement("audio");
+        a.controls = true;
+        a.preload = "none";
+        a.src = audio[slug];
+        a.className = "cue-audio";
+        holder.append(a);
+      }
+    };
+    root.addEventListener("input", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.matches("[data-cue-ref], [data-cue-at]")) write();
+    });
+    root.addEventListener("change", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.matches("[data-cue-ref]")) refreshPlay(target.closest<HTMLElement>("[data-cue-row]")!);
+    });
+    root.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest("[data-cue-remove]")) {
+        target.closest("[data-cue-row]")?.remove();
+        write();
+      } else if (target.closest("[data-cue-add]")) {
+        rows.append(template.content.cloneNode(true));
+        const row = rows.lastElementChild as HTMLElement;
+        row.querySelector<HTMLSelectElement>("[data-cue-ref]")?.focus();
+      }
+    });
+  });
+</script>
+
+<style is:global>
+  .cue-field .cue-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .cue-field .cue-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .cue-field .cue-ref { flex: 1 1 220px; min-width: 0; font: inherit; padding: 0.4rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  .cue-field .cue-at-label { display: inline-flex; align-items: center; gap: 4px; font-size: 0.875rem; color: var(--muted); }
+  .cue-field .cue-at { width: 5.5em; font: inherit; padding: 0.4rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  .cue-field .cue-play { display: inline-flex; align-items: center; }
+  .cue-field .cue-audio { height: 28px; max-width: 220px; }
+  .cue-field .cue-remove { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); cursor: pointer; }
+  .cue-field .cue-remove:hover { color: var(--color-error); border-color: var(--color-error); }
+  .cue-field .cue-actions { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+</style>
