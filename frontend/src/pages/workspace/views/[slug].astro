@@ -200,6 +200,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
               <a href={stackHref(true)} aria-current={stacked ? "true" : undefined}>By {spec.spine.group!.entry_type.replace(/-/g, " ")}</a>
             </span>
           )}
+        </div>
+        <div class="tl-links">
           {actions.map((a) => <a class="button secondary" href={a.href}>{a.label}</a>)}
           <a class="button secondary" href={open(entry.id)}>Open the {spec.entry_type.replace(/-/g, " ")}</a>
         </div>
@@ -549,12 +551,15 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .pick a { display: block; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); text-decoration: none; color: var(--ink); }
 
-  .tl { display: grid; gap: 16px; }
+  /* min-width: 0 on the grid and its boxes: the strip's pixel floor scrolls inside its box instead of widening the whole page (on a phone
+     that pushed the header, Play included, off to the right). */
+  .tl { display: grid; gap: 16px; min-width: 0; max-width: 100%; }
+  .tl-track { min-width: 0; }
   .tl-head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; }
   .tl-title h2 { margin: 0 0 4px; }
   .tl-facts { margin: 0; font-size: 14px; }
   .tl-total { font-variant-numeric: tabular-nums; font-size: 16px; }
-  .tl-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .tl-actions, .tl-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .tl-zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
   .tl-zoom button { margin: 0; padding: 7px 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
   .tl-zoom button:first-child { border-left: 0; }
@@ -568,7 +573,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-hint { margin: 0; font-size: 13px; }
 
   /* One scroll container holds the strip, the ruler and the lanes, so they move together; everything inside is placed in seconds × scale. */
-  .tl-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 16px 16px; position: relative; }
+  .tl-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 16px 16px; position: relative; min-width: 0; max-width: 100%; -webkit-overflow-scrolling: touch; }
   .tl-inner { position: relative; min-width: 100%; }
   .tl-groups { position: relative; height: 24px; margin-bottom: 4px; }
   .tl-group { position: absolute; top: 0; height: 22px; border-bottom: 2px solid var(--accent); padding: 0 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
@@ -627,7 +632,14 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
 
   @media (max-width: 640px) {
     .tl-head { align-items: stretch; }
-    .tl-actions .button { flex: 1 1 auto; text-align: center; }
+    /* Play, zoom and layout stay within reach: a bar fixed to the bottom of the phone's screen; the other buttons wrap above the strip. */
+    /* Inset from the sides so the app's floating buttons (chat, theme) in the bottom corners stay clear of it. */
+    .tl-actions { position: fixed; left: 72px; right: 72px; bottom: 0; z-index: 20; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; gap: 6px; box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08); }
+    .tl-actions .tl-play { flex: 1 1 100%; justify-content: center; }
+    .tl-actions .tl-zoom { flex: 1 1 100%; justify-content: center; }
+    .tl-actions .tl-zoom a, .tl-actions .tl-zoom button { flex: 1 1 auto; text-align: center; padding: 6px 4px; font-size: 12px; }
+    .tl-links .button { flex: 1 1 45%; text-align: center; font-size: 13px; padding: 6px 8px; }
+    .tl { padding-bottom: 150px; }
     .tl-strip { height: 104px; }
     .tl-item { height: 96px; }
   }
