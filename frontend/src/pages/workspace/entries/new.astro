@@ -10,6 +10,7 @@ import { getContentAccess } from "@/lib/api/workspaces";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
 import { assetItem, resourceItem } from "@/lib/linkedItems";
+import { refOptionsFor } from "@/lib/refFieldsApi";
 import { getAssets } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
 import { AUTHORS_ONLY } from "@/lib/workspaceRole";
@@ -113,6 +114,8 @@ const preSelectedSchema =
   preSelectedType?.schemaJson && (preSelectedType.schemaJson as any).fields?.length > 0
     ? preSelectedType.schemaJson
     : null;
+// A text field that holds another entry's slug (`ref`) is a pick list of that type's entries.
+const refs = await refOptionsFor(preSelectedSchema as any, authToken);
 // With a type chosen, the asset the entry starts from goes into its first image field (saving attaches it in that
 // field's role); a type without one gets it as a plain attachment, with the role typed below.
 const assetField = fromAsset ? ((preSelectedSchema as any)?.fields?.find((f: any) => f.type === "asset" || f.type === "asset-list") ?? null) : null;
@@ -219,7 +222,7 @@ const prefill: Record<string, unknown> = fromAsset && assetField ? { [assetField
 
           {/* Schema-driven content fields - dynamically populated */}
           <div id="schema-fields-container">
-            {preSelectedSchema && <SchemaForm schema={preSelectedSchema} values={submitted?.data_json ?? prefill} assets={pickerAssets} resources={pickerResources} />}
+            {preSelectedSchema && <SchemaForm schema={preSelectedSchema} values={submitted?.data_json ?? prefill} assets={pickerAssets} resources={pickerResources} refs={refs} />}
           </div>
 
           <div class="form-group">

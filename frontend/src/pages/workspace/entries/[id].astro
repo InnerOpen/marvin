@@ -27,6 +27,7 @@ import { restoresTo } from "@/lib/trash";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
 import { assetItem, resourceItem } from "@/lib/linkedItems";
+import { refOptionsFor } from "@/lib/refFieldsApi";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 import { askPageAllowed, bubbleAllowed } from "@/lib/marvin/gate";
@@ -379,6 +380,8 @@ if (entry && entryType && authToken) {
     /* the JSON box stays */
   }
 }
+// A text field that holds another entry's slug (`ref`) is a pick list of that type's entries, the whole workspace's.
+const refs = entry && entryType ? await refOptionsFor(entryType.schemaJson as any, authToken) : {};
 // "Use as <field>": the type's single-asset field can be pointed at any asset attached here (a speech line keeps every recording attached).
 const assetField = assetFieldOf(entryType?.schemaJson as any);
 const currentFieldAsset = assetField ? (entry?.dataJson as any)?.[assetField.key] : null;
@@ -557,6 +560,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                   assets={allAssets.map(assetItem)}
                   resources={allResources.map(resourceItem)}
                   cues={cues}
+                  refs={refs}
                 />
               </div>
             ) : (
