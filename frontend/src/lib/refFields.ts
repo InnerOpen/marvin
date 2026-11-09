@@ -7,12 +7,25 @@
 export interface RefOption {
   slug: string;
   title: string;
+  /** A heading the option is listed under, when the list is split (the voices cast in this story, then the rest). */
+  group?: string;
+}
+
+/**
+ * `ref_via` on a ref field: prefer the entries that other entries name. "The `voice` of the `cast-member`s whose `story` is this entry's
+ * `story`" is `{entry_type: "cast-member", field: "voice", match: {story: "story"}}` (match: the other type's field → this entry's field).
+ */
+export interface RefVia {
+  entry_type: string;
+  field: string;
+  match: Record<string, string>;
 }
 
 interface FieldLike {
   key?: string;
   type?: string;
   ref?: unknown;
+  ref_via?: unknown;
 }
 
 type SchemaLike = { fields?: FieldLike[] | null } | null | undefined;
@@ -24,12 +37,31 @@ export function refOf(field: FieldLike): string | null {
   return field.type === "text" && typeof field.ref === "string" && field.ref.trim() ? field.ref.trim() : null;
 }
 
-/** The fields of a schema that refer to another type, each with that type's slug. */
-export function refFieldsOf(schema: SchemaLike): { key: string; ref: string }[] {
+/** A field's `ref_via`, when it is well formed (an entry type, a field, and at least one match). */
+export function refViaOf(field: FieldLike): RefVia | null {
+  const v = field.ref_via as Partial<RefVia> | null | undefined;
+  if (!v || typeof v.entry_type !== "string" || typeof v.field !== "string" || !v.match || typeof v.match !== "object") return null;
+  const match = Object.fromEntries(Object.entries(v.match).filter(([k, x]) => k && typeof x === "string" && x));
+  return Object.keys(match).length ? { entry_type: v.entry_type, field: v.field, match } : null;
+}
+
+/** The fields of a schema that refer to another type, each with that type's slug (and its `ref_via`, when it has one). */
+export function refFieldsOf(schema: SchemaLike): { key: string; ref: string; via: RefVia | null }[] {
   return fieldsOf(schema).flatMap((f) => {
     const ref = refOf(f);
-    return ref && f.key ? [{ key: f.key, ref }] : [];
+    return ref && f.key ? [{ key: f.key, ref, via: refViaOf(f) }] : [];
   });
+}
+
+/**
+ * The options with the preferred ones first under their own heading and the rest under another, so a form offers the story's own cast and
+ * still lets someone pick outside it. With none preferred (nobody cast yet) the list is left as it was.
+ */
+export function preferred(options: RefOption[], slugs: Iterable<string>, first: string, rest: string): RefOption[] {
+  const wanted = new Set(slugs);
+  const chosen = options.filter((o) => wanted.has(o.slug));
+  if (!chosen.length) return options;
+  return [...chosen.map((o) => ({ ...o, group: first })), ...options.filter((o) => !wanted.has(o.slug)).map((o) => ({ ...o, group: rest }))];
 }
 
 /** The distinct entry types a schema's text fields refer to. */

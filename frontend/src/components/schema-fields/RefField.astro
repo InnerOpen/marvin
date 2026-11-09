@@ -22,6 +22,12 @@ export interface Props {
 const { field, value, error, options } = Astro.props;
 const inputId = `field-${field.key}`;
 const selected = value || field.defaultValue || "";
+/** The options in their headings, in the order the headings first appear; options with no heading come as they are. */
+const groups = (list: RefOption[]): [string, RefOption[]][] => {
+  const out = new Map<string, RefOption[]>();
+  for (const o of list) out.set(o.group ?? "", [...(out.get(o.group ?? "") ?? []), o]);
+  return [...out.entries()];
+};
 ---
 
 <div class="field-group">
@@ -32,7 +38,13 @@ const selected = value || field.defaultValue || "";
 
   <select id={inputId} name={`dataJson.${field.key}`} required={field.required} class:list={["field-select", { error }]}>
     <option value="">— none —</option>
-    {withCurrent(options, selected).map((o) => <option value={o.slug} selected={o.slug === selected}>{o.title}</option>)}
+    {groups(withCurrent(options, selected)).map(([heading, list]) =>
+      heading ? (
+        <optgroup label={heading}>{list.map((o) => <option value={o.slug} selected={o.slug === selected}>{o.title}</option>)}</optgroup>
+      ) : (
+        list.map((o) => <option value={o.slug} selected={o.slug === selected}>{o.title}</option>)
+      ),
+    )}
   </select>
 
   {field.helpText && <p class="field-help">{field.helpText}</p>}

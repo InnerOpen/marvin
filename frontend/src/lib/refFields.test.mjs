@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent } from "./refFields.ts";
+import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent, preferred, refViaOf } from "./refFields.ts";
 
 const schema = {
   fields: [
@@ -22,9 +22,9 @@ test("only a text field's non-empty ref refers to a type", () => {
 
 test("the ref fields of a schema, with their types", () => {
   assert.deepEqual(refFieldsOf(schema), [
-    { key: "voice", ref: "voice" },
-    { key: "narrator", ref: "voice" },
-    { key: "actor", ref: "actor" },
+    { key: "voice", ref: "voice", via: null },
+    { key: "narrator", ref: "voice", via: null },
+    { key: "actor", ref: "actor", via: null },
   ]);
 });
 
@@ -71,4 +71,22 @@ test("a wizard's choices narrow a referenced type by the fields it has", () => {
 test("a type with none of the chosen fields is not narrowed", () => {
   assert.deepEqual(refScope({ fields: [{ key: "name", type: "text" }] }, { world: "w", story: "s" }), {});
   assert.deepEqual(refScope(null, { world: "w" }), {});
+});
+
+test("ref_via: only a well-formed one counts, and a field's refFieldsOf carries it", () => {
+  const via = { entry_type: "cast-member", field: "voice", match: { story: "story" } };
+  assert.deepEqual(refViaOf({ ref_via: via }), via);
+  assert.equal(refViaOf({}), null);
+  assert.equal(refViaOf({ ref_via: { entry_type: "cast-member", field: "voice", match: {} } }), null);
+  assert.equal(refViaOf({ ref_via: { entry_type: "cast-member", match: { story: "story" } } }), null);
+  assert.deepEqual(refFieldsOf({ fields: [{ key: "voice", type: "text", ref: "voice", ref_via: via }] }), [{ key: "voice", ref: "voice", via }]);
+});
+
+test("preferred: the story's cast first under their heading, the rest under another; nobody cast leaves the list as it is", () => {
+  const all = [{ slug: "a", title: "Alice" }, { slug: "b", title: "Brian" }, { slug: "c", title: "Chris" }];
+  assert.deepEqual(preferred(all, ["c", "a", "gone"], "Cast in this story", "Other voices").map((o) => [o.slug, o.group]), [
+    ["a", "Cast in this story"], ["c", "Cast in this story"], ["b", "Other voices"],
+  ]);
+  assert.equal(preferred(all, [], "x", "y"), all);
+  assert.equal(preferred(all, ["nobody"], "x", "y"), all);
 });
