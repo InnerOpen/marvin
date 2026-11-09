@@ -200,6 +200,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
               <a href={stackHref(true)} aria-current={stacked ? "true" : undefined}>By {spec.spine.group!.entry_type.replace(/-/g, " ")}</a>
             </span>
           )}
+        </div>
+        <div class="tl-links">
           {actions.map((a) => <a class="button secondary" href={a.href}>{a.label}</a>)}
           <a class="button secondary" href={open(entry.id)}>Open the {spec.entry_type.replace(/-/g, " ")}</a>
         </div>
@@ -557,7 +559,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-title h2 { margin: 0 0 4px; }
   .tl-facts { margin: 0; font-size: 14px; }
   .tl-total { font-variant-numeric: tabular-nums; font-size: 16px; }
-  .tl-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .tl-actions, .tl-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .tl-zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
   .tl-zoom button { margin: 0; padding: 7px 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
   .tl-zoom button:first-child { border-left: 0; }
@@ -631,12 +633,13 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   @media (max-width: 640px) {
     .tl-head { align-items: stretch; }
     /* Play, zoom and layout stay within reach: a bar fixed to the bottom of the phone's screen; the other buttons wrap above the strip. */
-    .tl-actions { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); gap: 6px; }
+    /* Inset from the sides so the app's floating buttons (chat, theme) in the bottom corners stay clear of it. */
+    .tl-actions { position: fixed; left: 72px; right: 72px; bottom: 0; z-index: 20; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; gap: 6px; box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08); }
     .tl-actions .tl-play { flex: 1 1 100%; justify-content: center; }
-    .tl-actions .tl-zoom { flex: 1 1 auto; justify-content: center; }
-    .tl-actions .tl-zoom a, .tl-actions .tl-zoom button { flex: 1 1 auto; text-align: center; padding: 6px 4px; }
-    .tl-actions > a.button { flex: 1 1 45%; text-align: center; font-size: 13px; padding: 6px 8px; }
-    .tl { padding-bottom: 140px; }
+    .tl-actions .tl-zoom { flex: 1 1 100%; justify-content: center; }
+    .tl-actions .tl-zoom a, .tl-actions .tl-zoom button { flex: 1 1 auto; text-align: center; padding: 6px 4px; font-size: 12px; }
+    .tl-links .button { flex: 1 1 45%; text-align: center; font-size: 13px; padding: 6px 8px; }
+    .tl { padding-bottom: 150px; }
     .tl-strip { height: 104px; }
     .tl-item { height: 96px; }
   }
