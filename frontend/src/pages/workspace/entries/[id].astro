@@ -12,7 +12,7 @@ import { listCollections } from "@/lib/api/collections";
 import { type CollectionRead, type EntryRead, getEntry, updateEntry } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { getAssets } from "@/lib/api/platform";
-import { getView, listViews, type ViewSummary, viewHref } from "@/lib/api/views";
+import { listViews, listViewsOfSpine, type ViewSummary, viewHref } from "@/lib/api/views";
 import { type CueSpec, cueSpecsFor } from "@/lib/cueFields";
 import type { CueOption } from "@/components/schema-fields/CueListField.astro";
 import { listResources } from "@/lib/api/resources";
@@ -358,9 +358,8 @@ if (entry && entryType && authToken) views = await listViews(authToken, entryTyp
 const cues: Record<string, { spec: CueSpec; options: CueOption[] }> = {};
 if (entry && entryType && authToken) {
   try {
-    const all = await listViews(authToken);
-    const defs = await Promise.all(all.map((v) => getView(v.slug, authToken).catch(() => null)));
-    for (const spec of cueSpecsFor(defs.filter((d): d is NonNullable<typeof d> => !!d), entryType.slug)) {
+    const defs = await listViewsOfSpine(authToken, entryType.slug);
+    for (const spec of cueSpecsFor(defs, entryType.slug)) {
       const found = await fetchApi<{ entries?: { slug: string; title: string; dataJson?: Record<string, unknown>; assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null }[] }[] }>(
         "/api/platform/entries/query",
         { method: "POST", body: JSON.stringify({ spec: { entry_type: spec.entryType }, limit: 500 }) },

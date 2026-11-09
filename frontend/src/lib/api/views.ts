@@ -20,6 +20,10 @@ export interface ViewRead extends ViewSummary {
 export const listViews = (authToken: string, entryType?: string): Promise<ViewSummary[]> =>
   fetchApi<ViewSummary[]>(`/api/groups/views${entryType ? `?entry_type=${encodeURIComponent(entryType)}` : ""}`, {}, authToken);
 
+/** The views whose spine is that type (a beat's: the story timeline), with their definitions, in one call. */
+export const listViewsOfSpine = (authToken: string, spineType: string): Promise<ViewRead[]> =>
+  fetchApi<ViewRead[]>(`/api/groups/views?spine_type=${encodeURIComponent(spineType)}`, {}, authToken);
+
 /** One view with its definition, or null when there is none of that name. */
 export async function getView(slug: string, authToken: string): Promise<ViewRead | null> {
   try {
