@@ -439,7 +439,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                       <form method="post" class="form gform" enctype="multipart/form-data">
                         <input type="hidden" name="action" value="upload" />
                         <p class="muted">The {uploadNoun} becomes a new {typeName.toLowerCase()}, named for the file unless you name it here.</p>
-                        <FileDrop accept={uploadAccept ?? undefined} hint={`One ${uploadNoun}.`} />
+                        <FileDrop accept={uploadAccept ?? undefined} hint={`One ${uploadNoun}.`} nameFrom="upload_title" />
                         <div class="form-group"><label for="upload_title">Name (optional)</label><input class="input" id="upload_title" name="upload_title" /></div>
                         <div class="actions"><button class="button" type="submit">Upload</button></div>
                       </form>
