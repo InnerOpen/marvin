@@ -1,13 +1,18 @@
 ---
+import AudioRecorder from "@/components/AudioRecorder.astro";
 import FileDrop from "@/components/FileDrop.astro";
+import PlayButton from "@/components/PlayButton.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import { acceptKind, acceptsAudio } from "@/lib/acceptKind";
 import { getAuthToken } from "@/lib/api/client";
+import { type RefOption, withCurrent } from "@/lib/refFields";
+import { refOptionsFor } from "@/lib/refFieldsApi";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  StepError, cardPicture, generateAsRun, isDone, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, galleryAccept, generateAsRun, isDone, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -93,6 +98,11 @@ let lacking: string | null = null; // a run step's `requires` not met
 let cards: Row[] = [];
 let addFields: any[] = [];
 let genStep: Step | null = null; // a gallery's generate action, as the run step it is
+// A shown text field that holds another entry's slug (`ref`) is a pick list. In a wizard the list is narrowed by the entries chosen so
+// far that the referenced type has a field for (a cast member's actor comes from the chosen world's troupe, not every actor).
+let refs: Record<string, RefOption[]> = {};
+const chosen = Object.fromEntries(Object.entries(ctx).filter(([key]) => entries[key]));
+const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, chosen);
 
 // Drawn whatever happened to a post: an error shows above a complete page, never an empty one.
 if (authToken && def && step) {
@@ -103,9 +113,11 @@ if (authToken && def && step) {
     if (step.kind === "choose") {
       choices = (await findEntries(chooseSpec(step, ctx), authToken)).entries;
       formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields, Object.keys(suppliedData(step, ctx)))));
+      refs = await refsFor(formFields);
     } else {
       listRows = (await findEntries(listSpec(step, ctx), authToken)).entries;
       columns = simple(fieldsOf(type, askedKeys(type, step.columns, Object.keys(suppliedData(step, ctx))))).filter((f) => f.type !== "boolean");
+      refs = await refsFor(columns);
     }
   } else if (step.kind === "form" || step.kind === "upload") {
     entry = entries[step.entry] ?? null;
@@ -114,6 +126,7 @@ if (authToken && def && step) {
       const all = fieldsOf(type, step.fields);
       formFields = simple(all);
       leftOut = all.filter((f) => !SIMPLE_FIELD_TYPES.includes(f.type));
+      refs = await refsFor(formFields);
     }
   } else if (step.kind === "gallery") {
     const type = await typeBySlug(step.entry_type, authToken);
@@ -121,6 +134,7 @@ if (authToken && def && step) {
     typeName = type?.name ?? step.entry_type;
     cards = (await findEntries(listSpec(step, ctx), authToken)).entries;
     addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
+    refs = await refsFor(addFields);
     if (step.generate) {
       genStep = generateAsRun(step, undefined).run;
       flow = await workflowState(genStep.workflow, authToken);
@@ -165,6 +179,10 @@ const opened = def?.open ? entries[def.open.entry] ?? null : null;
 const submitLabel = after ? "Continue" : "Save";
 // A column heading is the field's label without its explanation in brackets (the full label stays as the hover text).
 const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || label;
+const uploadAccept = step?.kind === "gallery" && step.upload ? galleryAccept(step) : null;
+const uploadNoun = { audio: "sound", image: "picture", file: "file" }[acceptKind(uploadAccept)];
+// A sound can be recorded instead of picked (the drop zone's Record button): the recorder is on the page once, when the step takes one.
+const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept);
 ---
 
 <AppLayout crumb="workspace.wizards.run" title={wizard?.name ?? "Guided setup"} width="page">
@@ -240,7 +258,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                       <label for="create_title">Name <span class="req" title="Required">*</span></label>
                       <input class:list={["input", bad("create_title")]} id="create_title" name="create_title" required />
                     </div>
-                    <SchemaForm schema={{ fields: formFields }} />
+                    <SchemaForm schema={{ fields: formFields }} refs={refs} />
                     <div class="actions"><button class="button secondary" type="submit">Create and continue</button></div>
                   </fieldset>
                 </form>
@@ -257,7 +275,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
           {step.kind === "form" && (
             entry ? (
               <form method="post" class="form">
-                <SchemaForm schema={{ fields: formFields }} values={entry.dataJson ?? {}} />
+                <SchemaForm schema={{ fields: formFields }} values={entry.dataJson ?? {}} refs={refs} />
                 {leftOut.length > 0 && <p class="muted">{leftOut.map((f) => f.label).join(", ")} can be edited in the <a href={`/workspace/entries/${entry.id}`}>entry itself</a>.</p>}
                 <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
               </form>
@@ -300,7 +318,12 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                         {columns.map((c) => (
                           <label class="col" title={c.label}>
                             <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
-                            {c.type === "select" ? (
+                            {refs[c.key] ? (
+                              <select class="input" name={`row.${r.id}.${c.key}`}>
+                                <option value="">— none —</option>
+                                {withCurrent(refs[c.key], r.dataJson?.[c.key]).map((o) => <option value={o.slug} selected={r.dataJson?.[c.key] === o.slug}>{o.title}</option>)}
+                              </select>
+                            ) : c.type === "select" ? (
                               <select class="input" name={`row.${r.id}.${c.key}`}>
                                 <option value=""></option>
                                 {(c.options ?? []).map((o: string) => <option value={o} selected={r.dataJson?.[c.key] === o}>{o}</option>)}
@@ -325,7 +348,12 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                         {columns.map((c) => (
                           <label class="col" title={c.label}>
                             <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
-                            {c.type === "select" ? (
+                            {refs[c.key] ? (
+                              <select class:list={["input", bad(`new.${c.key}`)]} name={`new.${c.key}`}>
+                                <option value="">— none —</option>
+                                {refs[c.key].map((o) => <option value={o.slug}>{o.title}</option>)}
+                              </select>
+                            ) : c.type === "select" ? (
                               <select class:list={["input", bad(`new.${c.key}`)]} name={`new.${c.key}`}>
                                 <option value=""></option>
                                 {(c.options ?? []).map((o: string) => <option value={o}>{o}</option>)}
@@ -356,10 +384,15 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                 <div class="cards">
                   {cards.map((r) => {
                     const pic = cardPicture(r.assets, step.picture);
+                    const sound = cardAudio(r.assets, step.audio);
                     const badges = ((step.badges ?? []) as string[]).filter((b) => r.dataJson?.[b]);
                     return (
                       <a class="gcard" href={`/workspace/entries/${r.id}`}>
-                        <div class="gpic">{pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(r.title || "?").slice(0, 1)}</span>}</div>
+                        <div class="gpic">
+                          {pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(r.title || "?").slice(0, 1)}</span>}
+                          {/* The play button keeps its click to itself (PlayButton.astro), so playing does not open the entry. */}
+                          {sound && <span class="gplay"><PlayButton src={sound} label={`Play ${r.title}`} /></span>}
+                        </div>
                         <div class="gbody">
                           <strong>{r.title}</strong>
                           {step.subtitle && r.dataJson?.[step.subtitle] && <span class="muted gsub">{String(r.dataJson[step.subtitle]).slice(0, 80)}</span>}
@@ -380,18 +413,18 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                       <form method="post" class="form gform">
                         <input type="hidden" name="action" value="add" />
                         <div class="form-group"><label for="add_title">Name <span class="req" title="Required">*</span></label><input class:list={["input", bad("add_title")]} id="add_title" name="add_title" required /></div>
-                        <SchemaForm schema={{ fields: addFields }} />
+                        <SchemaForm schema={{ fields: addFields }} refs={refs} />
                         <div class="actions"><button class="button" type="submit">Add</button></div>
                       </form>
                     </details>
                   )}
                   {step.upload && (
                     <details class="gaction">
-                      <summary class="button secondary">⬆ Upload a picture</summary>
+                      <summary class="button secondary">⬆ Upload a {uploadNoun}</summary>
                       <form method="post" class="form gform" enctype="multipart/form-data">
                         <input type="hidden" name="action" value="upload" />
-                        <p class="muted">The picture becomes a new {typeName.toLowerCase()}, named for the file unless you name it here.</p>
-                        <FileDrop accept="image/*" hint="One picture." />
+                        <p class="muted">The {uploadNoun} becomes a new {typeName.toLowerCase()}, named for the file unless you name it here.</p>
+                        <FileDrop accept={uploadAccept ?? undefined} hint={`One ${uploadNoun}.`} />
                         <div class="form-group"><label for="upload_title">Name (optional)</label><input class="input" id="upload_title" name="upload_title" /></div>
                         <div class="actions"><button class="button" type="submit">Upload</button></div>
                       </form>
@@ -522,6 +555,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
       </>
     )
   }
+  {def && takesRecording && <AudioRecorder />}
 </AppLayout>
 
 <script>
@@ -593,7 +627,8 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
   .gcard { display: grid; grid-template-rows: auto 1fr; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); overflow: hidden; text-decoration: none; color: inherit; }
   .gcard:hover { border-color: var(--accent); }
-  .gpic { aspect-ratio: 1; background: var(--panel-2); display: grid; place-items: center; }
+  .gpic { aspect-ratio: 1; background: var(--panel-2); display: grid; place-items: center; position: relative; }
+  .gplay { position: absolute; right: 8px; bottom: 8px; }
   .gpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .gnone { font-size: 40px; font-weight: 700; color: var(--muted); }
   .gbody { display: grid; gap: 4px; padding: 10px 12px; font-size: 14px; }

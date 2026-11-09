@@ -1,6 +1,7 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
-import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, generateAsRun, hasValue, listSpec, missingForNewRow, runInputs, sameValue, suppliedData, withoutLater } from "./wizard";
+import { acceptKind, isKind } from "./acceptKind";
+import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, galleryAccept, generateAsRun, hasValue, listSpec, missingForNewRow, runInputs, sameValue, suppliedData, withoutLater } from "./wizard";
 import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, entryOfType, findEntries, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
@@ -89,9 +90,14 @@ async function editList(step: Step, form: FormData, ctx: Ctx, authToken: string)
   return { ctx, stay: !!title && !!text(form, "again") };
 }
 
-const MAX_PICTURE_BYTES = 25_000_000;
+const MAX_UPLOAD_BYTES = 25_000_000;
+const UPLOAD_WORDS = {
+  image: { noun: "picture", notOne: "That is not a picture." },
+  audio: { noun: "sound", notOne: "That is not a sound." },
+  file: { noun: "file", notOne: "That file cannot go here." },
+} as const;
 
-/** A gallery's actions: add (a form), upload (a picture becomes a new entry named for the file), generate (a run with a typed prompt). */
+/** A gallery's actions: add (a form), upload (a picture or a sound becomes a new entry named for the file), generate (a run with a typed prompt). */
 async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
   const action = text(form, "action");
   const type = await typeBySlug(step.entry_type, authToken);
@@ -100,15 +106,17 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
   if (action === "add") {
     const title = text(form, "add_title");
     if (!title) throw new StepError("Give it a name.", ["add_title"]);
-    const data = withAutoSlug(type, { ...seed(), ...postedData(form, type, askedKeys(type, step.add?.fields, Object.keys(seed())), "add.") }, title);
+    const data = withAutoSlug(type, { ...seed(), ...postedData(form, type, askedKeys(type, step.add?.fields, Object.keys(seed()))) }, title);
     await createOf(type, title, data, authToken);
     return { ctx, stay: true, notice: "added" };
   }
   if (action === "upload") {
     const file = form.get("file");
-    if (!(file instanceof File) || file.size === 0) throw new Error("Choose a picture to upload.");
-    if (!file.type.startsWith("image/")) throw new Error("That is not a picture.");
-    if (file.size > MAX_PICTURE_BYTES) throw new Error("That picture is too big (25 MB at most).");
+    const kind = acceptKind(galleryAccept(step));
+    const words = UPLOAD_WORDS[kind];
+    if (!(file instanceof File) || file.size === 0) throw new Error(`Choose a ${words.noun} to upload.`);
+    if (!isKind(file, kind)) throw new Error(words.notOne);
+    if (file.size > MAX_UPLOAD_BYTES) throw new Error(`That ${words.noun} is too big (25 MB at most).`);
     const title = text(form, "upload_title") || file.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim() || "Untitled";
     const assetId = await uploadAsset(file, `${step.entry_type}-${title}`, authToken);
     await createOf(type, title, withAutoSlug(type, { ...seed(), [step.upload.field]: assetId }, title), authToken);
@@ -120,7 +128,7 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
     await runWorkflow(run.workflow, runInputs(run, { ...ctx, ...extra }), authToken);
     return { ctx, stay: true, notice: "started" };
   }
-  throw new Error("Add one, upload a picture, or generate one.");
+  throw new Error("Add one, upload one, or generate one.");
 }
 
 /** Do what the posted step asks. Throws an Error whose message the page shows. */
