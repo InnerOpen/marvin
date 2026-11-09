@@ -1,6 +1,6 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
-import { type Ctx, type Step, StepError, type WizardDefinition, createData, entryTypeOf, generateAsRun, hasValue, listSpec, missingForNewRow, runInputs, sameValue, withoutLater } from "./wizard";
+import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, generateAsRun, hasValue, listSpec, missingForNewRow, runInputs, sameValue, suppliedData, withoutLater } from "./wizard";
 import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, entryOfType, findEntries, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
@@ -26,7 +26,8 @@ async function choose(def: WizardDefinition, step: Step, form: FormData, ctx: Ct
     const type = await typeBySlug(step.entry_type, authToken);
     if (!title) throw new StepError("Give the new one a name.", ["create_title"]);
     if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
-    const data = withAutoSlug(type, { ...createData(step, ctx), ...postedData(form, type, askedKeys(type, step.create?.fields)) }, title);
+    const supplied = suppliedData(step, ctx);
+    const data = withAutoSlug(type, { ...supplied, ...postedData(form, type, askedKeys(type, step.create?.fields, Object.keys(supplied))) }, title);
     value = (await createOf(type, title, data, authToken)).slug;
   } else if (action === "pick") {
     const picked = text(form, "pick");
@@ -64,7 +65,7 @@ async function editList(step: Step, form: FormData, ctx: Ctx, authToken: string)
   const type = await typeBySlug(step.entry_type, authToken);
   if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
   const rows = (await findEntries(listSpec(step, ctx), authToken)).entries;
-  const columns = askedKeys(type, step.columns);
+  const columns = askedKeys(type, step.columns, Object.keys(suppliedData(step, ctx)));
   for (const row of rows) {
     // Only what the person changed on the page is written: compared with what the page showed (`__was`), not with the row now, so a
     // field something else filled in the meantime is kept.
@@ -83,7 +84,7 @@ async function editList(step: Step, form: FormData, ctx: Ctx, authToken: string)
     throw new StepError(`The new row needs ${labels}.${wanted && !title ? " Fill it in, or use Continue to go on without adding one." : ""}`, missing.map((m) => `new.${m.key}`));
   }
   if (title) {
-    await createOf(type, title, { ...fresh, ...createData({ ...step, create: { data: step.create_data } } as Step, ctx), [step.parent_field]: ctx[step.parent] }, authToken);
+    await createOf(type, title, { ...fresh, ...suppliedData(step, ctx) }, authToken);
   }
   return { ctx, stay: !!title && !!text(form, "again") };
 }
@@ -95,12 +96,11 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
   const action = text(form, "action");
   const type = await typeBySlug(step.entry_type, authToken);
   if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
-  const scope = step.parent_field ? { [step.parent_field]: ctx[step.parent] } : {};
-  const seed = () => ({ ...createData({ ...step, create: step.add } as Step, ctx), ...scope });
+  const seed = () => suppliedData(step, ctx);
   if (action === "add") {
     const title = text(form, "add_title");
     if (!title) throw new StepError("Give it a name.", ["add_title"]);
-    const data = withAutoSlug(type, { ...seed(), ...postedData(form, type, askedKeys(type, step.add?.fields), "add.") }, title);
+    const data = withAutoSlug(type, { ...seed(), ...postedData(form, type, askedKeys(type, step.add?.fields, Object.keys(seed())), "add.") }, title);
     await createOf(type, title, data, authToken);
     return { ctx, stay: true, notice: "added" };
   }

@@ -153,6 +153,17 @@ export function createData(step: Step, ctx: Ctx): Record<string, unknown> {
   return withoutEmpty(substitute(step.create?.data, ctx));
 }
 
+/**
+ * What a step fills in by itself on an entry it makes: the parent's slug (a list's or gallery's `parent_field`) and its `create` / `add`
+ * data with the choices filled in. A form does not ask for these again, even when the type requires them: an empty box posted back
+ * would beat the step's value (an actor added to a world's troupe arrived with no world).
+ */
+export function suppliedData(step: Step, ctx: Ctx): Record<string, unknown> {
+  const own = step.kind === "gallery" ? step.add?.data : step.kind === "list" ? step.create_data : step.create?.data;
+  const parent = step.parent_field && ctx[step.parent] ? { [step.parent_field]: ctx[step.parent] } : {};
+  return { ...withoutEmpty(substitute(own, ctx)), ...parent };
+}
+
 /** The entries query behind a `list` or `gallery` step: those whose `parent_field` holds the parent's slug (a gallery may be unscoped). */
 export function listSpec(step: Step, ctx: Ctx): Record<string, unknown> {
   if (!step.parent_field) return { entry_type: step.entry_type };

@@ -86,8 +86,8 @@ export function requiredFields(type: EntryTypeRead | null): { key: string; label
 }
 
 /** The fields a step asks for: the ones it names, then any the type requires (a required `slug` field is filled from the name, so it is not asked). */
-export function askedKeys(type: EntryTypeRead | null, named: string[] | undefined): string[] {
-  return [...new Set([...(named ?? []), ...requiredKeys(type)])].filter((k) => k !== AUTO_SLUG_FIELD);
+export function askedKeys(type: EntryTypeRead | null, named: string[] | undefined, supplied: string[] = []): string[] {
+  return [...new Set([...(named ?? []), ...requiredKeys(type)])].filter((k) => k !== AUTO_SLUG_FIELD && !supplied.includes(k));
 }
 
 /** A required `slug` field left unset takes the name, lowercased with dashes. */
