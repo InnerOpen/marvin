@@ -607,8 +607,8 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .stepper .current .n { background: var(--accent); color: var(--accent-ink, #fff); }
 
   /* .card has no padding of its own (the content goes in a .card-body elsewhere), so the step carries it. */
-  .step { display: grid; gap: 20px; padding: 24px; }
-  .step h3 { margin: 0; font-size: 20px; }
+  .step { display: grid; gap: 20px; padding: 28px; width: min(100%, 1040px); box-sizing: border-box; }
+  .step h3 { margin: 0; font-size: 24px; letter-spacing: -0.01em; }
   .eyebrow { margin: 0 0 -10px; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
   .stepper .done .n { background: color-mix(in srgb, var(--accent) 18%, var(--panel-2)); color: var(--accent); font-weight: 700; }
   .open { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0; }
@@ -618,15 +618,19 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .form { display: grid; gap: 16px; }
   .label { margin: 0; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
   .choices { display: grid; gap: 8px; }
-  /* A pick with pictures: tiles like the library pickers; the radio is hidden and the tile shows the choice. */
-  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
-  .tile { position: relative; display: grid; justify-items: center; align-content: start; gap: 6px; padding: 10px 8px; text-align: center; cursor: pointer; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); font-size: 14px; }
-  .tile:hover { border-color: var(--accent); }
+  /* A pick with pictures: the art leads. The radio is hidden; the tile shows the choice with a tint and a check. */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+  .tile { position: relative; display: grid; justify-items: center; align-content: start; gap: 8px; padding: 14px 10px 12px; text-align: center; cursor: pointer; border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px); background: var(--bg); font-size: 15px; transition: border-color 0.15s, background-color 0.15s; }
+  .tile:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
   .tile input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
-  .tile:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .tile:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--bg)); box-shadow: 0 0 0 1px var(--accent); }
+  .tile:has(input:checked)::after { content: "✓"; position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-ink, #fff); font-size: 13px; font-weight: 700; }
   .tile:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .tpic { width: 88px; height: 88px; display: grid; place-items: center; border-radius: calc(var(--radius) - 2px); overflow: hidden; background: var(--panel-2); }
+  .tile strong { font-weight: 600; }
+  .tpic { width: 112px; height: 112px; display: grid; place-items: center; border-radius: var(--radius); overflow: hidden; background: var(--panel-2); }
   .tpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tpic .gnone { font-size: 44px; }
+  @media (prefers-reduced-motion: reduce) { .tile { transition: none; } }
   .choice { display: flex; gap: 10px; align-items: center; cursor: pointer; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
   .choice:hover { border-color: var(--muted); }
   .choice:has(input:checked) { border-color: var(--accent); }
