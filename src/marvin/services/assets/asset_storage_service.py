@@ -121,7 +121,8 @@ class AssetStorageService(BaseService):
 
             try:
                 # Extract metadata from temporary file
-                metadata = self.metadata_extractor.extract_metadata(temp_path)
+                # The part's own type settles a sound-only .webm the extension would call a video
+                metadata = self.metadata_extractor.extract_metadata(temp_path, upload_file.content_type)
                 check_allowed(metadata.size, metadata.mime_type)
 
                 # Generate storage key (opaque: no workspace slug, no filename)
