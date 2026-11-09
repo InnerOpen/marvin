@@ -66,6 +66,7 @@ nav:
       - Notifications: whats-new/notifications.md
       - n8n: whats-new/n8n.md
       - Blueprints: whats-new/blueprints.md
+      - Guided setups and workers: whats-new/guided-setups.md
       - Publishing API: whats-new/publishing-api.md
       - Media embeds: whats-new/media-embeds.md
       - Collections: whats-new/collections.md
