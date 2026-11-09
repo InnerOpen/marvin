@@ -1,23 +1,14 @@
 ---
-import BooleanField from "./schema-fields/BooleanField.astro";
-import DateField from "./schema-fields/DateField.astro";
-import DateTimeField from "./schema-fields/DateTimeField.astro";
-import EmbedField from "./schema-fields/EmbedField.astro";
 import AudioRecorder from "@/components/AudioRecorder.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
-import CueListField, { type CueOption } from "./schema-fields/CueListField.astro";
-import LinkedItemsField from "./schema-fields/LinkedItemsField.astro";
+import { type CueOption } from "./schema-fields/CueListField.astro";
+import SchemaFormField from "./SchemaFormField.astro";
+import { groupFields } from "@/lib/fieldGroups";
 import type { CueSpec } from "@/lib/cueFields";
-import MarkdownField from "./schema-fields/MarkdownField.astro";
-import NumberField from "./schema-fields/NumberField.astro";
-import RefField from "./schema-fields/RefField.astro";
-import SelectField from "./schema-fields/SelectField.astro";
-import TextareaField from "./schema-fields/TextareaField.astro";
 /**
  * SchemaForm Component
  * Dynamically renders a form based on an entry type's schema definition
  */
-import TextField from "./schema-fields/TextField.astro";
 import type { LinkedItem } from "@/lib/linkedItems";
 import type { RefOption } from "@/lib/refFields";
 
@@ -67,89 +58,41 @@ function getFieldValue(key: string) {
 function getFieldError(key: string) {
   return errors[key];
 }
+
+// A field may name a `group` (lib/fieldGroups.ts): its fields then sit in one collapsible section, folded until a field in it has an error.
+const segments = groupFields(schema.fields, values, errors);
 ---
 
 <div class="schema-form">
-  {schema.fields.map((field) => {
-    const value = getFieldValue(field.key);
-    const error = getFieldError(field.key);
-
-    // Render appropriate component based on field type
-    switch (field.type) {
-      case 'text':
-        if (field.ref && refs[field.key] && !field.readOnly) return <RefField field={field as any} value={value} error={error} options={refs[field.key]} />;
-        return <TextField field={field as any} value={value} error={error} />;
-
-      case 'textarea':
-        return <TextareaField field={field as any} value={value} error={error} />;
-
-      case 'markdown':
-        return <MarkdownField field={field as any} value={value} error={error} />;
-
-      case 'number':
-        return <NumberField field={field as any} value={value} error={error} />;
-
-      case 'boolean':
-        return <BooleanField field={field as any} value={value} error={error} />;
-
-      case 'select':
-        return <SelectField field={field as any} value={value} error={error} />;
-
-      case 'date':
-        return <DateField field={field as any} value={value} error={error} />;
-
-      case 'datetime':
-        return <DateTimeField field={field as any} value={value} error={error} />;
-
-      case 'asset':
-      case 'asset-list':
-        return <LinkedItemsField field={field as any} value={value} error={error} items={assets} />;
-
-      case 'embed':
-        return <EmbedField field={field as any} value={value} error={error} />;
-
-      case 'resource':
-      case 'resource-list':
-        return <LinkedItemsField field={field as any} value={value} error={error} items={resources} />;
-
-      case 'json':
-        if (cues[field.key]) return <CueListField field={field as any} value={value} spec={cues[field.key].spec} options={cues[field.key].options} error={error} />;
-        // JSON field - allow free-form JSON input
-        return (
-          <div class="field-group">
-            <label>
-              {field.label}
-              {field.required && <span class="required">*</span>}
-            </label>
-            <textarea
-              name={`dataJson.${field.key}`}
-              placeholder="Enter valid JSON"
-              rows="6"
-              required={field.required}
-              class="field-textarea json-field"
-            >{value ? JSON.stringify(value, null, 2) : ''}</textarea>
-            <p class="field-help">{field.helpText || 'Enter valid JSON data'}</p>
-          </div>
-        );
-
-      default:
-        // Unknown field type
-        return (
-          <div class="field-group unknown">
-            <label>{field.label}</label>
-            <div class="error-message">
-              <p><strong>Unknown field type:</strong> {field.type}</p>
-              <p class="muted">This field type is not recognized. Please check the schema definition.</p>
-            </div>
-          </div>
-        );
-    }
-  })}
+  {segments.map((seg) =>
+    seg.group === null ? (
+      <SchemaFormField field={seg.fields[0] as any} value={getFieldValue(seg.fields[0].key)} error={getFieldError(seg.fields[0].key)} assets={assets} resources={resources} cues={cues} refs={refs} />
+    ) : (
+      <details class="field-section" open={seg.open}>
+        <summary>
+          <span class="field-section-name">{seg.group}</span>
+          <span class="field-section-count">{seg.filled} of {seg.fields.length} filled</span>
+        </summary>
+        <div class="field-section-body">
+          {seg.fields.map((f) => (
+            <SchemaFormField field={f as any} value={getFieldValue(f.key)} error={getFieldError(f.key)} assets={assets} resources={resources} cues={cues} refs={refs} />
+          ))}
+        </div>
+      </details>
+    ),
+  )}
 </div>
 {hasAssetField && <ImageCropper />}
 {hasAssetField && <AudioRecorder />}
 
 <style>
+  .field-section { border: 1px solid var(--line); border-radius: var(--radius, 8px); background: var(--panel, transparent); }
+  .field-section > summary { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; padding: 0.75rem 1rem; cursor: pointer; list-style: none; font-weight: 600; }
+  .field-section > summary::-webkit-details-marker { display: none; }
+  .field-section > summary::before { content: "▸"; margin-right: 0.5rem; color: var(--muted); }
+  .field-section[open] > summary::before { content: "▾"; }
+  .field-section-count { font-weight: 400; font-size: 0.8125rem; color: var(--muted); margin-left: auto; }
+  .field-section-body { display: grid; gap: 1.5rem; padding: 0.25rem 1rem 1rem; }
   .schema-form {
     display: grid;
     gap: 1.5rem;
