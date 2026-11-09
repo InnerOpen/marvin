@@ -380,6 +380,43 @@ function groupRows(spine: SpineSpec, rows: Rows): { id: string | null; slug: str
 }
 
 /** Pixels per second so the whole timeline fills `width`, never so few that an item falls under its minimum card. */
+/** A stretch of an item where its lane is quiet: what the renderer adds around the pieces, or the whole item when nothing is timed. */
+export interface Quiet {
+  id: string;
+  kind: "lead" | "gap" | "tail" | "hold";
+  start: number;
+  seconds: number;
+}
+
+const QUIET_WORDS: Record<Quiet["kind"], string> = {
+  lead: "lead-in: quiet before the first line",
+  gap: "gap: the pause between two lines",
+  tail: "tail: room after the last line, before the next beat",
+  hold: "hold: nothing is timed, so the beat holds",
+};
+export const quietWords = (kind: Quiet["kind"]): string => QUIET_WORDS[kind];
+
+/** The silences the renderer adds in a lane that sits inside the spine items (lines): lead before the first piece, gap between pieces, tail after the last, or the item's whole hold when no piece is timed. Placed and bed lanes have none. */
+export function quiets(items: Item[], lane: LaneSpec): Quiet[] {
+  if (!lane.in || lane.placed || lane.bed) return [];
+  const out: Quiet[] = [];
+  const add = (id: string, kind: Quiet["kind"], start: number, seconds: number) => {
+    if (seconds > 0.005) out.push({ id, kind, start, seconds });
+  };
+  for (const item of items) {
+    const timed = (item.lanes[lane.id] ?? []).filter((p) => p.seconds > 0).sort((a, b) => a.start - b.start);
+    if (!timed.length) {
+      add(`${item.id}:hold`, "hold", item.start, item.seconds);
+      continue;
+    }
+    add(`${item.id}:lead`, "lead", item.start, timed[0].start - item.start);
+    timed.slice(1).forEach((p, i) => add(`${item.id}:gap${i}`, "gap", timed[i].start + timed[i].seconds, p.start - (timed[i].start + timed[i].seconds)));
+    const end = timed[timed.length - 1].start + timed[timed.length - 1].seconds;
+    add(`${item.id}:tail`, "tail", end, item.start + item.seconds - end);
+  }
+  return out;
+}
+
 export function scale(items: { seconds: number }[], total: number, width: number): number {
   if (total <= 0 || width <= 0) return 0;
   const fit = width / total;
