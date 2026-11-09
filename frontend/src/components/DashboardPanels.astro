@@ -203,7 +203,7 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
   <div class="pulse-columns">
     <div class="pulse-stack">
       {dashboard && (
-      <section class="panel">
+      <section class="panel" data-simple>
         <div class="panel-head">
           <h3>Waiting on you</h3>
           {approvalsWaiting > 0 && <a href="/automation/approvals" class="panel-link">Approvals →</a>}
@@ -319,7 +319,7 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
       )}
 
       {dashboard && recentForYou.length > 0 && (
-        <section class="panel">
+        <section class="panel" data-simple>
           <div class="panel-head">
             <h3>Pick up where you left off</h3>
           </div>

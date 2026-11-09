@@ -6,6 +6,7 @@ A **guided setup** is a step-by-step page that walks someone through making some
 
 - **Sidebar → Content → Guided setups** (`/workspace/setups`) lists every setup the workspace has, with a Start button on each. The link is always there; the page says how to get one when there are none.
 - **Dashboard → Quick create** and the **New** menu list each installed setup (up to three and four), next to the entry types, so "Add artwork" is one click from anywhere.
+- **Dashboard view:** a Simple / Detailed switch at the top of the dashboard. Detailed is the whole page; Simple keeps Waiting on you, Pick up where you left off, Quick create and Recent work, in one column, for someone who only adds and edits. It is remembered in that browser, like light and dark.
 - **Settings → Automation → Packages** shows which package brought a setup.
 
 ## Getting one
