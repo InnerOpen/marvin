@@ -118,7 +118,9 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
     if (!isKind(file, kind)) throw new Error(words.notOne);
     if (file.size > MAX_UPLOAD_BYTES) throw new Error(`That ${words.noun} is too big (25 MB at most).`);
     const title = text(form, "upload_title") || file.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim() || "Untitled";
-    const assetId = await uploadAsset(file, `${step.entry_type}-${title}`, authToken);
+    // The asset carries the name the person gave it (with the file's own ending), not whatever the file was called ("recording.webm").
+    const ending = /\.[a-z0-9]{1,5}$/i.exec(file.name)?.[0] ?? "";
+    const assetId = await uploadAsset(file, `${step.entry_type}-${title}`, authToken, `${title}${ending}`);
     await createOf(type, title, withAutoSlug(type, { ...seed(), [step.upload.field]: assetId }, title), authToken);
     return { ctx, stay: true, notice: "added" };
   }

@@ -61,9 +61,9 @@ export async function setData(entry: Row, changes: Record<string, unknown>, auth
 }
 
 /** Store an uploaded file as an asset and say its id; the entry's asset field then holds it (the server attaches it). */
-export async function uploadAsset(file: File, nameHint: string, authToken: string): Promise<string> {
+export async function uploadAsset(file: File, nameHint: string, authToken: string, displayName?: string): Promise<string> {
   const slug = `${nameHint}-${Date.now().toString(36)}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 80);
-  const asset = await createSdkClient(authToken).assets.upload(file, { slug, name: file.name || slug });
+  const asset = await createSdkClient(authToken).assets.upload(file, { slug, name: displayName || file.name || slug });
   return String((asset as { id: string }).id);
 }
 
