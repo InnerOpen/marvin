@@ -1,6 +1,7 @@
 """Business logic for asset upload and storage."""
 
 import tempfile
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -165,6 +166,7 @@ class AssetStorageService(BaseService):
                     description=upload_request.description,
                     metadata_json=upload_request.metadata_json,
                     scope=upload_request.scope,
+                    **self._lineage_of(upload_request.metadata_json, group_id),
                 )
 
                 # Create database record
@@ -178,6 +180,22 @@ class AssetStorageService(BaseService):
             finally:
                 # Clean up temporary file
                 temp_path.unlink(missing_ok=True)
+
+    def _lineage_of(self, metadata_json: dict | None, group_id) -> dict:
+        """An upload that says it was made from another asset (``metadata.derived_from``: the editor's crop, a batch's adjusted copy) is
+        recorded as that asset's version, the way `create_derivative` records a workflow's: `source_asset_id` set and `origin` "derived",
+        so the library folds it under its original. A `derived_from` that names nothing in this workspace is left as plain metadata."""
+        from marvin.db.models.platform.assets import Assets
+
+        raw = (metadata_json or {}).get("derived_from")
+        try:
+            source_id = uuid.UUID(str(raw)) if raw else None
+        except ValueError:
+            return {}
+        if source_id is None:
+            return {}
+        source = self.repos.session.query(Assets.id).filter(Assets.id == source_id, Assets.group_id == group_id).first()
+        return {"source_asset_id": source.id, "origin": "derived"} if source else {}
 
     def create_derivative(
         self,
