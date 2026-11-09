@@ -164,7 +164,7 @@ let collections: {
 let assetTypes: { type: string; count: number }[] = [];
 let resourceTypes: { type: string; count: number }[] = [];
 // The guided setups the workspace's packages bring (Add artwork, Narrate a story…): a link in the sidebar only when there are some.
-let wizardCount = 0;
+let guided: { slug: string; name: string }[] = [];
 // The Trash row counts everything in it (entries, assets and resources), not just the entries its collection holds.
 let trashTotal: number | null = null;
 if (authToken) {
@@ -178,7 +178,7 @@ if (authToken) {
       getTrashCounts(authToken).catch(() => null),
       listWizards(authToken).catch(() => []),
     ]);
-    wizardCount = wizards.length;
+    guided = wizards.map((w) => ({ slug: w.slug, name: w.name }));
     trashTotal = trash?.total ?? null;
     assetTypes = aTypes;
     resourceTypes = rTypes;
@@ -338,6 +338,9 @@ function isActive(itemPath: string, currentPath: string): boolean {
               ))}
               <a href="/workspace/assets/new"><span aria-hidden="true">🖼</span><span>Upload files</span></a>
               <a href="/workspace/collections/new"><span aria-hidden="true">📚</span><span>Collection</span></a>
+              {guided.slice(0, 4).map((w) => (
+                <a href={`/workspace/setups/${encodeURIComponent(w.slug)}`}><span aria-hidden="true">🧭</span><span>{w.name}</span></a>
+              ))}
             </nav>
           </details>
         )}
@@ -424,9 +427,9 @@ function isActive(itemPath: string, currentPath: string): boolean {
                 <a href="/workspace/resources" class="nav-fold-all"><span aria-hidden="true">🔗</span><span>All resources</span></a>
               </div>
             </details>
-            {wizardCount > 0 && (
-              <a href="/workspace/wizards" aria-current={path.startsWith("/workspace/wizards") ? "page" : undefined}>
-                <span aria-hidden="true">🧭</span><span>Guided setups</span><span class="nav-count">{wizardCount}</span>
+            {guided.length > 0 && (
+              <a href="/workspace/setups" aria-current={path.startsWith("/workspace/setups") ? "page" : undefined}>
+                <span aria-hidden="true">🧭</span><span>Guided setups</span><span class="nav-count">{guided.length}</span>
               </a>
             )}
           </nav>

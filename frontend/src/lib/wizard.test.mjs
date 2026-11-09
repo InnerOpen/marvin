@@ -80,7 +80,7 @@ test("review comparisons", () => {
 });
 
 test("a step's address keeps the choices", () => {
-  assert.equal(stepHref("narrate", { world: "w" }, "story", { story: "s 1" }), "/workspace/wizards/narrate?step=story&world=w&story=s+1");
+  assert.equal(stepHref("narrate", { world: "w" }, "story", { story: "s 1" }), "/workspace/setups/narrate?step=story&world=w&story=s+1");
 });
 
 test("an upload only warns where there is something to replace", () => {

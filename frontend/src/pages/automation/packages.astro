@@ -89,7 +89,7 @@ const holds = (p: PackageInfo) =>
                 </div>
                 {p.description && <p class="muted">{p.description}</p>}
                 <p class="holds">{holds(p)}</p>
-                {p.wizards?.length ? <p class="holds"><a href="/workspace/wizards">Open its guided setups →</a></p> : null}
+                {p.wizards?.length ? <p class="holds"><a href="/workspace/setups">Open its guided setups →</a></p> : null}
                 <div class="actions">
                   {p.workflows > p.workflowsOn && <button type="button" class="button js-enable">Turn on {plural(p.workflows - p.workflowsOn, "workflow")}</button>}
                   <button type="button" class="button secondary js-download">Download</button>
