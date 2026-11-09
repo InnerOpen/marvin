@@ -70,10 +70,10 @@ const monogram = (name: string) =>
               <div class="wiz-head">
                 <span class="wiz-mark" aria-hidden="true">{monogram(w.name)}</span>
                 <h3>
-                  <a class="wiz-link" href={href}>{w.name}</a>
+                  <a class="wiz-link" href={href} title={w.description || undefined}>{w.name}</a>
                 </h3>
               </div>
-              {w.description && <p class="wiz-desc" title={w.description}>{w.description}</p>}
+              {w.description && <p class="wiz-desc">{w.description}</p>}
               <div class="meta">
                 <span class="pill">{plural(w.steps, "step")}</span>
                 {w.packageName && <span class="pill pkg" title={`From the ${w.packageName} package`}>{w.packageName}</span>}
