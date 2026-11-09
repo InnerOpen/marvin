@@ -6,6 +6,7 @@
  * commas; coerceDataJsonValue turns a list field's string back into an array.
  */
 import PlayButton from "@/components/PlayButton.astro";
+import { matchesAccept, uploadAccept } from "@/lib/assetAccept";
 import { type LinkedItem, canAdd, chosen, idsOf, serialize } from "@/lib/linkedItems";
 
 export interface Props {
@@ -22,6 +23,8 @@ export interface Props {
     maxItems?: number | null;
     /** The attachment role the saved value becomes (services/entries/linked_fields.py); the key when unset. */
     role?: string | null;
+    /** An asset field may take only some kinds of file, written like a file input's accept (application/pdf, audio/*, .html). */
+    accept?: string | null;
   };
   value?: unknown;
   error?: string;
@@ -40,9 +43,12 @@ const inputId = `field-${field.key}`;
 const addable = canAdd(ids.length, multiple, max) && !field.readOnly;
 const newHref = isAsset ? "/workspace/assets/new" : "/workspace/resources/new";
 const role = (field as { role?: string | null }).role?.trim() || field.key;
+const accept = isAsset ? (field.accept ?? "").trim() : "";
+const offType = (item: LinkedItem) => !!accept && !matchesAccept(accept, item);
+const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id)).length : 0;
 ---
 
-<div class="field-group li-field" data-linked-field data-label={field.label} data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-role={role} data-readonly={field.readOnly ? "1" : ""}>
+<div class="field-group li-field" data-linked-field data-label={field.label} data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-role={role} data-accept={accept || undefined} data-readonly={field.readOnly ? "1" : ""}>
   <label for={inputId}>
     {field.label}
     {field.required && <span class="required">*</span>}
@@ -67,9 +73,12 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
       <summary class:list={["button", "secondary", "li-choose", { "li-hidden": !addable }]} data-linked-choose>Choose {multiple ? `${noun}s` : `an ${noun}`}…</summary>
       <div class="li-panel">
         <input type="search" class="li-search" placeholder={`Search ${noun}s…`} aria-label={`Search ${noun}s`} data-linked-search />
+        {otherTypes > 0 && (
+          <label class="li-showall"><input type="checkbox" data-linked-showall /> Also show other types of file ({otherTypes} hidden: this field takes {accept})</label>
+        )}
         <ul class="li-options" data-linked-options>
           {items.map((item) => (
-            <li class="li-card li-option" data-id={item.id} data-name={item.name} data-meta={item.meta ?? ""} data-image={item.imageUrl ?? ""} data-alt={item.alt ?? ""} hidden={ids.includes(item.id)}>
+            <li class="li-card li-option" data-id={item.id} data-off={offType(item) ? "1" : undefined} data-name={item.name} data-meta={item.meta ?? ""} data-image={item.imageUrl ?? ""} data-alt={item.alt ?? ""} hidden={ids.includes(item.id) || offType(item)}>
               <span class="li-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={item.alt || item.name} loading="lazy" /> : <span aria-hidden="true">{isAsset ? "📄" : "🔗"}</span>}</span>
               <span class="li-text"><strong>{item.name}</strong>{item.meta && <small>{item.meta}</small>}</span>
               <button type="button" class="li-add" aria-label={`Add ${item.name}`} data-linked-add>+</button>
@@ -92,7 +101,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
         <h3 id={`${inputId}-upload-title`}>Upload {field.label}</h3>
         <p class="field-help">A new asset for this field: a picture opens in the cropper first (crop, rotate, brightness, contrast). It is uploaded now, chosen here, and attached as <code>{role}</code> when you save.</p>
         <div class="li-dropzone" data-linked-dropzone role="button" tabindex="0" aria-label={multiple ? "Choose files, or drop them here" : "Choose a file, or drop one here"}>
-          <input type="file" data-linked-upload-file accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.svg" multiple={multiple} hidden />
+          <input type="file" data-linked-upload-file accept={uploadAccept(accept)} multiple={multiple} hidden />
           <div class="li-dropzone-empty" data-linked-dropzone-empty>
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -181,6 +190,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
   .li-field .li-picker summary::-webkit-details-marker { display: none; }
   .li-field .li-hidden { display: none !important; }
   .li-field .li-panel { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); display: grid; gap: 8px; }
+  .li-field .li-showall { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0; font-size: 0.8125rem; color: var(--muted); cursor: pointer; }
   .li-field .li-search { width: 100%; box-sizing: border-box; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 0.875rem; }
   .li-field .li-options { max-height: 280px; overflow: auto; }
   .li-field .li-option[hidden] { display: none; }
@@ -191,6 +201,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
 </style>
 
 <script>
+  import { matchesAccept } from "@/lib/assetAccept";
   import { assetItem, canAdd, matches, nameFromFile, serialize, uploadSlug } from "@/lib/linkedItems";
   import { fetchApi } from "@/lib/api/client";
 
@@ -260,7 +271,8 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
 
     function refresh() {
       const current = ids();
-      options.forEach((o) => (o.hidden = current.includes(o.dataset.id!) || !matches({ id: o.dataset.id!, name: o.dataset.name || "", meta: o.dataset.meta }, search.value)));
+      const showAll = !!picker.querySelector<HTMLInputElement>("[data-linked-showall]")?.checked;
+      options.forEach((o) => (o.hidden = current.includes(o.dataset.id!) || (o.dataset.off === "1" && !showAll) || !matches({ id: o.dataset.id!, name: o.dataset.name || "", meta: o.dataset.meta }, search.value)));
       none.hidden = options.some((o) => !o.hidden) || options.length === 0;
       choose.classList.toggle("li-hidden", !canAdd(current.length, multiple, max));
       root.querySelector("[data-linked-upload-open]")?.classList.toggle("li-hidden", !canAdd(current.length, multiple, max));
@@ -288,6 +300,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
     });
 
     search.addEventListener("input", refresh);
+    picker.querySelector("[data-linked-showall]")?.addEventListener("change", refresh);
     picker.addEventListener("toggle", () => picker.open && search.focus());
 
     // Upload from here: a dialog like the Upload page, without leaving the form. A raster picture goes through the page's cropper first
@@ -469,6 +482,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
         option.dataset.meta = item.meta ?? "";
         option.dataset.image = item.imageUrl ?? "";
         option.dataset.alt = item.alt ?? "";
+        if (!matchesAccept(root.dataset.accept, item)) option.dataset.off = "1";
         option.hidden = true;
         picker.querySelector("[data-linked-options]")!.append(option);
         options.push(option);

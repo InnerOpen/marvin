@@ -11,6 +11,8 @@ export interface LinkedItem {
   /** An audio asset's public url, played from its card (an actor's voice sample). */
   audioUrl?: string | null;
   alt?: string | null;
+  /** An asset's file type, for a field that takes only some kinds (lib/assetAccept.ts). */
+  mimeType?: string | null;
 }
 
 /** The ids a stored value names: one id, a list, or the comma-separated string an older form saved. */
@@ -48,7 +50,7 @@ export function canAdd(count: number, multiple: boolean, max?: number | null): b
 export function assetItem(a: { id: string; name: string; mimeType?: string | null; publicUrl?: string | null; altText?: string | null }): LinkedItem {
   const image = (a.mimeType ?? "").startsWith("image/") && a.publicUrl ? a.publicUrl : null;
   const audio = (a.mimeType ?? "").startsWith("audio/") && a.publicUrl ? a.publicUrl : null;
-  return { id: a.id, name: a.name, meta: a.mimeType ?? null, imageUrl: image, audioUrl: audio, alt: a.altText ?? null };
+  return { id: a.id, name: a.name, meta: a.mimeType ?? null, imageUrl: image, audioUrl: audio, alt: a.altText ?? null, mimeType: a.mimeType ?? null };
 }
 
 /** A resource as the picker shows it. */
