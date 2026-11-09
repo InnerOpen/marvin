@@ -58,6 +58,7 @@ try {
           <div class="upload-batch" id="uploadBatch" style="display: none;">
             <p class="batch-summary" id="batchSummary"></p>
             <label class="batch-adjust" id="batchAdjust" hidden><input type="checkbox" id="batchAdjustOn" /> <span id="batchAdjustText">Apply my last adjustments to every picture</span></label>
+            <label class="batch-adjust" id="batchKeep" hidden><input type="checkbox" id="batchKeepOn" /> <span>Also keep each original file (a second, full-size asset; the adjusted picture is saved as a version made from it)</span></label>
             <ul class="batch-list" id="batchList"></ul>
             <button type="button" class="button secondary small" id="changeFiles">Change files</button>
           </div>
@@ -318,11 +319,15 @@ try {
   const batchAdjust = document.getElementById('batchAdjust') as HTMLElement;
   const batchAdjustOn = document.getElementById('batchAdjustOn') as HTMLInputElement;
   const batchAdjustText = document.getElementById('batchAdjustText') as HTMLElement;
+  const batchKeep = document.getElementById('batchKeep') as HTMLElement;
+  const batchKeepOn = document.getElementById('batchKeepOn') as HTMLInputElement;
   // The cropper remembers the last brightness, contrast and saturation; a batch (which skips the cropper) can take the same look.
   const rememberedAdjust = () => ((window as any).ImageCropper?.rememberedFilter?.() ?? null) as { filter: string; summary: string } | null;
+  batchAdjustOn?.addEventListener('change', () => (batchKeep.hidden = !batchAdjustOn.checked));
   function showBatchAdjust() {
     const kept = rememberedAdjust();
     batchAdjust.hidden = !kept;
+    batchKeep.hidden = !kept || !batchAdjustOn.checked;
     if (kept) batchAdjustText.textContent = `Apply my last adjustments (${kept.summary}) to every picture, fitted within ${maxBox().w}×${maxBox().h} (JPEG; a PNG stays PNG), like a single cropped upload`;
   }
   /** The cropper's max size and quality, as set on the page (its controls are there even when the batch skips it). */
@@ -655,6 +660,7 @@ try {
     const failed: Array<{ name: string; reason: string }> = [];
     let done = 0;
     const look = batchAdjustOn.checked ? rememberedAdjust() : null;
+    const keepOriginals = !!look && batchKeepOn.checked;
     for (const file of selectedFiles) {
       const name = nameFor(file);
       progressText.textContent = `Uploading ${done + 1} of ${total}: ${name}`;
@@ -663,15 +669,30 @@ try {
       let n = 1;
       let slug = base;
       while (taken.has(slug)) slug = `${base}-${++n}`;
+      const toSend = look ? await adjusted(file, look.filter) : file;
+      // An adjusted picture is a smaller copy: the file as picked goes up too, once, with a stamped slug of its own, and the copy is
+      // recorded as made from it, the way the field's upload dialog does, so an archive keeps its full-size photo.
+      let lineage: Record<string, unknown> | undefined;
+      if (keepOriginals && toSend !== file) {
+        try {
+          const original = await sdk.assets.upload(file, { slug: `${base}-original-${Date.now().toString(36)}`, name: `${name} (original)`, altText: altText || undefined, description: description || undefined, metadata });
+          lineage = { derived_from: (original as { id: string }).id, derivation: 'edited:batch' };
+        } catch (error: any) {
+          failed.push({ name: `${file.name} (original)`, reason: error?.message || error?.detail || 'Upload failed' });
+          done += 1;
+          progressFill.style.width = `${Math.round((done / total) * 100)}%`;
+          continue;
+        }
+      }
       let tries = 0;
       while (true) {
         try {
-          await sdk.assets.upload(look ? await adjusted(file, look.filter) : file, { slug, name, altText: altText || undefined, description: description || undefined, metadata });
+          await sdk.assets.upload(toSend, { slug, name, altText: altText || undefined, description: description || undefined, metadata: lineage ? { ...(metadata ?? {}), ...lineage } : metadata });
           taken.add(slug);
           break;
         } catch (error: any) {
           const message: string = error?.message || error?.detail || 'Upload failed';
-          const slugTaken = error?.status === 409 || /slug/i.test(message);
+          const slugTaken = error?.status === 409 || /slug|409|conflict|exist/i.test(message);
           if (slugTaken && ++tries < 5) {
             slug = `${base}-${++n}`;
             continue;
