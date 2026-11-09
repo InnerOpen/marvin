@@ -111,7 +111,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
             </div>
           </div>
         </div>
-        <label class="li-upload-keep" data-linked-upload-keep hidden><input type="checkbox" data-linked-upload-keep-on checked /> Keep the original file in the library too (the cropped picture is saved as a version made from it)</label>
+        <label class="li-upload-keep" data-linked-upload-keep hidden><input type="checkbox" data-linked-upload-keep-on /> Also keep the original file (a second, full-size asset; the cropped picture is saved as a version made from it)</label>
         <label class="li-upload-label">Name {multiple && <small>(one file; several are each named after their file)</small>}
           <input type="text" data-linked-upload-name maxlength="200" />
         </label>
