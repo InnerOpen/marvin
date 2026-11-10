@@ -513,13 +513,14 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                         <SchemaForm schema={{ fields: addFields }} values={addValues} refs={refs} />
                         {step.add.file && (
                           <div class="form-group">
-                            <label>A recording of your own (optional)</label>
+                            <label>Your own take</label>
+                            <p class="muted">Record or upload one, then use the first button. Leave it empty to have ElevenLabs make it from the words above.</p>
                             <FileDrop accept={addAccept ?? undefined} hint="Record or upload one take." nameFrom="add_title" />
                           </div>
                         )}
                         <div class="actions">
-                          {(step.add.buttons ?? [{ label: "Add" }]).map((b: { label: string }, n: number) => (
-                            <button class:list={["button", n > 0 && "secondary"]} type="submit" name="do" value={String(n)}>{b.label}</button>
+                          {(step.add.buttons ?? [{ label: "Add" }]).map((b: { label: string; file?: string }, n: number) => (
+                            <button class:list={["button", n > 0 && "secondary"]} type="submit" name="do" value={String(n)} data-needs-file={b.file} disabled={b.file === "required" || undefined}>{b.label}</button>
                           ))}
                         </div>
                       </form>
@@ -667,6 +668,15 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
 </AppLayout>
 
 <script>
+  // A button that needs a recording stays off until there is one, and a button that must have none goes off once there is: neither can post an error.
+  document.querySelectorAll<HTMLFormElement>("form").forEach((form) => {
+    const buttons = [...form.querySelectorAll<HTMLButtonElement>("button[data-needs-file]")];
+    if (!buttons.length) return;
+    form.addEventListener("filedrop:change", (e) => {
+      const has = (e as CustomEvent<{ hasFile: boolean }>).detail.hasFile;
+      for (const b of buttons) b.disabled = b.dataset.needsFile === "required" ? !has : b.dataset.needsFile === "none" ? has : false;
+    });
+  });
   // A form that moves something to the Trash asks first.
   document.querySelectorAll<HTMLFormElement>("form[data-confirm]").forEach((form) => {
     form.addEventListener("submit", (e) => {
