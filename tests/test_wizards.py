@@ -456,3 +456,11 @@ def test_a_wizard_only_shows_approvals_of_workflows_its_own_package_brings():
 
 def test_a_gallery_may_offer_to_trash_what_it_lists():
     assert payload_problem(_takes_wizard(trash=True), "takes") is None
+
+
+def test_a_choose_step_may_sort_naturally():
+    payload = copy.deepcopy(WIZARD)
+    payload["steps"][1]["sort"] = "natural"
+    assert payload_problem(payload, "narrate") is None
+    payload["steps"][1]["sort"] = "newest"
+    assert "sort is natural" in (payload_problem(payload, "narrate") or "")

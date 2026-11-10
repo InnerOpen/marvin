@@ -36,6 +36,11 @@ export interface WizardDefinition {
   open?: { entry: string; label: string; view?: string };
 }
 
+/** Entries by title as people count: "2" before "10", ignoring case, so a long list of numbered lines runs from the lowest to the highest. */
+export function naturalByTitle<T extends { title?: string | null }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => (a.title ?? "").localeCompare(b.title ?? "", undefined, { numeric: true, sensitivity: "base" }));
+}
+
 /** The name a new entry gets from a gallery's `name`: its parent's title, then the noun and the next number ("01 Granny: People say… · take 3"). */
 export function numberedTitle(base: string, noun: string, existing: number): string {
   return `${base.trim() || "Untitled"} · ${noun.trim()} ${existing + 1}`;

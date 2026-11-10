@@ -275,6 +275,8 @@ def _check_create(s: _Step, create: Any) -> str | None:
 
 
 def _check_choose(s: _Step) -> str | None:
+    if s.step.get("sort") not in (None, "natural"):
+        return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
     scope, create = s.step.get("scope"), s.step.get("create")
     if scope is not None and (not isinstance(scope, dict) or not all(_is_field(k) for k in scope)):
         return f"{s.label}: scope must map field keys to values"

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, buttonHref, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
+  approvalsOf, buttonHref, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -241,4 +241,10 @@ test("an add form starts from the chosen entries' own values", () => {
   const fallback = { prefill: { spoken: "line.delivery_text|line.text" } };
   assert.deepEqual(prefillOf(fallback, { line: { dataJson: { delivery_text: "[sighs] People say.", text: "People say." } } }), { spoken: "[sighs] People say." });
   assert.deepEqual(prefillOf(fallback, { line: { dataJson: { delivery_text: " ", text: "People say." } } }), { spoken: "People say." });
+});
+
+test("a long list of numbered entries runs from the lowest to the highest", () => {
+  const rows = ["10 Cook: Soup", "2 Cook: Salt", "02 Granny: Hi", "1 Cook: Hello", "b", "A"].map((title) => ({ title }));
+  assert.deepEqual(naturalByTitle(rows).map((r) => r.title), ["1 Cook: Hello", "2 Cook: Salt", "02 Granny: Hi", "10 Cook: Soup", "A", "b"]);
+  assert.deepEqual(naturalByTitle([{ title: null }, { title: "a" }]).map((r) => r.title ?? ""), ["", "a"]);
 });

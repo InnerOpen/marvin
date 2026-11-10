@@ -13,7 +13,7 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, generateAsRun, highlightOf, isDone, prefillOf, shownLines, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -129,6 +129,7 @@ if (authToken && def && step) {
     typeName = type?.name ?? step.entry_type;
     if (step.kind === "choose") {
       choices = (await findEntries(chooseSpec(step, ctx), authToken)).entries;
+      if (step.sort === "natural") choices = naturalByTitle(choices);
       pictureRole = fieldRole(type, step.picture);
       createFirst = !!step.create && (!!step.create.upload || choices.length > LONG_LIST);
       formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields, Object.keys(suppliedData(step, ctx)))));
