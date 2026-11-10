@@ -323,7 +323,8 @@ def _condition_fields(cond) -> list[str]:
         return []
     if cond.get("field"):
         return [str(cond["field"])]
-    return _condition_fields(cond.get("all") or []) + _condition_fields(cond.get("any") or []) + _condition_fields(cond.get("not") or {})
+    inner = cond.get("not")  # one nested condition, or nothing: an empty one must not be walked again (it would never end)
+    return _condition_fields(cond.get("all") or []) + _condition_fields(cond.get("any") or []) + (_condition_fields(inner) if inner else [])
 
 
 def when_issues(definition: dict | None) -> list[dict]:

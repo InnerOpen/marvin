@@ -90,3 +90,25 @@ def test_exists_false_typed_as_text_still_means_must_not_exist():
     assert matches({"field": "steps.a.output.missing", "op": "exists", "value": "false"}, context)
     assert not matches({"field": "steps.a.output.ok", "op": "exists", "value": "false"}, context)
     assert matches({"field": "steps.a.output.ok", "op": "exists", "value": ""}, context)  # blank: must exist, as before
+
+
+def test_a_when_group_of_conditions_is_checked_without_looping_forever():
+    steps = [
+        {"kind": "emit_event", "id": "a", "event": "a"},
+        {
+            "kind": "emit_event",
+            "event": "b",
+            "when": {"all": [{"field": "steps.a.output.ok", "op": "exists"}, {"not": {"field": "steps.later.output.ok", "op": "exists"}}]},
+        },
+        {
+            "kind": "emit_event",
+            "event": "c",
+            "when": {"any": [{"field": "steps.a.output.ok", "op": "exists"}, {"all": [{"field": "entry.data.x", "op": "exists"}]}]},
+        },
+        {"kind": "emit_event", "id": "later", "event": "d"},
+    ]
+
+    issues = when_issues({"actions": steps})
+
+    assert [(i["where"], i["index"]) for i in issues] == [("actions", 1)]  # only the group that reads a step not yet run
+    assert "steps.later" in issues[0]["message"]
