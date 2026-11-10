@@ -442,6 +442,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
       item.pause = pauseAfter(row);
       item.seconds += item.pause;
       item.estimated = timed.some((p) => p.estimated);
+      let reach = 0; // how far into the item its last placed sound runs: the render lets a beat last until that sound has finished
       for (const lane of placedLanes) {
         const known = bySlug(lane);
         const placed = field(row, lane.placed!.field);
@@ -453,9 +454,11 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
           const at = Math.max(0, num((ref as Record<string, unknown>)[lane.placed!.at]) ?? 0);
           const length = pieceSeconds(target, lane);
           pieces.push(pieceOf(target, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + at, at));
+          reach = Math.max(reach, at + (length?.seconds ?? 0));
         }
         item.lanes[lane.id] = pieces;
       }
+      if (reach > item.seconds - item.pause) item.seconds = reach + item.pause; // the render: max(hold, speech, the end of the last sound) and then the pause
       clock += item.seconds;
       made.push(item);
       items.push(item);
