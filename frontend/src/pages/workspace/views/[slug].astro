@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
+import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -73,6 +73,9 @@ if (spec && authToken) {
       if (lane.placed) {
         const { field, ref } = lane.placed;
         wanted = [...new Set(rows.flatMap((r) => (Array.isArray(r.dataJson?.[field]) ? (r.dataJson![field] as unknown[]) : [])).map((x) => String((x as Record<string, unknown>)?.[ref] ?? "")))];
+      } else if (lane.cover) {
+        // An overlay comes from the item, else the entry its `via` field names (a scene), else the view's own entry: nothing more to fetch.
+        if (lane.cover.via && lane.cover.entry_type) via[lane.id] = (await bySlugs(lane.cover.entry_type, slugsIn(rows, lane.cover.via))) as LaidRow[];
       } else if (lane.bed?.via && lane.bed.entry_type) {
         via[lane.id] = (await bySlugs(lane.bed.entry_type, slugsIn(rows, lane.bed.via))) as LaidRow[];
         wanted = slugsIn(via[lane.id], lane.bed.field);
@@ -156,6 +159,17 @@ const clip = (b: { start: number; seconds: number }, track: { start: number; sec
   const from = Math.max(b.start, track.start);
   const to = Math.min(b.start + b.seconds, track.start + track.seconds);
   return { from, seconds: Math.max(0, to - from) };
+};
+const coversIn = (lane: LaneSpec, track: { start: number; seconds: number }) =>
+  (laid?.covers[lane.id] ?? []).filter((c) => c.start < track.start + track.seconds && c.start + c.seconds > track.start);
+// A bed's level steps as bars inside its block, as a share of the loudest of them (a block of 40 s with a silent beat in the middle).
+const stepBars = (b: Bed, track: { start: number; seconds: number }) => {
+  const from = clip(b, track);
+  const top = Math.max(b.volume, ...b.steps.map((st) => st.volume), 0.01);
+  return b.steps
+    .map((st) => ({ ...st, ...clip(st, track) }))
+    .filter((st) => st.seconds > 0 && from.seconds > 0)
+    .map((st) => ({ left: ((st.from - from.from) / from.seconds) * 100, width: (st.seconds / from.seconds) * 100, height: (st.volume / top) * 100, volume: st.volume, start: st.start, end: st.start + st.seconds }));
 };
 const bedsIn = (lane: LaneSpec, track: { start: number; seconds: number }) =>
   (laid?.beds[lane.id] ?? []).filter((b) => b.start < track.start + track.seconds && b.start + b.seconds > track.start);
@@ -279,7 +293,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   return (
                   <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title} style={laneRows.some((r) => r > 0) ? `height:${laneHeight}px` : undefined}>
                     <span class="tl-lane-name">
-                      <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>
+                      {!lane.cover && <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>}
                       {lane.title}
                       {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.estimated && !p.unmeasured)) && <em>hatched: no take yet, length estimated</em>}
                       {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.unmeasured)) && <em>dashed edge: take attached, length not stored</em>}
@@ -296,9 +310,26 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           style={`left:${pctIn(track, clip(b, track).from)};width:${pctIn(track, track.start + clip(b, track).seconds)}`}
                           title={`${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)} · level ${Math.round(b.volume * 100)}%${b.loop ? ", loops" : ""}${b.muffled ? ", muffled" : ""}${b.audio ? "" : "\nno take yet"}`}
                         >
+                          {stepBars(b, track).map((st) => (
+                            <i class:list={["tl-step", { off: st.volume === 0 }]} aria-hidden="true" style={`left:${st.left}%;width:${st.width}%;height:${Math.max(st.height, st.volume === 0 ? 0 : 8)}%`} title={`${timecode(st.start)} → ${timecode(st.end)} · ${st.volume === 0 ? "silent" : `level ${Math.round(st.volume * 100)}%`}`} />
+                          ))}
                           <span>{b.title}</span>
-                          <small>{Math.round(b.volume * 100)}%{b.muffled ? " · muffled" : ""}{b.audio ? "" : " · no take yet"}</small>
+                          <small>{b.steps.some((st) => st.volume === 0) ? "dips to silence" : b.steps.length ? `${Math.round(b.volume * 100)}%, changes` : `${Math.round(b.volume * 100)}%`}{b.muffled ? " · muffled" : ""}{b.audio ? "" : " · no take yet"}</small>
                         </a>
+                      ))}
+                    {lane.cover &&
+                      coversIn(lane, track).map((c) => (
+                        <span
+                          class="tl-bed tl-cover"
+                          role="listitem"
+                          data-start={c.start}
+                          data-end={c.start + c.seconds}
+                          style={`left:${pctIn(track, clip(c, track).from)};width:${pctIn(track, track.start + clip(c, track).seconds)}`}
+                          title={`${c.name}\n${timecode(c.start)} → ${timecode(c.start + c.seconds)} · ${c.blend}${c.opacity < 1 ? ` at ${Math.round(c.opacity * 100)}%` : ""} · from the ${c.from}`}
+                        >
+                          <span>{c.name}</span>
+                          <small>{c.blend}{c.opacity < 1 ? ` ${Math.round(c.opacity * 100)}%` : ""} · {c.from}</small>
+                        </span>
                       ))}
                     {quiets(track.items, lane).map((q) => (
                       <span class={`tl-quiet ${q.kind}`} aria-hidden="true" style={`left:${pctIn(track, q.start)};width:${pctIn(track, track.start + q.seconds)}`} title={`${quietWords(q.kind)} (${q.seconds.toFixed(2)} s)\n${timecode(q.start)} → ${timecode(q.start + q.seconds)}`}>
@@ -339,7 +370,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   // The player: walks the cues (each a stretch of time, with a take to play or silence to wait), moves the playhead and lights the item and
   // piece under it. Nothing is stitched: a story plays from its takes as they are, and improves as takes land.
   interface Cue { item: string; piece: string | null; lane: string | null; start: number; seconds: number; audio: string | null }
-  interface Overlay { id: string; lane: string; start: number; seconds: number; audio: string; volume: number; loop: boolean }
+  interface Overlay { id: string; lane: string; start: number; seconds: number; audio: string; volume: number; loop: boolean; origin?: number }
   const root = document.querySelector<HTMLElement>(".tl");
   const cuesEl = root?.querySelector<HTMLScriptElement>("script[data-cues]");
   if (root && cuesEl) {
@@ -389,7 +420,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           const el = new Audio(o.audio);
           el.volume = levelOf(o);
           el.loop = o.loop;
-          const offset = t - o.start;
+          const offset = t - (o.origin ?? o.start); // a bed cut into level steps keeps its place in the file across them
           el.addEventListener("loadedmetadata", () => {
             if (!el.duration || !Number.isFinite(el.duration)) return;
             if (o.loop) el.currentTime = offset % el.duration;
@@ -647,6 +678,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-bed { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 8%, var(--panel)); color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-decoration: none; }
   .tl-bed small { color: var(--muted); font-size: 11px; }
+  .tl-bed > span, .tl-bed > small { position: relative; z-index: 1; }
+  /* A bed's level over time: bars rising from the foot of the block, a silent stretch hatched. */
+  .tl-step { position: absolute; bottom: 0; background: color-mix(in srgb, var(--accent) 22%, transparent); border-left: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); box-sizing: border-box; }
+  .tl-step.off { height: 100% !important; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink) 14%, transparent) 0 4px, transparent 4px 8px); }
+  .tl-cover { cursor: default; border-style: dashed; background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
   .tl-bed.silent { border-style: dotted; background: var(--panel); }
   .tl-bed.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-piece:hover { z-index: 1; min-width: max-content; }

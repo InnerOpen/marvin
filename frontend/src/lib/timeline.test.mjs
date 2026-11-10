@@ -273,3 +273,82 @@ test("stackRows: pieces that overlap in time go on different rows, and a free ro
   // rows come back in the order given, whatever the time order
   assert.deepEqual(stackRows([{ start: 5, seconds: 1 }, { start: 0, seconds: 6 }]), [1, 0]);
 });
+
+// ── Release C2: music levels per beat and a video over the pictures ──────────────────────────────────────────────────────────────────────
+const musicSpec = () => ({ ...bedSpec, lanes: bedSpec.lanes.map((l) => (l.id === "music" ? { ...l, bed: { field: "music", item_volume: "music_volume" } } : l)) });
+const musicLaid = (levels) => {
+  const spine = bedBeats.map((b, i) => (levels[i] === undefined ? b : { ...b, dataJson: { ...b.dataJson, music_volume: levels[i] } }));
+  return layout(musicSpec(), { entry: row("s", { music: "waltz" }), spine, groups: chapters, lanes: { lines: [], sounds: [], ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } });
+};
+
+test("music: a beat that sets its own level shows as steps; one at zero is a silent step; no override, no steps", () => {
+  assert.deepEqual(musicLaid([]).beds.music[0].steps, []);
+  const [bed] = musicLaid([undefined, undefined, 0, undefined, undefined]).beds.music;
+  assert.deepEqual(bed.steps.map((s) => [s.start, s.seconds, s.volume]), [[0, 8, 0.3], [8, 4, 0], [12, 8, 0.3]]);
+  assert.equal(bed.volume, 0.3); // the block itself is still the story's level
+});
+
+test("music: neighbouring beats at one level are one step, and a level equal to the story's is no change", () => {
+  const [bed] = musicLaid([0.3, 0.3, 0.1, 0.1, undefined]).beds.music;
+  assert.deepEqual(bed.steps.map((s) => [s.start, s.seconds, s.volume]), [[0, 8, 0.3], [8, 8, 0.1], [16, 4, 0.3]]);
+  assert.deepEqual(musicLaid([0.3, 0.3, 0.3, 0.3, 0.3]).beds.music[0].steps, []);
+});
+
+test("music: playback plays each audible step at its own level, keeps its place in the file across them and plays nothing in a silent one", () => {
+  const laid = musicLaid([undefined, undefined, 0, undefined, undefined]);
+  const music = overlays(laid, musicSpec().lanes).filter((o) => o.lane === "music");
+  assert.deepEqual(music.map((o) => [o.start, o.seconds, o.volume, o.origin]), [[0, 8, 0.3, 0], [12, 8, 0.3, 0]]);
+});
+
+test("music: an unchanged bed still plays as one piece with no origin", () => {
+  const music = overlays(musicLaid([]), musicSpec().lanes).filter((o) => o.lane === "music");
+  assert.deepEqual(music.map((o) => [o.start, o.seconds, o.origin]), [[0, 20, undefined]]);
+});
+
+const rain = { role: "overlay", publicUrl: "https://cdn/media/rain-loop.webm?sig=1", mimeType: "video/webm" };
+const grain = { role: "overlay", publicUrl: "https://cdn/media/grain.mp4", mimeType: "video/mp4" };
+const coverSpec = { ...spec, lanes: [...spec.lanes, { id: "overlay", title: "Overlay", entry_type: "beat", cover: { field: "overlay", blend: "overlay_blend", opacity: "overlay_opacity", via: "scene", entry_type: "scene" } }] };
+const coverLaid = ({ story = {}, storyAssets = [], scenes: sc, beatsData = [] }) => {
+  const spine = bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, ...(beatsData[i] ?? {}) }, assets: beatsData[i]?.assets ?? [] }));
+  return layout(coverSpec, { entry: row("s", story, { assets: storyAssets }), spine, groups: chapters, lanes: { lines: [], sounds: [] }, via: { overlay: sc ?? [] } });
+};
+
+test("overlay lane: the story's video runs under every beat as one block, named by its file, blend normal at full strength", () => {
+  const [c] = coverLaid({ storyAssets: [grain] }).covers.overlay;
+  assert.deepEqual([c.name, c.from, c.blend, c.opacity, c.start, c.seconds, c.items.length], ["grain.mp4", "story", "normal", 1, 0, 20, 5]);
+});
+
+test("overlay lane: a scene's wins over the story's, a beat's over both, and the blocks split where the video, blend or strength change", () => {
+  const laid = coverLaid({
+    storyAssets: [grain],
+    scenes: [row("deck", { overlay_blend: "screen", overlay_opacity: 0.5 }, { assets: [rain] })],
+    beatsData: [{}, {}, { assets: [grain], overlay_blend: "multiply" }],
+  });
+  assert.deepEqual(laid.covers.overlay.map((c) => [c.name, c.from, c.blend, c.opacity, c.start, c.seconds]), [
+    ["rain-loop.webm", "scene", "screen", 0.5, 0, 8], // b1 and b2, from the deck
+    ["grain.mp4", "beat", "multiply", 1, 8, 4], // b3's own
+    ["grain.mp4", "story", "normal", 1, 12, 8], // b4 (scene "hold" has none) and b5 (no such scene) fall back to the story's
+  ]);
+});
+
+test("overlay lane: a blend of none switches the overlay off from that level up, and a beat of its own still gets its own", () => {
+  const laid = coverLaid({
+    storyAssets: [grain],
+    scenes: [row("deck", { overlay_blend: "none" }, { assets: [rain] })],
+    beatsData: [{}, { assets: [rain] }, { overlay_blend: "none" }],
+  });
+  // b1: the scene says none; b2: its own rain; b3: none on the beat; b4 and b5: the story's again
+  assert.deepEqual(laid.covers.overlay.map((c) => [c.name, c.from, c.start, c.seconds]), [
+    ["rain-loop.webm", "beat", 4, 4],
+    ["grain.mp4", "story", 12, 8],
+  ]);
+});
+
+test("overlay lane: nothing named anywhere draws nothing, and an image attached in that role is not a video", () => {
+  assert.deepEqual(coverLaid({}).covers, { overlay: [] });
+  assert.deepEqual(coverLaid({ storyAssets: [{ role: "overlay", publicUrl: "https://cdn/x.png", mimeType: "image/png" }] }).covers.overlay, []);
+});
+
+test("overlay lane: a view without one has no covers", () => {
+  assert.deepEqual(layout(spec, { spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } }).covers, {});
+});
