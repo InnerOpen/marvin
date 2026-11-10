@@ -55,6 +55,11 @@ export async function createOf(type: EntryTypeRead, title: string, data: Record<
   return (await createEntry({ entry_type_id: type.id, title, status: "draft", data_json: data } as any, authToken)) as unknown as Row;
 }
 
+/** Move an entry to the Trash (restorable from there). */
+export async function trashEntry(id: string, authToken: string): Promise<void> {
+  await fetchApi(`/api/platform/entries/${encodeURIComponent(id)}`, { method: "DELETE" }, authToken);
+}
+
 /** Set some fields of an entry, keeping the rest (an update replaces the whole data). */
 export async function setData(entry: Row, changes: Record<string, unknown>, authToken: string): Promise<void> {
   await updateEntry(entry.id, { data_json: { ...(entry.dataJson ?? {}), ...changes } } as any, authToken);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent, preferred, refViaOf } from "./refFields.ts";
+import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent, tiered, refViasOf } from "./refFields.ts";
 
 const schema = {
   fields: [
@@ -22,9 +22,9 @@ test("only a text field's non-empty ref refers to a type", () => {
 
 test("the ref fields of a schema, with their types", () => {
   assert.deepEqual(refFieldsOf(schema), [
-    { key: "voice", ref: "voice", via: null },
-    { key: "narrator", ref: "voice", via: null },
-    { key: "actor", ref: "actor", via: null },
+    { key: "voice", ref: "voice", vias: [] },
+    { key: "narrator", ref: "voice", vias: [] },
+    { key: "actor", ref: "actor", vias: [] },
   ]);
 });
 
@@ -73,20 +73,22 @@ test("a type with none of the chosen fields is not narrowed", () => {
   assert.deepEqual(refScope(null, { world: "w" }), {});
 });
 
-test("ref_via: only a well-formed one counts, and a field's refFieldsOf carries it", () => {
+test("ref_via: a well-formed one or a list of tiers counts, and refFieldsOf carries them", () => {
   const via = { entry_type: "cast-member", field: "voice", match: { story: "story" } };
-  assert.deepEqual(refViaOf({ ref_via: via }), via);
-  assert.equal(refViaOf({}), null);
-  assert.equal(refViaOf({ ref_via: { entry_type: "cast-member", field: "voice", match: {} } }), null);
-  assert.equal(refViaOf({ ref_via: { entry_type: "cast-member", match: { story: "story" } } }), null);
-  assert.deepEqual(refFieldsOf({ fields: [{ key: "voice", type: "text", ref: "voice", ref_via: via }] }), [{ key: "voice", ref: "voice", via }]);
+  assert.deepEqual(refViasOf({ ref_via: via }), [via]);
+  assert.deepEqual(refViasOf({ ref_via: [{ ...via, label: " This speaker " }, via] }), [{ ...via, label: "This speaker" }, via]);
+  assert.deepEqual(refViasOf({}), []);
+  assert.deepEqual(refViasOf({ ref_via: { entry_type: "cast-member", field: "voice", match: {} } }), []);
+  assert.deepEqual(refViasOf({ ref_via: [{ entry_type: "cast-member", match: { story: "story" } }, via] }), [via]);
+  assert.deepEqual(refFieldsOf({ fields: [{ key: "voice", type: "text", ref: "voice", ref_via: via }] }), [{ key: "voice", ref: "voice", vias: [via] }]);
 });
 
-test("preferred: the story's cast first under their heading, the rest under another; nobody cast leaves the list as it is", () => {
-  const all = [{ slug: "a", title: "Alice" }, { slug: "b", title: "Brian" }, { slug: "c", title: "Chris" }];
-  assert.deepEqual(preferred(all, ["c", "a", "gone"], "Cast in this story", "Other voices").map((o) => [o.slug, o.group]), [
-    ["a", "Cast in this story"], ["c", "Cast in this story"], ["b", "Other voices"],
+test("tiered: each option under the first tier that names it, the rest last; nobody named leaves the list as it is", () => {
+  const all = [{ slug: "a", title: "Alice" }, { slug: "b", title: "Brian" }, { slug: "c", title: "Chris" }, { slug: "d", title: "Dan" }];
+  const tiers = [{ label: "This speaker", slugs: ["c"] }, { label: "Cast", slugs: ["a", "c", "gone"] }];
+  assert.deepEqual(tiered(all, tiers, "Other voices").map((o) => [o.slug, o.group]), [
+    ["c", "This speaker"], ["a", "Cast"], ["b", "Other voices"], ["d", "Other voices"],
   ]);
-  assert.equal(preferred(all, [], "x", "y"), all);
-  assert.equal(preferred(all, ["nobody"], "x", "y"), all);
+  assert.equal(tiered(all, [{ label: "x", slugs: [] }], "y"), all);
+  assert.equal(tiered(all, [{ label: "x", slugs: ["nobody"] }], "y"), all);
 });

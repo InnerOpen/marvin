@@ -13,7 +13,7 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, generateAsRun, highlightOf, isDone, prefillOf, shownLines, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -129,6 +129,7 @@ if (authToken && def && step) {
     typeName = type?.name ?? step.entry_type;
     if (step.kind === "choose") {
       choices = (await findEntries(chooseSpec(step, ctx), authToken)).entries;
+      if (step.sort === "natural") choices = naturalByTitle(choices);
       pictureRole = fieldRole(type, step.picture);
       createFirst = !!step.create && (!!step.create.upload || choices.length > LONG_LIST);
       formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields, Object.keys(suppliedData(step, ctx)))));
@@ -158,6 +159,7 @@ if (authToken && def && step) {
     missingType = !type;
     typeName = type?.name ?? step.entry_type;
     cards = (await findEntries(listSpec(step, ctx), authToken)).entries;
+    if (step.sort === "natural") cards = naturalByTitle(cards);
     pictureRole = fieldRole(type, step.picture);
     addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
     refs = await refsFor(addFields);
@@ -464,6 +466,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                     const sound = cardAudio(r.assets, step.audio);
                     const badges = ((step.badges ?? []) as string[]).filter((b) => r.dataJson?.[b]);
                     return (
+                      <div class="gwrap">
                       <a class:list={["gcard", { marked: !!highlightOf(step, r.dataJson) }]} href={`/workspace/entries/${r.id}`}>
                         <div class="gpic">
                           {pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(r.title || "?").slice(0, 1)}</span>}
@@ -482,6 +485,26 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                           )}
                         </div>
                       </a>
+                      {(step.card_actions ?? []).some((a: any) => cardActionShown(a, r.dataJson)) && (
+                        <div class="gacts">
+                          {(step.card_actions as { label: string; when?: any }[]).map((a, n) => cardActionShown(a, r.dataJson) && (
+                            <form method="post" class="gact">
+                              <input type="hidden" name="action" value="card" />
+                              <input type="hidden" name="card_id" value={r.id} />
+                              <input type="hidden" name="card_do" value={String(n)} />
+                              <button class="button secondary small" type="submit">{a.label}</button>
+                            </form>
+                          ))}
+                        </div>
+                      )}
+                      {step.trash && (
+                        <form method="post" class="gtrash" data-confirm={highlightOf(step, r.dataJson) ? `“${r.title}” is the one this plays. Move it to the Trash? What was already set from it stays until you choose another.` : `Move “${r.title}” to the Trash? You can bring it back from the Trash.`}>
+                          <input type="hidden" name="action" value="trash" />
+                          <input type="hidden" name="trash_id" value={r.id} />
+                          <button type="submit" title="Move to the Trash">🗑 Remove</button>
+                        </form>
+                      )}
+                      </div>
                     );
                   })}
                   {cards.length === 0 && <p class="muted none">{step.empty ?? `No ${typeName.toLowerCase()} yet.`}</p>}
@@ -503,13 +526,14 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                         <SchemaForm schema={{ fields: addFields }} values={addValues} refs={refs} />
                         {step.add.file && (
                           <div class="form-group">
-                            <label>A recording of your own (optional)</label>
+                            <label>Your own take</label>
+                            <p class="muted">Record or upload one, then use the first button. Leave it empty to have ElevenLabs make it from the words above.</p>
                             <FileDrop accept={addAccept ?? undefined} hint="Record or upload one take." nameFrom="add_title" />
                           </div>
                         )}
                         <div class="actions">
-                          {(step.add.buttons ?? [{ label: "Add" }]).map((b: { label: string }, n: number) => (
-                            <button class:list={["button", n > 0 && "secondary"]} type="submit" name="do" value={String(n)}>{b.label}</button>
+                          {(step.add.buttons ?? [{ label: "Add" }]).map((b: { label: string; file?: string }, n: number) => (
+                            <button class:list={["button", n > 0 && "secondary"]} type="submit" name="do" value={String(n)} data-needs-file={b.file} disabled={b.file === "required" || undefined}>{b.label}</button>
                           ))}
                         </div>
                       </form>
@@ -550,7 +574,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                             </div>
                           </form>
                         ))}
-                        {pendingCards.length === 0 && notice === NOTICES.started && <p class="muted waiting">Running… this page checks for anything to approve every few seconds.</p>}
+                        {pendingCards.length === 0 && notice === NOTICES.started && <p class="muted waiting">Started. Nothing needs your approval right now; if something does, it appears here. You can go on to the next step: what this makes shows there.</p>}
                         <form method="post" class="form">
                           <input type="hidden" name="action" value="generate" />
                           {step.generate.prompt && <label class="col"><span>{step.generate.prompt.label}</span><textarea class="input" rows="3" name="prompt" required /></label>}
@@ -591,7 +615,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                 </form>
               ))}
 
-              {pendingCards.length === 0 && notice && flow.found && flow.enabled && <p class="muted waiting">Running… this page checks for anything to approve every few seconds.</p>}
+              {pendingCards.length === 0 && notice && flow.found && flow.enabled && <p class="muted waiting">Started. Nothing needs your approval right now; if something does, it appears here. You can go on to the next step: what this makes shows there.</p>}
 
               <form method="post" class="form">
                 <div class="actions">
@@ -657,6 +681,21 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
 </AppLayout>
 
 <script>
+  // A button that needs a recording stays off until there is one, and a button that must have none goes off once there is: neither can post an error.
+  document.querySelectorAll<HTMLFormElement>("form").forEach((form) => {
+    const buttons = [...form.querySelectorAll<HTMLButtonElement>("button[data-needs-file]")];
+    if (!buttons.length) return;
+    form.addEventListener("filedrop:change", (e) => {
+      const has = (e as CustomEvent<{ hasFile: boolean }>).detail.hasFile;
+      for (const b of buttons) b.disabled = b.dataset.needsFile === "required" ? !has : b.dataset.needsFile === "none" ? has : false;
+    });
+  });
+  // A form that moves something to the Trash asks first.
+  document.querySelectorAll<HTMLFormElement>("form[data-confirm]").forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      if (!window.confirm(form.dataset.confirm ?? "Are you sure?")) e.preventDefault();
+    });
+  });
   // A sound's length is not stored anywhere when it is uploaded or recorded: measure it here, as it is posted, so the new entry knows how long it is.
   document.querySelectorAll<HTMLFormElement>("form[data-measure]").forEach((form) => {
     form.addEventListener("submit", async (e) => {
@@ -792,6 +831,12 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .pill.inuse { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
   .approvals { display: grid; gap: 12px; margin: 0 0 16px; }
   .approval-audio { width: 100%; }
+  .gacts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .gact { margin: 0; }
+  .gwrap { display: grid; gap: 4px; align-content: start; }
+  .gtrash { display: flex; justify-content: flex-end; margin: 0; }
+  .gtrash button { background: none; border: 0; padding: 2px 4px; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .gtrash button:hover { color: var(--color-error); text-decoration: underline; }
   .showcard { border: 1px solid var(--line); border-left: 4px solid var(--color-primary); border-radius: var(--radius); background: var(--panel-2); padding: 12px 14px; margin: 0 0 16px; display: grid; gap: 8px; }
   .showhead { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
   .showcard dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }

@@ -36,6 +36,11 @@ export interface WizardDefinition {
   open?: { entry: string; label: string; view?: string };
 }
 
+/** Entries by title as people count: "2" before "10", ignoring case, so a long list of numbered lines runs from the lowest to the highest. */
+export function naturalByTitle<T extends { title?: string | null }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => (a.title ?? "").localeCompare(b.title ?? "", undefined, { numeric: true, sensitivity: "base" }));
+}
+
 /** The name a new entry gets from a gallery's `name`: its parent's title, then the noun and the next number ("01 Granny: People say… · take 3"). */
 export function numberedTitle(base: string, noun: string, existing: number): string {
   return `${base.trim() || "Untitled"} · ${noun.trim()} ${existing + 1}`;
@@ -73,6 +78,14 @@ export function prefillOf(
   return out;
 }
 
+/** A card action (`card_actions`) shows on a card when its `when` (field eq/neq value) holds, or always without one. */
+export function cardActionShown(action: { when?: { field: string; op: "eq" | "neq"; value: string } }, data: Record<string, unknown> | null | undefined): boolean {
+  const w = action.when;
+  if (!w) return true;
+  const same = String(data?.[w.field] ?? "") === w.value;
+  return w.op === "eq" ? same : !same;
+}
+
 /** The label a gallery's `highlight` puts on a card whose field has the wanted value (the take in use), or null. */
 export function highlightOf(step: Step, data: Record<string, unknown> | null | undefined): string | null {
   const h = step.highlight as { field: string; value: string; label: string } | undefined;
@@ -98,6 +111,8 @@ export const NOTICES: Record<string, string> = {
   denied: "Denied. The workflow stops there; run it again if you change your mind.",
   chosen: "Your choice was taken. The workflow goes on; anything else it asks appears here.",
   added: "Added.",
+  trashed: "Moved to the Trash. You can bring it back from the Trash.",
+  changed: "Done.",
 };
 /** Address parameters that are not choices: the step asked for, and the line to show after a step that started something. */
 export const NOTICE_PARAM = "notice";

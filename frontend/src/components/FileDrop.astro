@@ -80,6 +80,7 @@ const recordable = acceptsAudio(accept);
       empty.hidden = !!file;
       picked.hidden = !file;
       if (file) zone.classList.remove("invalid");
+      zone.dispatchEvent(new CustomEvent("filedrop:change", { bubbles: true, detail: { hasFile: !!file } })); // a form can enable its buttons by whether there is a file
     };
 
     const take = (file: File) => {

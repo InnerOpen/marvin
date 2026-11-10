@@ -382,6 +382,13 @@ def test_a_gallery_may_list_takes_name_them_after_a_line_and_measure_an_upload()
     ("change", "words"),
     [
         ({"layout": "grid"}, "layout"),
+        ({"trash": "yes"}, "trash is"),
+        ({"sort": "newest"}, "sort is"),
+        ({"card_actions": []}, "card_actions"),
+        ({"card_actions": [{"label": " ", "set": {"status": "x"}}]}, "needs a label"),
+        ({"card_actions": [{"label": "x", "set": {}}]}, "set maps"),
+        ({"card_actions": [{"label": "x", "set": {"status": [1]}}]}, "set maps"),
+        ({"card_actions": [{"label": "x", "set": {"status": "x"}, "when": {"field": "status", "op": "gt", "value": "a"}}]}, "when is"),
         ({"name": {"from": "nope", "noun": "take"}}, "name is"),
         ({"name": {"from": "line", "noun": " "}}, "name is"),
         ({"highlight": {"field": "status"}}, "highlight"),
@@ -451,3 +458,20 @@ def test_a_wizard_only_shows_approvals_of_workflows_its_own_package_brings():
     wizard["payload"]["steps"][4]["approve"] = ["someone-elses-workflow"]
     with pytest.raises(PackageError, match="shows approvals of"):
         service.parse_manifest(manifest)
+
+
+def test_a_gallery_may_offer_to_trash_what_it_lists():
+    assert payload_problem(_takes_wizard(trash=True), "takes") is None
+
+
+def test_a_choose_step_may_sort_naturally():
+    payload = copy.deepcopy(WIZARD)
+    payload["steps"][1]["sort"] = "natural"
+    assert payload_problem(payload, "narrate") is None
+    payload["steps"][1]["sort"] = "newest"
+    assert "sort is natural" in (payload_problem(payload, "narrate") or "")
+
+
+def test_a_gallery_card_may_carry_actions_that_set_fields_and_sorts_naturally():
+    good = [{"label": "Use this one", "set": {"status": "in_use"}, "when": {"field": "status", "op": "neq", "value": "in_use"}}]
+    assert payload_problem(_takes_wizard(card_actions=good, sort="natural"), "takes") is None

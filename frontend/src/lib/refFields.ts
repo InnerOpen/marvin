@@ -19,6 +19,8 @@ export interface RefVia {
   entry_type: string;
   field: string;
   match: Record<string, string>;
+  /** The heading its entries are listed under (default "Cast in this <the first matched field>"). */
+  label?: string;
 }
 
 interface FieldLike {
@@ -37,31 +39,39 @@ export function refOf(field: FieldLike): string | null {
   return field.type === "text" && typeof field.ref === "string" && field.ref.trim() ? field.ref.trim() : null;
 }
 
-/** A field's `ref_via`, when it is well formed (an entry type, a field, and at least one match). */
-export function refViaOf(field: FieldLike): RefVia | null {
-  const v = field.ref_via as Partial<RefVia> | null | undefined;
-  if (!v || typeof v.entry_type !== "string" || typeof v.field !== "string" || !v.match || typeof v.match !== "object") return null;
-  const match = Object.fromEntries(Object.entries(v.match).filter(([k, x]) => k && typeof x === "string" && x));
-  return Object.keys(match).length ? { entry_type: v.entry_type, field: v.field, match } : null;
+/** One `ref_via`, when it is well formed (an entry type, a field, and at least one match). */
+function oneVia(v: unknown): RefVia | null {
+  const x = v as Partial<RefVia> | null | undefined;
+  if (!x || typeof x.entry_type !== "string" || typeof x.field !== "string" || !x.match || typeof x.match !== "object") return null;
+  const match = Object.fromEntries(Object.entries(x.match).filter(([k, m]) => k && typeof m === "string" && m));
+  if (!Object.keys(match).length) return null;
+  return { entry_type: x.entry_type, field: x.field, match, ...(typeof x.label === "string" && x.label.trim() ? { label: x.label.trim() } : {}) };
 }
 
-/** The fields of a schema that refer to another type, each with that type's slug (and its `ref_via`, when it has one). */
-export function refFieldsOf(schema: SchemaLike): { key: string; ref: string; via: RefVia | null }[] {
+/** A field's `ref_via`: one, or a list of tiers (the speaker's own voice, then the story's cast); the well formed ones, in order. */
+export function refViasOf(field: FieldLike): RefVia[] {
+  const raw = Array.isArray(field.ref_via) ? field.ref_via : field.ref_via ? [field.ref_via] : [];
+  return raw.flatMap((v) => oneVia(v) ?? []);
+}
+
+/** The fields of a schema that refer to another type, each with that type's slug (and its `ref_via` tiers, when it has any). */
+export function refFieldsOf(schema: SchemaLike): { key: string; ref: string; vias: RefVia[] }[] {
   return fieldsOf(schema).flatMap((f) => {
     const ref = refOf(f);
-    return ref && f.key ? [{ key: f.key, ref, via: refViaOf(f) }] : [];
+    return ref && f.key ? [{ key: f.key, ref, vias: refViasOf(f) }] : [];
   });
 }
 
 /**
- * The options with the preferred ones first under their own heading and the rest under another, so a form offers the story's own cast and
- * still lets someone pick outside it. With none preferred (nobody cast yet) the list is left as it was.
+ * The options split into tiers, each under its own heading in order, and the rest under the last: an option goes under the first tier that
+ * names it. With nothing named (nobody cast yet) the list is left as it was.
  */
-export function preferred(options: RefOption[], slugs: Iterable<string>, first: string, rest: string): RefOption[] {
-  const wanted = new Set(slugs);
-  const chosen = options.filter((o) => wanted.has(o.slug));
-  if (!chosen.length) return options;
-  return [...chosen.map((o) => ({ ...o, group: first })), ...options.filter((o) => !wanted.has(o.slug)).map((o) => ({ ...o, group: rest }))];
+export function tiered(options: RefOption[], tiers: { label: string; slugs: Iterable<string> }[], rest: string): RefOption[] {
+  const sets = tiers.map((t) => ({ label: t.label, slugs: new Set(t.slugs) }));
+  const home = (o: RefOption) => sets.find((t) => t.slugs.has(o.slug))?.label;
+  if (!options.some((o) => home(o))) return options;
+  const groups = [...sets.map((t) => t.label), rest];
+  return groups.flatMap((label) => options.filter((o) => (home(o) ?? rest) === label).map((o) => ({ ...o, group: label })));
 }
 
 /** The distinct entry types a schema's text fields refer to. */
