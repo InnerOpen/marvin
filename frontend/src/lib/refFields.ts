@@ -9,6 +9,8 @@ export interface RefOption {
   title: string;
   /** A heading the option is listed under, when the list is split (the voices cast in this story, then the rest). */
   group?: string;
+  /** A recording to hear before choosing it (the field's `ref_listen`: the asset role to play), when the entry has one. */
+  audio?: string;
 }
 
 /**
@@ -28,6 +30,8 @@ interface FieldLike {
   type?: string;
   ref?: unknown;
   ref_via?: unknown;
+  ref_filter?: unknown;
+  ref_listen?: unknown;
 }
 
 type SchemaLike = { fields?: FieldLike[] | null } | null | undefined;
@@ -55,11 +59,23 @@ export function refViasOf(field: FieldLike): RefVia[] {
 }
 
 /** The fields of a schema that refer to another type, each with that type's slug (and its `ref_via` tiers, when it has any). */
-export function refFieldsOf(schema: SchemaLike): { key: string; ref: string; vias: RefVia[] }[] {
+export function refFieldsOf(schema: SchemaLike): { key: string; ref: string; vias: RefVia[]; filter: Record<string, string>; listen: string | null }[] {
   return fieldsOf(schema).flatMap((f) => {
     const ref = refOf(f);
-    return ref && f.key ? [{ key: f.key, ref, vias: refViasOf(f) }] : [];
+    return ref && f.key ? [{ key: f.key, ref, vias: refViasOf(f), filter: refFilterOf(f), listen: refListenOf(f) }] : [];
   });
+}
+
+/** `ref_filter` on a ref field: only the entries whose fields hold these values are offered (a music field offers sounds of kind music). */
+export function refFilterOf(field: FieldLike): Record<string, string> {
+  const raw = field.ref_filter;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter(([k, v]) => k && typeof v === "string" && v));
+}
+
+/** `ref_listen` on a ref field: the role of the asset to play beside the pick list, so a sound can be heard before it is chosen. */
+export function refListenOf(field: FieldLike): string | null {
+  return typeof field.ref_listen === "string" && field.ref_listen.trim() ? field.ref_listen.trim() : null;
 }
 
 /**
@@ -80,10 +96,16 @@ export function refTypesOf(schema: SchemaLike): string[] {
 }
 
 /** Entries as pick-list options, by title (ignoring case); an entry without a slug cannot be referred to, so it is left out. */
-export function refOptions(entries: { slug?: string | null; title?: string | null }[]): RefOption[] {
+export function refOptions(
+  entries: { slug?: string | null; title?: string | null; assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null }[] | null }[],
+  listenRole?: string | null,
+): RefOption[] {
   return entries
-    .filter((e): e is { slug: string; title?: string | null } => typeof e.slug === "string" && e.slug !== "")
-    .map((e) => ({ slug: e.slug, title: e.title?.trim() || e.slug }))
+    .filter((e): e is typeof e & { slug: string } => typeof e.slug === "string" && e.slug !== "")
+    .map((e) => {
+      const heard = listenRole ? e.assets?.find((a) => a.role === listenRole && a.publicUrl && (a.mimeType ?? "").startsWith("audio/")) : undefined;
+      return { slug: e.slug, title: e.title?.trim() || e.slug, ...(heard?.publicUrl ? { audio: heard.publicUrl } : {}) };
+    })
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
 }
 
