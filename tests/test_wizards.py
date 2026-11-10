@@ -425,6 +425,7 @@ def test_a_gallery_add_form_may_open_prefill_take_a_file_and_offer_buttons():
         ({"title": " "}, "add.title"),
         ({"prefill": {"spoken": "nope.text"}}, "add.prefill"),
         ({"prefill": {"spoken": "text"}}, "add.prefill"),
+        ({"prefill": {"spoken": "line.text|nope.text"}}, "add.prefill"),
         ({"prefill": {"bad key": "line.text"}}, "add.prefill"),
         ({"file": {"accept": "audio/*"}}, "add.file"),
         ({"buttons": []}, "add.buttons"),

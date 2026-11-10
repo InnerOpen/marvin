@@ -354,9 +354,12 @@ def _check_add_extras(s: _Step, add: Any) -> str | None:
         if not isinstance(prefill, dict) or len(prefill) > MAX_PREFILL or not all(_is_field(k) for k in prefill):
             return f'{s.label}: add.prefill maps up to {MAX_PREFILL} field keys to "key.field", an entry an earlier step chose and one of its fields'
         for value in prefill.values():
-            key, _, field = str(value).partition(".")
-            if key not in s.entries or not _is_field(field):
-                return f"{s.label}: add.prefill {value!r} must be a key an earlier choose step set, a dot, and a field key"
+            for source in str(value).split("|"):  # "a.x|a.y": the first of them that has a value
+                key, _, field = source.partition(".")
+                if key not in s.entries or not _is_field(field):
+                    return (
+                        f"{s.label}: add.prefill {value!r} must be keys an earlier choose step set, each a dot and a field key (several joined by |)"
+                    )
     if add.get("file") is not None and (problem := _check_upload_spec(s, add["file"], "add.file")):
         return problem
     if (buttons := add.get("buttons")) is not None:

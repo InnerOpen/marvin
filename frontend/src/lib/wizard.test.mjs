@@ -237,4 +237,8 @@ test("an add form starts from the chosen entries' own values", () => {
   const add = { prefill: { spoken: "line.text", direction: "line.direction", speed: "line.speed", model: "line.model", gone: "nobody.text" } };
   assert.deepEqual(prefillOf(add, entries), { spoken: "People say.", direction: "tired", speed: "0.9" });
   assert.deepEqual(prefillOf(undefined, entries), {});
+  // the first of several that has a value
+  const fallback = { prefill: { spoken: "line.delivery_text|line.text" } };
+  assert.deepEqual(prefillOf(fallback, { line: { dataJson: { delivery_text: "[sighs] People say.", text: "People say." } } }), { spoken: "[sighs] People say." });
+  assert.deepEqual(prefillOf(fallback, { line: { dataJson: { delivery_text: " ", text: "People say." } } }), { spoken: "People say." });
 });

@@ -62,10 +62,13 @@ export function prefillOf(
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [field, from] of Object.entries(add?.prefill ?? {})) {
-    const [key, source] = from.split(".");
-    const value = entries[key]?.dataJson?.[source];
-    if (typeof value === "string" && value.trim()) out[field] = value;
-    else if (typeof value === "number") out[field] = String(value);
+    for (const option of from.split("|")) { // "line.delivery_text|line.text": the first that has a value
+      const [key, source] = option.split(".");
+      const value = entries[key]?.dataJson?.[source];
+      if (typeof value === "string" && value.trim()) out[field] = value;
+      else if (typeof value === "number") out[field] = String(value);
+      if (field in out) break;
+    }
   }
   return out;
 }
