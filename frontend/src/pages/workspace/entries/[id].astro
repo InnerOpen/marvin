@@ -16,6 +16,7 @@ import { listViews, listViewsOfSpine, type ViewSummary, viewHref } from "@/lib/a
 import { listWizards, type WizardSummary } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
 import RelatedEntries from "@/components/RelatedEntries.astro";
+import { entryActions } from "@/lib/entryActions";
 import { relatedFor } from "@/lib/relatedApi";
 import { type CueSpec, cueSpecsFor } from "@/lib/cueFields";
 import type { CueOption } from "@/components/schema-fields/CueListField.astro";
@@ -366,6 +367,18 @@ if (entry && entryType && authToken) {
   const here: WizardSummary[] = await listWizards(authToken, entryType.slug).catch(() => []);
   setupButtons = here.filter((w) => w.button).map((w) => ({ label: w.button!.label, href: buttonHref(w.slug, w.button!, entry!) }));
 }
+// What a person opens this entry *for*, as buttons above the form: its views and guided setups, an attached web page, PDF or video (the
+// filmstrip, the script), the live page. They used to sit under the slug in the sidebar, where nobody looked.
+const actions = entry
+  ? entryActions({
+      views,
+      viewHref: (slug) => viewHref(slug, entry!.slug),
+      setups: setupButtons,
+      site: siteLink,
+      assets: confirmedAssets as any[],
+      schema: entryType?.schemaJson as any,
+    })
+  : [];
 // A JSON field that places other entries in time (a beat's sound effects) is edited as a list of cues when a package's timeline view
 // declares its shape for this type; the options are the entries of the referenced type, with a take to hear when they have one.
 const cues: Record<string, { spec: CueSpec; options: CueOption[] }> = {};
@@ -541,6 +554,20 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
         </div>
       )}
       </div>
+
+      {actions.length > 0 && (
+        <nav class="entry-actions" aria-label="Open this entry">
+          {actions.map((a) =>
+            a.disabled ? (
+              <a class="button secondary is-disabled" role="link" aria-disabled="true" title={a.disabled}>{a.label} ↗</a>
+            ) : (
+              <a class:list={["button", { secondary: a.tone === "secondary" }]} href={a.href} {...(a.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+                {a.label} {a.external ? "↗" : "→"}
+              </a>
+            ),
+          )}
+        </nav>
+      )}
 
       <div class="editor-layout">
         <section class="main-editor">
@@ -756,31 +783,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </small>
             </div>
 
-            {siteLink && (
-              <div class="form-group">
-                {"href" in siteLink ? (
-                  <a href={siteLink.href} target="_blank" rel="noopener noreferrer" class="button secondary">View on site ↗</a>
-                ) : (
-                  <>
-                    <a class="button secondary is-disabled" role="link" aria-disabled="true" title={siteLink.hint}>View on site ↗</a>
-                    <p class="form-help">{siteLink.hint}</p>
-                  </>
-                )}
-              </div>
-            )}
-
             {related.length > 0 && <RelatedEntries groups={related} from={`${Astro.url.pathname}${Astro.url.search}`} />}
-
-            {(views.length > 0 || setupButtons.length > 0) && (
-              <div class="form-group">
-                {views.map((v) => (
-                  <a href={viewHref(v.slug, entry!.slug)} class="button secondary">{v.name} →</a>
-                ))}
-                {setupButtons.map((b) => (
-                  <a href={b.href} class="button secondary">{b.label} →</a>
-                ))}
-              </div>
-            )}
 
             <div class="form-group">
               <label for="status">Status</label>
@@ -1238,6 +1241,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     color: var(--color-error);
   }
 
+  .entry-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+  .entry-actions .button { text-decoration: none; }
   .editor-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 32rem;

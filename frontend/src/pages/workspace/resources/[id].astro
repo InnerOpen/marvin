@@ -2,8 +2,9 @@
 import ItemTrashBanner from "@/components/ItemTrashBanner.astro";
 import SuggestionBanner from "@/components/SuggestionBanner.astro";
 import TagChips from "@/components/TagChips.astro";
+import UsedIn from "@/components/UsedIn.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { listCollections } from "@/lib/api/collections";
 import { getResource } from "@/lib/api/resources";
 import { listTags, type TagRead } from "@/lib/api/tags";
@@ -29,6 +30,10 @@ if (!id) {
     console.error("[Resource] Failed to load:", error);
   }
 }
+
+// Where it is used: the entries it is attached to and the role of each attachment.
+let usedIn: { entryId: string; slug: string; title: string; entryType: string; entryTypeName: string; role?: string | null }[] = [];
+if (resource && authToken) usedIn = await fetchApi<typeof usedIn>(`/api/platform/resources/${id}/usage`, {}, authToken).catch(() => []);
 
 // A resource in the Trash is read-only: whoever may change it can Restore it or delete it forever, nothing else.
 const inTrash = Boolean((resource as any)?.trashedAt);
@@ -81,6 +86,7 @@ const attachedTags = ((resource?.tags as string[] | undefined) || [])
         <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>
       )}
 
+      <div class="editor-layout">
       <section class="form-section">
         <form id="resource-form" class="form">
           <fieldset disabled={!canEdit} style="border:0;margin:0;padding:0;min-width:0;">
@@ -195,6 +201,10 @@ const attachedTags = ((resource?.tags as string[] | undefined) || [])
           )}
         </form>
       </section>
+      <aside class="side-col">
+        <UsedIn items={usedIn} />
+      </aside>
+      </div>
     </>
   ) : null}
 </AppLayout>
@@ -323,6 +333,23 @@ const attachedTags = ((resource?.tags as string[] | undefined) || [])
   .error-banner p {
     margin: 0;
     color: var(--color-error);
+  }
+
+  .editor-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 42rem) minmax(16rem, 22rem);
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .side-col { /* not .sidebar: global.css gives that the nav column's full-height strip */
+    display: grid;
+    gap: 1.5rem;
+    align-content: start;
+  }
+
+  @media (max-width: 1024px) {
+    .editor-layout { grid-template-columns: 1fr; }
   }
 
   .form-section {
