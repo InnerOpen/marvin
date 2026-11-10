@@ -92,6 +92,9 @@ export interface ActionSpec {
   label: string;
   wizard?: string;
   workflow?: string;
+  /** With `workflow`: the button runs it at once instead of opening its page. `entry` names the workflow input that gets this entry's slug;
+   * `inputs` are fixed values for the others (a render's quality). The page then follows the job the workflow makes. */
+  run?: { entry: string; inputs?: Record<string, string | number | boolean> };
 }
 
 export interface TimelineSpec {

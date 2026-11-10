@@ -100,7 +100,10 @@ TIMELINE = {
             "cover": {"field": "overlay", "blend": "overlay_blend", "opacity": "overlay_opacity", "via": "scene", "entry_type": "scene"},
         },
     ],
-    "actions": [{"label": "Guided setup", "wizard": "narrate"}, {"label": "Cut the beats", "workflow": "kit-mark-sold"}],
+    "actions": [
+        {"label": "Guided setup", "wizard": "narrate"},
+        {"label": "Cut the beats", "workflow": "kit-mark-sold", "run": {"entry": "story", "inputs": {"quality": "draft"}}},
+    ],
 }
 
 
@@ -171,6 +174,17 @@ def _bad(mutate) -> str | None:
         (lambda p: p.update(lanes=p["lanes"] * 2), "at most 6"),
         (lambda p: p["actions"].append({"label": "Both", "wizard": "a", "workflow": "b"}), "either a wizard or a workflow"),
         (lambda p: p["actions"].append({"wizard": "a"}), "needs a label"),
+        (lambda p: p["actions"].append({"label": "Go", "wizard": "a", "run": {"entry": "story"}}), "runs a workflow"),
+        (lambda p: p["actions"].append({"label": "Go", "workflow": "kit-mark-sold", "run": "now"}), "run is {entry, inputs?}"),
+        (lambda p: p["actions"].append({"label": "Go", "workflow": "kit-mark-sold", "run": {"inputs": {}}}), "run is {entry, inputs?}"),
+        (
+            lambda p: p["actions"].append({"label": "Go", "workflow": "kit-mark-sold", "run": {"entry": "story", "inputs": {"Quality": "draft"}}}),
+            "run.inputs is",
+        ),
+        (
+            lambda p: p["actions"].append({"label": "Go", "workflow": "kit-mark-sold", "run": {"entry": "story", "inputs": {"q": ["draft"]}}}),
+            "run.inputs is",
+        ),
     ],
 )
 def test_a_wrong_view_says_what_is_wrong(mutate, words):

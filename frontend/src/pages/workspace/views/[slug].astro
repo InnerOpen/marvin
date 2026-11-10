@@ -39,7 +39,7 @@ const MAX_ROWS = 500;
 let entry: Row | null = null;
 let candidates: Row[] = [];
 let laid: Layout | null = null;
-let actions: { label: string; href: string }[] = [];
+let actions: { label: string; href: string; run?: { workflow: string; inputs: Record<string, unknown> } }[] = [];
 const laneOpens: Record<string, (pieceSlug: string) => string> = {}; // lane id -> where a piece of it opens (a guided setup), when the lane says so
 if (spec && authToken) {
   entry = await entryOfType(spec.entry_type, entryRef, authToken);
@@ -109,7 +109,10 @@ if (spec && authToken) {
         actions.push({ label: action.label, href });
       } else if (action.workflow) {
         const state = await workflowState(action.workflow, authToken);
-        actions.push({ label: action.label, href: state.id ? `/automation/workflows?workflow=${encodeURIComponent(state.id)}` : "/automation/workflows" });
+        const href = state.id ? `/automation/workflows?workflow=${encodeURIComponent(state.id)}` : "/automation/workflows";
+        // A `run` action starts the workflow here, with this entry's slug in the input it names; one that is off or missing opens its page instead.
+        const run = action.run && state.id && state.enabled ? { workflow: state.id, inputs: { ...(action.run.inputs ?? {}), [action.run.entry]: entry.slug } } : undefined;
+        actions.push({ label: action.label, href, run });
       }
     }
   }
@@ -233,9 +236,16 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           )}
         </div>
         <div class="tl-links">
-          {actions.map((a) => <a class="button secondary" href={a.href}>{a.label}</a>)}
+          {actions.map((a) =>
+            a.run ? (
+              <button type="button" class="button secondary" data-run={JSON.stringify(a.run)} data-run-label={a.label} data-run-slug={entry.slug}>{a.label}</button>
+            ) : (
+              <a class="button secondary" href={a.href}>{a.label}</a>
+            ),
+          )}
           <a class="button secondary" href={open(entry.id)}>Open the {spec.entry_type.replace(/-/g, " ")}</a>
         </div>
+        <p class="tl-run muted" data-run-status role="status" aria-live="polite" hidden></p>
       </header>
 
       {laid.items.length === 0 ? (
@@ -381,6 +391,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   // piece under it. Nothing is stitched: a story plays from its takes as they are, and improves as takes land.
   interface Cue { item: string; piece: string | null; lane: string | null; start: number; seconds: number; audio: string | null }
   import { gainAt, type Overlay } from "@/lib/timeline";
+  import { fetchApi } from "@/lib/api/client";
+  import { jobFor, runState, type JobRow } from "@/lib/timelineRun";
   const root = document.querySelector<HTMLElement>(".tl");
   const cuesEl = root?.querySelector<HTMLScriptElement>("script[data-cues]");
   if (root && cuesEl) {
@@ -584,6 +596,52 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     };
     const toggle = () => (playing ? stop() : play());
 
+    // A button that runs a workflow here (a render preview): start it, then follow the job it makes until it is done or has failed.
+    const runStatus = root.querySelector<HTMLElement>("[data-run-status]");
+    const POLL_MS = 4000;
+    const GIVE_UP_MS = 30 * 60 * 1000;
+    root.querySelectorAll<HTMLButtonElement>("[data-run]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const run = JSON.parse(button.dataset.run || "{}") as { workflow: string; inputs: Record<string, unknown> };
+        const label = button.dataset.runLabel || "Run";
+        const slug = button.dataset.runSlug || "";
+        const since = Date.now();
+        const say = (text: string, url: string | null = null) => {
+          if (!runStatus) return;
+          runStatus.hidden = false;
+          runStatus.replaceChildren(document.createTextNode(text));
+          if (url) {
+            const link = document.createElement("a");
+            link.href = url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = " Open the video ↗";
+            runStatus.append(link);
+          }
+        };
+        button.disabled = true;
+        say(`${label}: starting…`);
+        try {
+          await fetchApi(`/api/automations/${encodeURIComponent(run.workflow)}/run?background=true`, { method: "POST", body: JSON.stringify({ inputs: run.inputs }) });
+        } catch (e) {
+          say(`${label} could not start: ${e instanceof Error ? e.message : "the workflow did not run"}`);
+          button.disabled = false;
+          return;
+        }
+        while (Date.now() - since < GIVE_UP_MS) {
+          await new Promise((r) => setTimeout(r, POLL_MS));
+          const found = await fetchApi<{ entries?: JobRow[] }>("/api/platform/entries/query", {
+            method: "POST",
+            body: JSON.stringify({ spec: { entry_type: "job", created_after: new Date(since - 30_000).toISOString(), sort: { by: "created_at", direction: "desc" } }, limit: 20 }),
+          }).catch(() => ({ entries: [] as JobRow[] }));
+          const state = runState(jobFor(found.entries ?? [], slug, since), label);
+          say(state.text, state.url);
+          if (state.finished) break;
+        }
+        button.disabled = false;
+      }),
+    );
+
     playBtn?.addEventListener("click", toggle);
     root.querySelectorAll<HTMLButtonElement>("[data-seek]").forEach((b) =>
       b.addEventListener("click", () => {
@@ -622,6 +680,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-title h2 { margin: 0 0 4px; }
   .tl-facts { margin: 0; font-size: 14px; }
   .tl-total { font-variant-numeric: tabular-nums; font-size: 16px; }
+  .tl-run { margin: 6px 0 0; font-size: 0.875rem; }
   .tl-actions, .tl-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .tl-zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
   .tl-zoom button { margin: 0; padding: 7px 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
