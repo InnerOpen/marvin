@@ -40,3 +40,12 @@ const bad = (name: string) => (badFields.includes(name) ? "invalid" : undefined)
     <div class="actions"><button class="button secondary" type="submit">Create and continue</button></div>
   </fieldset>
 </form>
+
+<style>
+  /* The same as a section inside a card elsewhere (the AI settings' Bubble lines): a small muted title over a faint rule, then the fields on the
+     card itself, with no box round them. A fieldset has a browser outline of its own, so it is taken off here, in the component that makes it. */
+  .create { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .create legend { float: left; width: 100%; box-sizing: border-box; padding: 0 0 8px; margin: 0 0 2px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .create legend + * { clear: both; }
+  .create > :not(legend) + :not(legend) { margin-top: 14px; }
+</style>
