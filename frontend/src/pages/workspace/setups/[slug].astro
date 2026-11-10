@@ -574,7 +574,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                             </div>
                           </form>
                         ))}
-                        {pendingCards.length === 0 && notice === NOTICES.started && <p class="muted waiting">Running… this page checks for anything to approve every few seconds.</p>}
+                        {pendingCards.length === 0 && notice === NOTICES.started && <p class="muted waiting">Started. Nothing needs your approval right now; if something does, it appears here. You can go on to the next step: what this makes shows there.</p>}
                         <form method="post" class="form">
                           <input type="hidden" name="action" value="generate" />
                           {step.generate.prompt && <label class="col"><span>{step.generate.prompt.label}</span><textarea class="input" rows="3" name="prompt" required /></label>}
@@ -615,7 +615,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                 </form>
               ))}
 
-              {pendingCards.length === 0 && notice && flow.found && flow.enabled && <p class="muted waiting">Running… this page checks for anything to approve every few seconds.</p>}
+              {pendingCards.length === 0 && notice && flow.found && flow.enabled && <p class="muted waiting">Started. Nothing needs your approval right now; if something does, it appears here. You can go on to the next step: what this makes shows there.</p>}
 
               <form method="post" class="form">
                 <div class="actions">
