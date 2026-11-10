@@ -11,6 +11,10 @@ export interface Props {
     required?: boolean;
     helpText?: string;
     readOnly?: boolean;
+    /** A hint of the shape, shown in the empty box (default "Enter valid JSON"). */
+    placeholder?: string;
+    /** Ready-made values to start from: choosing one fills the box (a camera move: Slow push in). */
+    presets?: { label: string; value: unknown }[];
   };
   value?: unknown;
   error?: string;
@@ -18,19 +22,27 @@ export interface Props {
 
 const { field, value, error } = Astro.props;
 const inputId = `field-${field.key}`;
+const presets = Array.isArray(field.presets) ? field.presets.filter((p) => p && typeof p.label === "string") : [];
 const empty = value === undefined || value === null || value === "";
 ---
 
-<div class="field-group">
+<div class="field-group" data-json-presets={presets.length ? "1" : undefined}>
   <label for={inputId}>
     {field.label}
     {field.required && <span class="required">*</span>}
   </label>
 
+  {presets.length > 0 && !field.readOnly && (
+    <select class="field-select json-presets" aria-label={`${field.label}: start from`}>
+      <option value="">Start from a preset…</option>
+      {presets.map((p) => <option value={JSON.stringify(p.value, null, 2)}>{p.label}</option>)}
+    </select>
+  )}
+
   <textarea
     id={inputId}
     name={`dataJson.${field.key}`}
-    placeholder="Enter valid JSON"
+    placeholder={field.placeholder ?? "Enter valid JSON"}
     rows="6"
     required={field.required}
     readonly={field.readOnly}
@@ -41,6 +53,20 @@ const empty = value === undefined || value === null || value === "";
   <p class="field-help">{field.helpText || "Enter valid JSON data"}</p>
   {error && <p class="field-error">{error}</p>}
 </div>
+
+<script>
+  // Choosing a preset fills the box with its JSON (and leaves it editable); the select goes back to its prompt.
+  document.querySelectorAll<HTMLElement>("[data-json-presets]").forEach((group) => {
+    const select = group.querySelector<HTMLSelectElement>(".json-presets");
+    const box = group.querySelector<HTMLTextAreaElement>("textarea");
+    select?.addEventListener("change", () => {
+      if (!select.value || !box) return;
+      box.value = select.value;
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      select.value = "";
+    });
+  });
+</script>
 
 <style>
   .field-group {
