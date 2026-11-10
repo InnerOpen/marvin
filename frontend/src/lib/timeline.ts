@@ -49,6 +49,8 @@ export interface BedSpec {
   default_fade_in?: number;
   default_fade_out?: number;
   end_fade?: string;
+  /** A field on the view's entry holding `none`, `light` or `strong`: how far the bed goes down under each spoken line (Play follows it). */
+  duck?: string;
 }
 
 /** A video laid over each spine item's picture. The item's own field wins, then the entry `via` names (a beat's scene), then the view's entry
@@ -151,6 +153,8 @@ export interface Bed {
   /** Seconds the block rises from silence at its start and falls to it at its end, as the render fades it (0 for none). */
   fadeIn: number;
   fadeOut: number;
+  /** How far the bed goes down under speech, as a share of its level (0.12: down to an eighth), or null for none. */
+  duck: number | null;
 }
 
 export interface BedStep {
@@ -373,6 +377,13 @@ function bedLevel(lane: LaneSpec, sound: Row, named: number | null): number {
   return named ?? level(field(sound, lane.volume)) ?? lane.bed?.default_volume ?? 1;
 }
 
+/** How far the music goes down under a spoken line, set by the story: the same amounts as the render (about -9 dB and -18 dB), which this
+ * must keep in step with (ScreenplayStudio render/storyrender/build.py: DUCK_DEPTH, DUCK_ATTACK, DUCK_RELEASE). */
+export const DUCK_DEPTH = { light: 0.35, strong: 0.12 } as const;
+export const DUCK_ATTACK = 0.2;
+export const DUCK_RELEASE = 0.5;
+const duckDepth = (value: unknown): number | null => (value === "light" || value === "strong" ? DUCK_DEPTH[value] : null);
+
 /** How a bed block fades as the render plays it: in over the sound's own `fade_in` (else the lane's default), out over its `fade_out`, and a
  * block that runs to the end of the film out over the story's own setting when it has one. Neither is longer than half the block. */
 function bedFades(spec: BedSpec, sound: Row, start: number, seconds: number, total: number, entry: Row | undefined): { fadeIn: number; fadeOut: number } {
@@ -401,6 +412,7 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     items: ids,
     steps: [],
     ...bedFades(spec, sound, start, seconds, total, rows.entry),
+    duck: rows.entry && !spec.via && spec.on !== "spine" ? duckDepth(field(rows.entry, spec.duck)) : null,
   });
   if (!spec.via && spec.on !== "spine") {
     const sound = rows.entry ? sounds.get(str(field(rows.entry, spec.field))) : undefined;
@@ -654,10 +666,50 @@ export interface Overlay {
   loop: boolean;
   /** Where the file's own start falls on the timeline, when that is earlier than `start` (a bed cut into steps keeps playing through them). */
   origin?: number;
+  /** The bed's whole block and its fades: rising from nothing over `in` at `from`, falling to nothing over `out` before `to`. */
+  fade?: { from: number; to: number; in: number; out: number };
+  /** Going down to `depth` of its level under each speech window (start, end), easing as the render does. */
+  duck?: { depth: number; windows: [number, number][] };
+}
+
+/** When someone is heard speaking: the spans of the timed lanes' pieces that have a take, joined when closer than one ramp down and up (so the
+ * music does not pump in a short pause). Pieces with no take are silent in Play, so nothing ducks for them. */
+export function speechWindows(laid: Layout, lanes: LaneSpec[]): [number, number][] {
+  const timed = lanes.filter((l) => l.in && (l.seconds || l.estimate_from)).map((l) => l.id);
+  const spans = laid.items
+    .flatMap((i) => timed.flatMap((id) => i.lanes[id] ?? []))
+    .filter((p) => p.audio && p.seconds > 0)
+    .map((p): [number, number] => [p.start, p.start + p.seconds])
+    .sort((a, b) => a[0] - b[0]);
+  const joined: [number, number][] = [];
+  for (const [begin, end] of spans) {
+    const last = joined[joined.length - 1];
+    if (last && begin - last[1] < DUCK_ATTACK + DUCK_RELEASE) last[1] = Math.max(last[1], end);
+    else joined.push([begin, end]);
+  }
+  return joined;
+}
+
+const clip01 = (x: number): number => Math.max(0, Math.min(1, x));
+
+/** The share of its level an overlay plays at, at time `t`: 1, less its fade at either end of its block and its dip under speech. */
+export function gainAt(o: Overlay, t: number): number {
+  let gain = 1;
+  if (o.fade) {
+    if (o.fade.in > 0) gain = Math.min(gain, clip01((t - o.fade.from) / o.fade.in));
+    if (o.fade.out > 0) gain = Math.min(gain, clip01((o.fade.to - t) / o.fade.out));
+  }
+  if (o.duck) {
+    let down = 0;
+    for (const [begin, end] of o.duck.windows) down += Math.min(clip01((t - (begin - DUCK_ATTACK)) / DUCK_ATTACK), clip01((end + DUCK_RELEASE - t) / DUCK_RELEASE));
+    gain *= 1 - (1 - o.duck.depth) * Math.min(1, down);
+  }
+  return gain;
 }
 
 export function overlays(laid: Layout, lanes: LaneSpec[]): Overlay[] {
   const out: Overlay[] = [];
+  let windows: [number, number][] | undefined; // the speech windows, found once and only when a bed ducks
   for (const lane of lanes.filter((l) => l.placed)) {
     for (const p of laid.items.flatMap((i) => i.lanes[lane.id] ?? [])) {
       if (p.audio) out.push({ id: p.id, lane: lane.id, start: p.start, seconds: p.seconds, audio: p.audio, volume: p.volume ?? 1, loop: false });
@@ -666,8 +718,12 @@ export function overlays(laid: Layout, lanes: LaneSpec[]): Overlay[] {
   for (const lane of lanes.filter((l) => l.bed)) {
     for (const b of laid.beds[lane.id] ?? []) {
       if (!b.audio) continue;
-      if (b.steps.length === 0) out.push({ id: b.id, lane: lane.id, start: b.start, seconds: b.seconds, audio: b.audio, volume: b.volume, loop: b.loop });
-      else for (const step of b.steps) if (step.volume > 0) out.push({ id: b.id, lane: lane.id, start: step.start, seconds: step.seconds, audio: b.audio, volume: step.volume, loop: b.loop, origin: b.start });
+      const shape: Partial<Overlay> = {
+        ...(b.fadeIn > 0 || b.fadeOut > 0 ? { fade: { from: b.start, to: b.start + b.seconds, in: b.fadeIn, out: b.fadeOut } } : {}),
+        ...(b.duck !== null ? { duck: { depth: b.duck, windows: windows ??= speechWindows(laid, lanes) } } : {}),
+      };
+      if (b.steps.length === 0) out.push({ id: b.id, lane: lane.id, start: b.start, seconds: b.seconds, audio: b.audio, volume: b.volume, loop: b.loop, ...shape });
+      else for (const step of b.steps) if (step.volume > 0) out.push({ id: b.id, lane: lane.id, start: step.start, seconds: step.seconds, audio: b.audio, volume: step.volume, loop: b.loop, origin: b.start, ...shape });
     }
   }
   return out.sort((a, b) => a.start - b.start);
