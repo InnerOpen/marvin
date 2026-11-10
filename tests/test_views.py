@@ -261,3 +261,26 @@ def test_the_view_routes_exist_and_need_a_login(client):
     paths = {(tuple(sorted(r.methods - {"HEAD", "OPTIONS"})), r.path) for r in api_routes(app) if "/groups/views" in r.path}
     assert (("GET",), "/api/groups/views") in paths and (("GET",), "/api/groups/views/{slug}") in paths
     assert client.get("/api/groups/views").status_code in (401, 403)
+
+
+def test_a_lane_may_open_a_guided_setup_instead_of_the_piece_page():
+    payload = copy.deepcopy(TIMELINE)
+    payload["lanes"][0]["open"] = {"wizard": "narrate"}
+    assert payload_problem(payload, "story-timeline") is None
+
+
+@pytest.mark.parametrize(("opens", "words"), [("narrate", "open is"), ({"wizard": "Not A Slug"}, "open"), ({}, "open")])
+def test_a_wrong_lane_open_says_what_is_wrong(opens, words):
+    payload = copy.deepcopy(TIMELINE)
+    payload["lanes"][0]["open"] = opens
+    assert words in (payload_problem(payload, "story-timeline") or "")
+
+
+def test_a_lane_only_opens_a_setup_its_own_package_brings():
+    manifest = _with_view()
+    view = next(b for b in manifest["blueprints"] if b["kind"] == "view")
+    view["payload"]["lanes"][0]["open"] = {"wizard": "narrate"}  # the wizard of this manifest
+    service.parse_manifest(manifest)
+    view["payload"]["lanes"][0]["open"] = {"wizard": "someone-elses"}
+    with pytest.raises(PackageError, match="does not bring"):
+        service.parse_manifest(manifest)
