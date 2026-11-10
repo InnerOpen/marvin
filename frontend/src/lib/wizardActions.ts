@@ -127,9 +127,27 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
     return numberedTitle(parent?.title ?? "", from.noun, count);
   };
   if (action === "add") {
+    const add = step.add as { buttons?: { label: string; data?: Record<string, unknown>; file?: string }[]; file?: { field: string; accept?: string; seconds?: string } } | undefined;
+    const button = add?.buttons ? add.buttons[Number(text(form, "do")) || 0] : undefined; // which way of saving was pressed
+    const file = form.get("file");
+    const given = add?.file && file instanceof File && file.size > 0 ? file : null;
+    if (button?.file === "required" && !given) throw new StepError("Record or upload the take first, or use the other button.", ["file"]);
+    if (button?.file === "none" && given) throw new StepError("A recording is attached. Use the button that saves it, or remove it to have one made.", ["file"]);
     const title = text(form, "add_title") || (await named());
     if (!title) throw new StepError("Give it a name.", ["add_title"]);
-    const data = withAutoSlug(type, { ...seed(), ...postedData(form, type, askedKeys(type, step.add?.fields, Object.keys(seed()))) }, title);
+    const fromFile: Record<string, unknown> = {};
+    if (add?.file && given) {
+      const words = UPLOAD_WORDS[acceptKind(add.file.accept ?? "audio/*")];
+      if (!isKind(given, acceptKind(add.file.accept ?? "audio/*"))) throw new StepError(words.notOne, ["file"]);
+      if (given.size > MAX_UPLOAD_BYTES) throw new StepError(`That ${words.noun} is too big (25 MB at most).`, ["file"]);
+      const ending = /\.[a-z0-9]{1,5}$/i.exec(given.name)?.[0] ?? "";
+      // The file is named for the entry it belongs to ("… · take 2.webm"), never left as "recording".
+      fromFile[add.file.field] = await uploadAsset(given, `${step.entry_type}-${title}`, authToken, `${title}${ending}`);
+      const seconds = add.file.seconds ? measuredSeconds(text(form, "upload_seconds")) : null;
+      if (add.file.seconds && seconds !== null) fromFile[add.file.seconds] = seconds;
+    }
+    const posted = postedData(form, type, askedKeys(type, step.add?.fields, Object.keys(seed())));
+    const data = withAutoSlug(type, { ...seed(), ...posted, ...fromFile, ...(button?.data ?? {}) }, title);
     await createOf(type, title, data, authToken);
     return { ctx, stay: true, notice: "added" };
   }

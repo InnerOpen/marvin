@@ -394,3 +394,59 @@ def test_a_gallery_may_list_takes_name_them_after_a_line_and_measure_an_upload()
 )
 def test_a_wrong_takes_gallery_says_what_is_wrong(change, words):
     assert words in (payload_problem(_takes_wizard(**change), "takes") or "")
+
+
+def _add_wizard(**add) -> dict:
+    return _takes_wizard(
+        add={
+            "open": True,
+            "title": "Add a take",
+            "fields": ["spoken"],
+            "prefill": {"spoken": "line.text"},
+            "file": {"field": "audio", "accept": "audio/*", "seconds": "duration_seconds"},
+            "buttons": [
+                {"label": "Save my take", "file": "required", "data": {"source": "recorded"}},
+                {"label": "Make one", "file": "none", "data": {"status": "queued"}},
+            ],
+            **add,
+        },
+        approve=["make-take", "remake-take"],
+    )
+
+
+def test_a_gallery_add_form_may_open_prefill_take_a_file_and_offer_buttons():
+    assert payload_problem(_add_wizard(), "takes") is None
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [
+        ({"open": "yes"}, "add.open"),
+        ({"title": " "}, "add.title"),
+        ({"prefill": {"spoken": "nope.text"}}, "add.prefill"),
+        ({"prefill": {"spoken": "text"}}, "add.prefill"),
+        ({"prefill": {"bad key": "line.text"}}, "add.prefill"),
+        ({"file": {"accept": "audio/*"}}, "add.file"),
+        ({"buttons": []}, "add.buttons"),
+        ({"buttons": [{"label": ""}]}, "needs a label"),
+        ({"buttons": [{"label": "x", "data": {"a": [1]}}]}, "data maps"),
+        ({"buttons": [{"label": "x", "file": "maybe"}]}, "required or none"),
+    ],
+)
+def test_a_wrong_add_form_says_what_is_wrong(change, words):
+    assert words in (payload_problem(_add_wizard(**change), "takes") or "")
+
+
+@pytest.mark.parametrize("approve", [[], "make-take", ["Not A Slug"], ["a", "b", "c", "d"]])
+def test_approve_is_a_short_list_of_workflow_slugs(approve):
+    payload = _add_wizard()
+    payload["steps"][1]["approve"] = approve
+    assert "approve is a list" in (payload_problem(payload, "takes") or "")
+
+
+def test_a_wizard_only_shows_approvals_of_workflows_its_own_package_brings():
+    manifest = _with_wizard()
+    wizard = next(b for b in manifest["blueprints"] if b["kind"] == "wizard")
+    wizard["payload"]["steps"][4]["approve"] = ["someone-elses-workflow"]
+    with pytest.raises(PackageError, match="shows approvals of"):
+        service.parse_manifest(manifest)

@@ -53,6 +53,7 @@ _FIELD = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")  # an entry type's field ke
 _ACCEPT_PART = r"(?:[a-z]+/(?:\*|[a-z0-9.+-]+)|\.[a-z0-9]{1,10})"
 _ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IGNORECASE)
 MAX_SHOWN = 8
+MAX_PREFILL = 12
 RESERVED_KEYS = ("step", "notice")  # address parameters the page uses for itself: never a context key
 _STEP_ID = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
@@ -339,6 +340,41 @@ def _check_run(s: _Step) -> str | None:
     return s.refs_known(inputs, "inputs")
 
 
+def _check_add_extras(s: _Step, add: Any) -> str | None:
+    """What a gallery's ``add`` form may carry beyond fields and data: ``open`` (shown open), ``title``, ``prefill`` ({field: "key.field"}: start
+    from the chosen entry's own value, a take from its line's words), ``file`` (a Record/Upload box in the form, as ``upload``) and ``buttons``
+    (up to 3 ways to save, each ``{label, data?, file?}``: its data is added to the entry, ``file`` is "required" or "none")."""
+    if not isinstance(add, dict):
+        return None
+    if add.get("open") is not None and not isinstance(add["open"], bool):
+        return f"{s.label}: add.open is true or false"
+    if add.get("title") is not None and not (isinstance(add["title"], str) and add["title"].strip() and len(add["title"]) <= 60):
+        return f"{s.label}: add.title is a short heading for the form"
+    if (prefill := add.get("prefill")) is not None:
+        if not isinstance(prefill, dict) or len(prefill) > MAX_PREFILL or not all(_is_field(k) for k in prefill):
+            return f'{s.label}: add.prefill maps up to {MAX_PREFILL} field keys to "key.field", an entry an earlier step chose and one of its fields'
+        for value in prefill.values():
+            key, _, field = str(value).partition(".")
+            if key not in s.entries or not _is_field(field):
+                return f"{s.label}: add.prefill {value!r} must be a key an earlier choose step set, a dot, and a field key"
+    if add.get("file") is not None and (problem := _check_upload_spec(s, add["file"], "add.file")):
+        return problem
+    if (buttons := add.get("buttons")) is not None:
+        if not isinstance(buttons, list) or not 1 <= len(buttons) <= 3:
+            return f"{s.label}: add.buttons is a list of 1 to 3 buttons"
+        for b in buttons:
+            if not isinstance(b, dict) or not isinstance(b.get("label"), str) or not b["label"].strip():
+                return f"{s.label}: each add button needs a label"
+            data = b.get("data")
+            if data is not None and not (
+                isinstance(data, dict) and all(_is_field(k) and isinstance(v, str | int | float | bool) for k, v in data.items())
+            ):
+                return f"{s.label}: a button's data maps field keys to text, numbers or true/false"
+            if b.get("file") not in (None, "required", "none"):
+                return f"{s.label}: a button's file is required or none"
+    return None
+
+
 def _check_gallery(s: _Step) -> str | None:
     step = s.step
     scoped = [k for k in ("parent", "parent_field") if step.get(k) is not None]
@@ -362,8 +398,14 @@ def _check_gallery(s: _Step) -> str | None:
         return f"{s.label}: highlight is {{field, value, label}}, the card whose field has that value is marked with the label"
     if step.get("added") is not None and not (isinstance(step["added"], str) and step["added"].strip()):
         return f"{s.label}: added is the line shown after one is added or uploaded"
-    if step.get("add") is not None and (problem := _check_create(s, step["add"])):
-        return problem.replace("create", "add")
+    if step.get("add") is not None and (
+        (problem := _check_create(s, step["add"])) and (problem := problem.replace("create", "add")) or (problem := _check_add_extras(s, step["add"]))
+    ):
+        return problem
+    if (approve := step.get("approve")) is not None and not (
+        isinstance(approve, list) and 1 <= len(approve) <= 3 and all(isinstance(w, str) and _SLUG.match(w) for w in approve)
+    ):
+        return f"{s.label}: approve is a list of up to 3 workflow slugs whose approvals are shown on this step"
     if (upload := step.get("upload")) is not None and (problem := _check_upload_spec(s, upload, "upload")):
         return problem
     if (gen := step.get("generate")) is not None:

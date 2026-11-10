@@ -13,7 +13,7 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, generateAsRun, highlightOf, isDone, shownLines, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, generateAsRun, highlightOf, isDone, prefillOf, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -104,6 +104,8 @@ let createFirst = false; // the choose step's make-a-new-one form comes before t
 let uploadHeld = false; // the upload step's field already holds something (a value, or a file attached under its role)
 let addFields: any[] = [];
 let genStep: Step | null = null; // a gallery's generate action, as the run step it is
+let addValues: Record<string, string> = {}; // the add form's starting values (`add.prefill`)
+let approveNames: Record<string, string> = {}; // a gallery's `approve` workflows, by slug, with their names
 let showTitle = ""; // a step's `show` card: the chosen entry's title, address and the fields it reads out
 let showHref = "";
 let showLines: { key: string; label: string; value: string }[] = [];
@@ -159,6 +161,18 @@ if (authToken && def && step) {
     pictureRole = fieldRole(type, step.picture);
     addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
     refs = await refsFor(addFields);
+    addValues = prefillOf(step.add, entries);
+    if (step.approve) {
+      // The approvals of these workflows about the entries listed here (its takes, and what was chosen), so they are answered on this page.
+      const all = await approvalCards(authToken);
+      const about = [...cards.map((c) => c.id), ...Object.values(entries).map((e) => e.id)];
+      watchIds = about;
+      for (const w of step.approve as string[]) {
+        approveNames[w] = (await workflowState(w, authToken)).name ?? w;
+        pendingCards = [...pendingCards, ...approvalsOf(all.pending, w, about)];
+        decidedCards = [...decidedCards, ...approvalsOf(all.decided, w, about)].slice(0, MAX_DECIDED_SHOWN);
+      }
+    }
     if (step.generate) {
       genStep = generateAsRun(step, undefined).run;
       flow = await workflowState(genStep.workflow, authToken);
@@ -419,8 +433,28 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
           )}
 
           {step.kind === "gallery" && (
-            <div class="gallery" data-watch={step.generate && (notice === NOTICES.started || pendingCards.length) ? "1" : undefined} data-workflow={genStep?.workflow} data-entries={watchIds.join(",")} data-pending={String(pendingCards.length)}>
+            <div class="gallery" data-watch={(step.generate && (notice === NOTICES.started || pendingCards.length)) || (step.approve && (pendingCards.length || cards.some((c) => c.dataJson?.status === "queued"))) ? "1" : undefined} data-workflow={step.approve ? (step.approve as string[]).join(",") : genStep?.workflow} data-entries={watchIds.join(",")} data-pending={String(pendingCards.length)}>
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
+              {step.approve && (pendingCards.length > 0 || cards.some((c) => c.dataJson?.status === "queued")) && (
+                <section class="approvals" aria-live="polite">
+                  {pendingCards.map((c) => (
+                    <form method="post" class="approval">
+                      <input type="hidden" name="decide" value={c.id} />
+                      <p class="approval-title">{approveNames[c.automationSlug ?? ""] ?? "A workflow"} is asking</p>
+                      <div class="approval-message">{c.message}</div>
+                      {c.imageUrl && <audio class="approval-audio" controls src={c.imageUrl}></audio>}
+                      <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
+                      <div class="actions">
+                        {c.choices?.length
+                          ? c.choices.map((label: string, n: number) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label}>{label}</button>)
+                          : <button class="button" type="submit" name="decision" value="approve">Approve</button>}
+                        <button class="button secondary" type="submit" name="decision" value="deny">Deny</button>
+                      </div>
+                    </form>
+                  ))}
+                  {pendingCards.length === 0 && <p class="muted waiting">A take is being made. Whatever needs your answer appears here, so you can stay on this page.</p>}
+                </section>
+              )}
               {!missingType && (
                 <div class:list={["cards", { rows: step.layout === "list" }]}>
                   {cards.map((r) => {
@@ -455,13 +489,27 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
               {!missingType && (step.add || step.upload || step.generate) && (
                 <div class="gactions">
                   {step.add && (
-                    <details class="gaction">
-                      <summary class="button secondary">＋ Add {typeName.toLowerCase()}</summary>
-                      <form method="post" class="form gform">
+                    <details class="gaction" open={step.add.open === true || undefined}>
+                      <summary class="button secondary">＋ {step.add.title ?? `Add ${typeName.toLowerCase()}`}</summary>
+                      <form method="post" class="form gform" enctype={step.add.file ? "multipart/form-data" : undefined} data-measure={step.add.file?.seconds ? "1" : undefined}>
                         <input type="hidden" name="action" value="add" />
-                        <div class="form-group"><label for="add_title">Name <span class="req" title="Required">*</span></label><input class:list={["input", bad("add_title")]} id="add_title" name="add_title" required /></div>
-                        <SchemaForm schema={{ fields: addFields }} refs={refs} />
-                        <div class="actions"><button class="button" type="submit">Add</button></div>
+                        {step.add.file?.seconds && <input type="hidden" name="upload_seconds" value="" />}
+                        <div class="form-group">
+                          <label for="add_title">Name {!step.name && <span class="req" title="Required">*</span>}</label>
+                          <input class:list={["input", bad("add_title")]} id="add_title" name="add_title" required={!step.name} placeholder={step.name ? "Leave empty to name it after the line" : undefined} />
+                        </div>
+                        <SchemaForm schema={{ fields: addFields }} values={addValues} refs={refs} />
+                        {step.add.file && (
+                          <div class="form-group">
+                            <label>A recording of your own (optional)</label>
+                            <FileDrop accept={galleryAccept({ upload: step.add.file } as any)} hint="Record or upload one take." nameFrom="add_title" />
+                          </div>
+                        )}
+                        <div class="actions">
+                          {(step.add.buttons ?? [{ label: "Add" }]).map((b: { label: string }, n: number) => (
+                            <button class:list={["button", n > 0 && "secondary"]} type="submit" name="do" value={String(n)}>{b.label}</button>
+                          ))}
+                        </div>
                       </form>
                     </details>
                   )}
@@ -655,7 +703,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   // A run step with something going on (just started, or a card waiting): reload when the set of cards for it changes, for ten minutes at most.
   const run = document.querySelector<HTMLElement>(".run[data-watch], .gallery[data-watch]");
   if (run) {
-    const slug = run.dataset.workflow;
+    const slugs = (run.dataset.workflow ?? "").split(",").filter(Boolean);
     const entries = (run.dataset.entries ?? "").split(",").filter(Boolean);
     const shown = Number(run.dataset.pending ?? "0");
     const started = Date.now();
@@ -663,7 +711,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
       if (Date.now() - started > 10 * 60 * 1000) return;
       try {
         const cards = await fetchApi<{ automationSlug?: string; entryId?: string }[]>("/api/automations/approvals?state=pending");
-        const mine = cards.filter((c) => c.automationSlug === slug && (entries.length === 0 || !c.entryId || entries.includes(c.entryId)));
+        const mine = cards.filter((c) => slugs.includes(c.automationSlug ?? "") && (entries.length === 0 || !c.entryId || entries.includes(c.entryId)));
         if (mine.length !== shown) return location.reload();
       } catch {
         /* a failed poll just tries again */
@@ -740,6 +788,8 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .cards.rows .gpic { aspect-ratio: auto; height: 64px; }
   .gcard.marked { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
   .pill.inuse { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+  .approvals { display: grid; gap: 12px; margin: 0 0 16px; }
+  .approval-audio { width: 100%; }
   .showcard { border: 1px solid var(--line); border-left: 4px solid var(--color-primary); border-radius: var(--radius); background: var(--panel-2); padding: 12px 14px; margin: 0 0 16px; display: grid; gap: 8px; }
   .showhead { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
   .showcard dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }

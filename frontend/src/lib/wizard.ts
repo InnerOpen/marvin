@@ -55,6 +55,21 @@ export function shownLines(
   });
 }
 
+/** What a gallery's add form starts with (`add.prefill`: {field: "key.field"}): the chosen entries' own values, so a take starts from its line's words. */
+export function prefillOf(
+  add: { prefill?: Record<string, string> } | undefined,
+  entries: Record<string, { dataJson?: Record<string, unknown> | null }>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [field, from] of Object.entries(add?.prefill ?? {})) {
+    const [key, source] = from.split(".");
+    const value = entries[key]?.dataJson?.[source];
+    if (typeof value === "string" && value.trim()) out[field] = value;
+    else if (typeof value === "number") out[field] = String(value);
+  }
+  return out;
+}
+
 /** The label a gallery's `highlight` puts on a card whose field has the wanted value (the take in use), or null. */
 export function highlightOf(step: Step, data: Record<string, unknown> | null | undefined): string | null {
   const h = step.highlight as { field: string; value: string; label: string } | undefined;

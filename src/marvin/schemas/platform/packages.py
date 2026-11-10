@@ -99,6 +99,13 @@ class PackageManifest(_MarvinModel):
                     problems.append(
                         f"wizard '{blueprint.slug}': step {step.get('id')!r} runs {step.get('workflow')!r}, which this package does not bring"
                     )
+            # A gallery shows the approvals of workflows: those of this same package only.
+            for step in (blueprint.payload or {}).get("steps") or []:
+                for slug in step.get("approve") if isinstance(step, dict) and isinstance(step.get("approve"), list) else []:
+                    if slug not in workflows:
+                        problems.append(
+                            f"wizard '{blueprint.slug}': step {step.get('id')!r} shows approvals of {slug!r}, which this package does not bring"
+                        )
             # The end button opens the entry in a view of this same package: a view another package brings may not be there.
             opened = ((blueprint.payload or {}).get("open") or {}).get("view")
             if opened is not None and opened not in views:
