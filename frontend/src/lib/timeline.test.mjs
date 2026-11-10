@@ -611,3 +611,19 @@ test("cards: they are not beats (progress), have no bands, no overlay, and play 
   assert.deepEqual(silent.map((c) => [c.item, c.audio, c.seconds]), [["card:intro", null, 2.5], ["card:outro", null, 3]]);
   assert.deepEqual(quiets(laid.items, cardsSpec.lanes[0]).filter((q) => q.id.startsWith("card:")), []);
 });
+
+// ── a pause where a scene ends: the render adds the same seconds, so the timeline must ────────────────────────────────────────────────────
+const breakSpec = { ...spec, spine: { ...spec.spine, scene_break: { field: "scene", seconds: "scene_break_seconds" } } };
+const withBreaks = (story, scenesOn) => layout(breakSpec, { entry: row("s", story), spine: bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, scene: scenesOn[i] ?? "" } })), groups: chapters, lanes: { lines: [], sounds: [] } });
+
+test("scene break: a pause follows an item whose next item is in another scene, and shifts everything after it", () => {
+  const laid = withBreaks({ scene_break_seconds: 1.5 }, ["deck", "deck", "cabin", "", "cabin"]);
+  assert.deepEqual(laid.items.map((i) => [i.slug, i.start, i.seconds, i.pause]), [["b1", 0, 4, 0], ["b2", 4, 5.5, 1.5], ["b3", 9.5, 4, 0], ["b4", 13.5, 4, 0], ["b5", 17.5, 4, 0]]); // deck→cabin after b2; b3 to an empty scene and b4 to cabin break nothing
+  assert.equal(laid.total, 21.5);
+});
+
+test("scene break: none set, zero or no scenes means no pause (whatever a stored default was)", () => {
+  for (const story of [{}, { scene_break_seconds: 0 }, { scene_break_seconds: "" }, { scene_break_seconds: -1 }]) assert.equal(withBreaks(story, ["deck", "cabin", "deck", "cabin", "deck"]).total, 20);
+  assert.equal(withBreaks({ scene_break_seconds: 2 }, []).total, 20);
+  assert.equal(layout(spec, { entry: row("s", { scene_break_seconds: 3 }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } }).total, 20); // a view that does not declare it
+});

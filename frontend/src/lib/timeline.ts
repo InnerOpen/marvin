@@ -29,6 +29,9 @@ export interface SpineSpec {
    * its `title` field has text, lasts the `seconds` field (else `default_seconds`) and is laid out as a real item, so every beat after it starts
    * when the render starts it. These must match what the render does (ScreenplayStudio render: pull `cards_of`). */
   cards?: { intro?: CardSpec; outro?: CardSpec };
+  /** A pause where a scene ends: after an item whose next item holds a different value in `field` (both non-empty) the render adds the entry's
+   * `seconds` field (when above 0) of quiet. Must match the render (ScreenplayStudio render: pull `scene_breaks`). */
+  scene_break?: { field: string; seconds: string };
   /** Extra bands over the strip, each wrapping the consecutive items that share a value in `field` (the beats of one scene), titled by the
    * entry of `entry_type` that value names. They do not reorder anything. */
   bands?: { id?: string; entry_type: string; field: string; title?: string }[];
@@ -217,6 +220,8 @@ export interface Cover {
 export interface Item {
   id: string;
   slug: string;
+  /** Seconds of quiet added after this item where its scene ends (already part of `seconds`). */
+  pause?: number;
   /** Set on a title or end card: not a beat, so it has no entry, no lanes and is not counted as one. */
   card?: "intro" | "outro";
   /** The value the item's run button hands the workflow (a beat's number as written: "04a"), when the spine declares one. */
@@ -385,6 +390,17 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
     clock += card.seconds;
   };
   addCard("intro");
+  // The pause where a scene ends: after an item whose next item is in another scene. The rows come in the order the render plays them.
+  const flat = groups.flatMap((g) => g.rows);
+  const nextOf = new Map(flat.map((r, i) => [r.id, flat[i + 1]] as const));
+  const pauseSeconds = spec.spine.scene_break && rows.entry ? num(field(rows.entry, spec.spine.scene_break.seconds)) : null;
+  const pauseAfter = (row: Row): number => {
+    const next = nextOf.get(row.id);
+    const field_ = spec.spine.scene_break?.field;
+    if (!next || !field_ || pauseSeconds === null || pauseSeconds <= 0) return 0;
+    const [here, there] = [str(field(row, field_)).trim(), str(field(next, field_)).trim()];
+    return here && there && here !== there ? pauseSeconds : 0;
+  };
   for (const g of groups) {
     const groupStart = clock;
     const made: Item[] = [];
@@ -423,6 +439,8 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
         item.lanes[lane.id] = pieces;
       }
       item.seconds = itemSeconds(row, timed, spec.spine.seconds);
+      item.pause = pauseAfter(row);
+      item.seconds += item.pause;
       item.estimated = timed.some((p) => p.estimated);
       for (const lane of placedLanes) {
         const known = bySlug(lane);

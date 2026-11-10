@@ -65,6 +65,8 @@ A timeline definition::
 - ``spine.cards`` adds a title card (``intro``) and an end card (``outro``): each reads its ``title`` field (the card exists when it has
   text) and ``seconds`` field (else ``default_seconds``) from the view's entry. A card is laid out as an item of its own, so everything after it
   starts when the render starts it; the package's render must make the same cards.
+- ``spine.scene_break`` ({field, seconds}) adds a pause where a scene ends: after an item whose next item holds a different value in ``field``
+  (both non-empty), the view's entry's ``seconds`` field (when above 0) of quiet, part of the item's length; the render must add the same.
 - ``spine.run`` puts a small button on each item that runs a ``workflow`` for just that item: ``entry`` is the workflow input that gets the
   entry's slug, ``item`` the input that gets the item's ``field`` value (a beat's number), ``inputs`` fixed values (a draft's quality).
 - ``actions`` are buttons on the page: each starts a ``wizard`` or a ``workflow`` the same package brings. A workflow action with ``run``
@@ -121,6 +123,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         or _check_item_run(spine.get("run"), f"{label} spine")
         or _check_bands(spine.get("bands"), f"{label} spine")
         or _check_cards(spine.get("cards"), f"{label} spine")
+        or _check_scene_break(spine.get("scene_break"), f"{label} spine")
     ):
         return problem
     lanes = payload.get("lanes", [])
@@ -143,6 +146,17 @@ def payload_problem(payload: dict, slug: str) -> str | None:
 
 MAX_BANDS = 2
 CARD_KINDS = ("intro", "outro")
+
+
+def _check_scene_break(spec: Any, label: str) -> str | None:
+    """`spine.scene_break`: {field, seconds}: a pause after an item whose next item holds a different value in `field`."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict):
+        return f"{label}: scene_break is {{field, seconds}}"
+    return _fields({k: spec.get(k) for k in ("field", "seconds")}, ("field", "seconds"), f"{label} scene_break") or next(
+        (f"{label} scene_break needs {k}, a field key" for k in ("field", "seconds") if spec.get(k) is None), None
+    )
 
 
 def _check_cards(cards: Any, label: str) -> str | None:
