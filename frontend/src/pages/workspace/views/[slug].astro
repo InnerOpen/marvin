@@ -284,11 +284,19 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
               <div class="tl-inner" data-zoom="1" data-share={share(track)} style={`width:${(share(track) * 100).toFixed(3)}%;min-width:${minInnerWidth(track.items, track.seconds)}px`}>
                 {spec.spine.group && !stacked && (
                   <div class="tl-groups" role="list">
-                    {track.groups.map((g) => (
-                      <div class="tl-group" role="listitem" style={`left:${pctIn(track, g.start)};width:${pctIn(track, track.start + g.seconds)}`}>
-                        {g.id ? <a href={open(g.id)}>{g.title}</a> : <span class="muted">{g.title || (laid!.groups.length > 1 ? `No ${spec.spine.group!.entry_type}` : "")}</span>}
-                      </div>
-                    ))}
+                    {track.groups.map((g) => {
+                      const place = `left:${pctIn(track, g.start)};width:${pctIn(track, track.start + g.seconds)}`;
+                      // The whole band opens the entry it names (the chapter); a stretch with none is only a label.
+                      return g.id ? (
+                        <a class="tl-group is-link" role="listitem" href={open(g.id)} style={place} title={`${g.title}\n${timecode(g.start)} → ${timecode(g.start + g.seconds)}\nClick to open it`}>
+                          <span>{g.title}</span>
+                        </a>
+                      ) : (
+                        <div class="tl-group" role="listitem" style={place}>
+                          <span class="muted">{g.title || (laid!.groups.length > 1 ? `No ${spec.spine.group!.entry_type}` : "")}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -761,8 +769,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-band.is-link > span::after { content: " ↗"; color: var(--muted); font-size: 11px; }
   .tl-group { position: absolute; top: 0; height: 22px; border-bottom: 2px solid var(--accent); padding: 0 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
   /* The title slides along inside its chapter while you scroll, so you always know where you are at a high zoom. */
-  .tl-group > a, .tl-group > span { position: sticky; left: 16px; display: inline-block; max-width: 100%; }
-  .tl-group a { color: var(--ink); text-decoration: none; }
+  .tl-group > span { position: sticky; left: 16px; display: inline-block; max-width: 100%; }
+  .tl-group.is-link { color: var(--ink); text-decoration: none; cursor: pointer; }
+  .tl-group.is-link:hover, .tl-group.is-link:focus-visible { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .tl-group.is-link > span::after { content: " ↗"; color: var(--muted); font-size: 12px; font-weight: 400; }
   .tl-group + .tl-group { border-left: 1px solid var(--line); }
 
   .tl-strip { position: relative; height: 128px; }
