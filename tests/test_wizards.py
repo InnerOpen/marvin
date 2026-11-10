@@ -382,6 +382,7 @@ def test_a_gallery_may_list_takes_name_them_after_a_line_and_measure_an_upload()
     ("change", "words"),
     [
         ({"layout": "grid"}, "layout"),
+        ({"trash": "yes"}, "trash is"),
         ({"name": {"from": "nope", "noun": "take"}}, "name is"),
         ({"name": {"from": "line", "noun": " "}}, "name is"),
         ({"highlight": {"field": "status"}}, "highlight"),
@@ -451,3 +452,7 @@ def test_a_wizard_only_shows_approvals_of_workflows_its_own_package_brings():
     wizard["payload"]["steps"][4]["approve"] = ["someone-elses-workflow"]
     with pytest.raises(PackageError, match="shows approvals of"):
         service.parse_manifest(manifest)
+
+
+def test_a_gallery_may_offer_to_trash_what_it_lists():
+    assert payload_problem(_takes_wizard(trash=True), "takes") is None

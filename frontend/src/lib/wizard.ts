@@ -98,6 +98,7 @@ export const NOTICES: Record<string, string> = {
   denied: "Denied. The workflow stops there; run it again if you change your mind.",
   chosen: "Your choice was taken. The workflow goes on; anything else it asks appears here.",
   added: "Added.",
+  trashed: "Moved to the Trash. You can bring it back from the Trash.",
 };
 /** Address parameters that are not choices: the step asked for, and the line to show after a step that started something. */
 export const NOTICE_PARAM = "notice";

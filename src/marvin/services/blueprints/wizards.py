@@ -390,6 +390,8 @@ def _check_gallery(s: _Step) -> str | None:
             return f"{s.label}: {key} must be a field key"
     if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
         return problem
+    if step.get("trash") is not None and not isinstance(step["trash"], bool):
+        return f"{s.label}: trash is true or false: each card gets a Move to Trash button"
     if step.get("layout") not in (None, "cards", "list"):
         return f"{s.label}: layout is cards (the default) or list"
     if (name := step.get("name")) is not None:
