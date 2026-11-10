@@ -54,7 +54,15 @@ export interface BedSpec {
   fade_out?: string;
   default_fade_in?: number;
   default_fade_out?: number;
+  /** Fields on the view's entry for how every bed fades in at the start / out at the end of the film (they replace the sound's own there). */
+  start_fade?: string;
   end_fade?: string;
+  /** The cascade for a lane's own fades: the sound's, then the entry's (the story's), then the spine item's (a beat's), each replacing the one
+   * before: `entry_fade_in` / `_out` are fields on the view's entry, `item_fade_in` / `_out` on each spine item. */
+  entry_fade_in?: string;
+  entry_fade_out?: string;
+  item_fade_in?: string;
+  item_fade_out?: string;
   /** A bed that layers, as the render plays ambience: `item_field` on each spine item names its own sound (it wins over the `via` entry's
    * `field`: a beat's own over its scene's), and `entry_field` on the view's entry names a sound under the whole film (the story's), which
    * plays together with those, its level in `entry_volume`. */
@@ -432,14 +440,21 @@ export const DUCK_ATTACK = 0.2;
 export const DUCK_RELEASE = 0.5;
 const duckDepth = (value: unknown): number | null => (value === "light" || value === "strong" ? DUCK_DEPTH[value] : null);
 
-/** How a bed block fades as the render plays it: in over the sound's own `fade_in` (else the lane's default), out over its `fade_out`, and a
- * block that runs to the end of the film out over the story's own setting when it has one. Neither is longer than half the block. */
-function bedFades(spec: BedSpec, sound: Row, start: number, seconds: number, total: number, entry: Row | undefined): { fadeIn: number; fadeOut: number } {
-  const own = (key: string | undefined, fallback: number | undefined) => Math.max(0, num(field(sound, key)) ?? fallback ?? 0);
+/** How a bed block fades as the render plays it, each setting replacing the one before it. In: the sound's own `fade_in`, else the lane's
+ * default; replaced by the film's start fade when the block starts the film; replaced by the entry's (story's) setting for the lane; replaced
+ * by the first spine item's (the beat's) own. Out the same, with the end of the film and the last item. Neither is longer than half the block. */
+function bedFades(spec: BedSpec, sound: Row, start: number, seconds: number, total: number, entry: Row | undefined, first?: Row, last?: Row): { fadeIn: number; fadeOut: number } {
+  const set = (row: Row | undefined, key: string | undefined): number | null => {
+    const v = row && key ? num(field(row, key)) : null;
+    return v !== null && v > 0 ? v : null;
+  };
+  const sounds = (key: string | undefined, fallback: number | undefined) => Math.max(0, num(field(sound, key)) ?? fallback ?? 0);
+  const atStart = start <= 1e-6;
   const atEnd = start + seconds >= total - 1e-6;
-  const story = atEnd && entry ? num(field(entry, spec.end_fade)) : null;
+  const fadeIn = set(first, spec.item_fade_in) ?? set(entry, spec.entry_fade_in) ?? (atStart ? set(entry, spec.start_fade) : null) ?? sounds(spec.fade_in, spec.default_fade_in);
+  const fadeOut = set(last, spec.item_fade_out) ?? set(entry, spec.entry_fade_out) ?? (atEnd ? set(entry, spec.end_fade) : null) ?? sounds(spec.fade_out, spec.default_fade_out);
   const half = seconds / 2;
-  return { fadeIn: Math.min(own(spec.fade_in, spec.default_fade_in), half), fadeOut: Math.min(story !== null && story > 0 ? story : own(spec.fade_out, spec.default_fade_out), half) };
+  return { fadeIn: Math.min(fadeIn, half), fadeOut: Math.min(fadeOut, half) };
 }
 
 /** The blocks of a bed lane: which sound runs under each item, merged across consecutive items that share one, at what level. */
@@ -459,7 +474,7 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     muffled,
     items: ids,
     steps: [],
-    ...bedFades(spec, sound, start, seconds, total, rows.entry),
+    ...bedFades(spec, sound, start, seconds, total, rows.entry),  // a block's fades are worked out again when it is final (its first and last items)
     duck: rows.entry && !spec.via && spec.on !== "spine" ? duckDepth(field(rows.entry, spec.duck)) : null,
   });
   if (!spec.via && spec.on !== "spine") {
@@ -490,6 +505,10 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     } else {
       out.push(make(sound, item.start, item.seconds, at, muffled, [item.id]));
     }
+  }
+  for (const b of out) {
+    const sound = sounds.get(b.slug);
+    if (sound) Object.assign(b, bedFades(spec, sound, b.start, b.seconds, total, rows.entry, spine.get(b.items[0]), spine.get(b.items[b.items.length - 1])));
   }
   return [...everywhere, ...out];
 }
