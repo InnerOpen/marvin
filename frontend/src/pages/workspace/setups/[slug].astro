@@ -809,10 +809,6 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .choice { display: flex; gap: 10px; align-items: center; cursor: pointer; padding: 10px 14px; border: 1px solid transparent; border-radius: var(--radius); background: var(--bg); }
   .choice:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .choice:has(input:checked) { border-color: var(--accent); }
-  /* A section inside the step's card is a darker panel, not an outlined box: the same as the sections inside a card on the Workflows page. */
-  .create { border: 0; background: var(--bg); border-radius: var(--radius); padding: 16px; display: grid; gap: 14px; margin: 0; }
-  .create legend { float: left; width: 100%; padding: 0; margin: 0 0 2px; font-size: 14px; font-weight: 600; color: var(--ink); }
-  .create legend + * { clear: both; }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .req { color: var(--color-error, #c0392b); }
   .replace { display: grid; gap: 10px; }
