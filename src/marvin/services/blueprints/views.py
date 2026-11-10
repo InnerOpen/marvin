@@ -46,7 +46,9 @@ A timeline definition::
   same bed merge into one block. ``bed.volume`` is the level field on that entry and ``bed.item_volume`` an override on the spine item;
   a level set there *replaces* the sound's own (not multiplied), and ``bed.default_volume`` (0 to 1) plays when none is set.
   ``bed.fade_in`` / ``bed.fade_out`` name the sound's fade fields (seconds), ``bed.default_fade_in`` / ``default_fade_out`` what the render does
-  when they are empty, and ``bed.end_fade`` a field on the view's entry for how long every bed fades out at the end of the film; the block draws them.
+  when they are empty, and ``bed.end_fade`` a field on the view's entry for how long every bed fades out at the end of the film; the block
+  draws them and Play follows them. ``bed.duck`` is a field on the view's entry holding none, light or strong: how far the bed goes
+  down under each spoken line.
   ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it
   repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
   that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
@@ -158,7 +160,7 @@ def _check_bed(bed: Any, label: str) -> str | None:
         return f"{label}: bed is {{field, via?, entry_type?, volume?, item_volume?}}"
     if problem := _field(bed, "field", f"{label} bed", required=True):
         return problem
-    if problem := _fields(bed, ("via", "volume", "item_volume", "muffled", "fade_in", "fade_out", "end_fade"), f"{label} bed"):
+    if problem := _fields(bed, ("via", "volume", "item_volume", "muffled", "fade_in", "fade_out", "end_fade", "duck"), f"{label} bed"):
         return problem
     if (bed.get("via") is None) != (bed.get("entry_type") is None):
         return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"

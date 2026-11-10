@@ -380,7 +380,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   // The player: walks the cues (each a stretch of time, with a take to play or silence to wait), moves the playhead and lights the item and
   // piece under it. Nothing is stitched: a story plays from its takes as they are, and improves as takes land.
   interface Cue { item: string; piece: string | null; lane: string | null; start: number; seconds: number; audio: string | null }
-  interface Overlay { id: string; lane: string; start: number; seconds: number; audio: string; volume: number; loop: boolean; origin?: number }
+  import { gainAt, type Overlay } from "@/lib/timeline";
   const root = document.querySelector<HTMLElement>(".tl");
   const cuesEl = root?.querySelector<HTMLScriptElement>("script[data-cues]");
   if (root && cuesEl) {
@@ -426,9 +426,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         const end = o.seconds > 0 ? o.start + o.seconds : Infinity;
         const due = on && t >= o.start && t < end;
         const a = live.get(i);
+        if (due && a) a.volume = levelOf(o) * gainAt(o, t); // its fades and its dip under speech, as the render does them
         if (due && !a) {
           const el = new Audio(o.audio);
-          el.volume = levelOf(o);
+          el.volume = levelOf(o) * gainAt(o, t);
           el.loop = o.loop;
           const offset = t - (o.origin ?? o.start); // a bed cut into level steps keeps its place in the file across them
           el.addEventListener("loadedmetadata", () => {

@@ -157,6 +157,7 @@ def _bad(mutate) -> str | None:
         (lambda p: p["lanes"][3]["bed"].update(default_fade_out=-1), "default_fade_out must be a number of seconds"),
         (lambda p: p["lanes"][3]["bed"].update(default_fade_in="slow"), "default_fade_in must be a number of seconds"),
         (lambda p: p["lanes"][3]["bed"].update(end_fade="End Fade"), "end_fade must be a field key"),
+        (lambda p: p["lanes"][3]["bed"].update(duck="Music Ducking"), "duck must be a field key"),
         (lambda p: p["lanes"][3]["bed"].update(default_volume="loud"), "default_volume must be a number from 0 to 1"),
         (lambda p: p["lanes"][4]["cover"].pop("field"), "cover needs field"),
         (lambda p: p["lanes"][4]["cover"].pop("entry_type"), "cover.via"),

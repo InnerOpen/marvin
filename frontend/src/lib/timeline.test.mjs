@@ -416,3 +416,55 @@ test("bed fades: the story's end fade wins for the music and for the ambience bl
   const amb = laid.beds.ambience;
   assert.deepEqual(amb.map((b) => b.fadeOut), [1, 1, 1, 2]); // only the last block touches the end of the film; its 5 s is held to half of its 4 s, as the render does
 });
+
+// ── Play follows the render: fades and the dip under speech ───────────────────────────────────────────────────────────────────────────
+import { gainAt, speechWindows, DUCK_DEPTH } from "./timeline.ts";
+
+test("gain: a bed rises over its fade-in, falls over its fade-out, and is 1 between; no fade is always 1", () => {
+  const o = { id: "m", lane: "music", start: 0, seconds: 20, audio: "x", volume: 1, loop: true, fade: { from: 0, to: 20, in: 2, out: 4 } };
+  assert.equal(gainAt(o, 0), 0);
+  assert.equal(gainAt(o, 1), 0.5);
+  assert.equal(gainAt(o, 10), 1);
+  assert.equal(gainAt(o, 18), 0.5); // half way down a 4 s fade-out
+  assert.equal(gainAt(o, 20), 0);
+  assert.equal(gainAt({ ...o, fade: undefined }, 20), 1);
+});
+
+test("gain: under a speech window it goes down to the depth over 0.2 s before the line and comes back over 0.5 s after", () => {
+  const o = { id: "m", lane: "music", start: 0, seconds: 30, audio: "x", volume: 1, loop: true, duck: { depth: DUCK_DEPTH.strong, windows: [[10, 12]] } };
+  assert.equal(gainAt(o, 9), 1);
+  assert.ok(Math.abs(gainAt(o, 9.9) - (1 - 0.88 * 0.5)) < 1e-9); // half way down, 0.1 s before the line
+  assert.ok(Math.abs(gainAt(o, 11) - 0.12) < 1e-9); // inside the line
+  assert.ok(Math.abs(gainAt(o, 12.25) - (1 - 0.88 * 0.5)) < 1e-9); // half way back
+  assert.equal(gainAt(o, 13), 1);
+});
+
+test("gain: a fade and a dip multiply", () => {
+  const o = { id: "m", lane: "music", start: 0, seconds: 20, audio: "x", volume: 1, loop: true, fade: { from: 0, to: 20, in: 0, out: 4 }, duck: { depth: 0.5, windows: [[17, 19]] } };
+  assert.ok(Math.abs(gainAt(o, 18) - 0.5 * 0.5) < 1e-9); // half way down the fade-out, and ducked to half
+});
+
+const duckSpec = { ...spec, lanes: [...spec.lanes, { id: "music", title: "Music", entry_type: "sound", bed: { field: "music", duck: "music_ducking", default_fade_out: 2 }, audio: "audio", loop: "loop", volume: "volume" }] };
+
+test("speech windows: pieces with a take, joined when closer than a ramp; a line with no take does not duck", () => {
+  const laid = layout(duckSpec, { spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], music: [] } });
+  // lay pieces by hand: two lines with takes 0.4 s apart, one far away, one with no take
+  laid.items[0].lanes.lines = [
+    { id: "a", start: 1, seconds: 2, audio: "t", estimated: false },
+    { id: "b", start: 3.4, seconds: 1, audio: "t", estimated: false },
+    { id: "c", start: 9, seconds: 1, audio: null, estimated: true },
+    { id: "d", start: 12, seconds: 1, audio: "t", estimated: false },
+  ];
+  assert.deepEqual(speechWindows(laid, duckSpec.lanes), [[1, 4.4], [12, 13]]);
+});
+
+test("overlays: a music bed that ducks and fades carries both, and one that does not carries neither", () => {
+  const ducking = layout(duckSpec, { entry: row("s", { music: "waltz", music_ducking: "light" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], music: bedSounds } });
+  ducking.items[0].lanes.lines = [{ id: "a", start: 1, seconds: 2, audio: "t", estimated: false }];
+  const [m] = overlays(ducking, duckSpec.lanes).filter((o) => o.lane === "music");
+  assert.deepEqual(m.duck, { depth: 0.35, windows: [[1, 3]] });
+  assert.deepEqual(m.fade, { from: 0, to: 20, in: 0, out: 2 });
+  const quiet = layout(duckSpec, { entry: row("s", { music: "waltz", music_ducking: "none" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], music: bedSounds } });
+  const [q] = overlays(quiet, duckSpec.lanes).filter((o) => o.lane === "music");
+  assert.equal(q.duck, undefined);
+});
