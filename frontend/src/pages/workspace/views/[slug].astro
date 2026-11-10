@@ -296,9 +296,16 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   <div class="tl-bands" role="list" aria-label={band.title ?? band.entry_type}>
                     {bandsOver(band.id ?? band.field, track).map((b) => {
                       const from = clip(b, track);
-                      return (
-                        <div class="tl-band" role="listitem" style={`left:${pctIn(track, from.from)};width:${pctIn(track, track.start + from.seconds)}`} title={`${band.title ?? band.entry_type}: ${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)}`}>
-                          {b.id ? <a href={open(b.id)}>{b.title}</a> : <span class="muted">{b.title}</span>}
+                      const place = `left:${pctIn(track, from.from)};width:${pctIn(track, track.start + from.seconds)}`;
+                      const words = `${band.title ?? band.entry_type}: ${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)}`;
+                      // The whole band opens the entry it names (the scene); one whose entry was not found is only a label.
+                      return b.id ? (
+                        <a class="tl-band is-link" role="listitem" href={open(b.id)} style={place} title={`${words}\nClick to open it`}>
+                          <span>{b.title}</span>
+                        </a>
+                      ) : (
+                        <div class="tl-band" role="listitem" style={place} title={`${words}\nNo ${band.entry_type} with this name was found`}>
+                          <span class="muted">{b.title}</span>
                         </div>
                       );
                     })}
@@ -748,8 +755,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-groups { position: relative; height: 24px; margin-bottom: 4px; }
   .tl-bands { position: relative; height: 22px; margin-bottom: 4px; }
   .tl-band { position: absolute; top: 0; height: 20px; padding: 0 6px; box-sizing: border-box; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); border-radius: 6px; background: color-mix(in srgb, var(--ink) 7%, var(--panel)); border: 1px solid var(--line); }
-  .tl-band > a, .tl-band > span { position: sticky; left: 10px; display: inline-block; max-width: 100%; line-height: 18px; }
-  .tl-band a { color: var(--ink); text-decoration: none; }
+  .tl-band > span { position: sticky; left: 10px; display: inline-block; max-width: 100%; line-height: 18px; }
+  .tl-band.is-link { color: var(--ink); text-decoration: none; cursor: pointer; }
+  .tl-band.is-link:hover, .tl-band.is-link:focus-visible { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); border-color: var(--accent); }
+  .tl-band.is-link > span::after { content: " ↗"; color: var(--muted); font-size: 11px; }
   .tl-group { position: absolute; top: 0; height: 22px; border-bottom: 2px solid var(--accent); padding: 0 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
   /* The title slides along inside its chapter while you scroll, so you always know where you are at a high zoom. */
   .tl-group > a, .tl-group > span { position: sticky; left: 16px; display: inline-block; max-width: 100%; }
