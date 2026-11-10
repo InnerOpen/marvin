@@ -39,6 +39,9 @@ export interface BedSpec {
   volume?: string;
   item_volume?: string;
   muffled?: string;
+  /** The level when neither the item, the entry that names the bed nor the sound itself sets one: what the render falls back to (0.12 for
+   * music, 0.5 for ambience). Without it, 1. */
+  default_volume?: number;
 }
 
 /** A video laid over each spine item's picture. The item's own field wins, then the entry `via` names (a beat's scene), then the view's entry
@@ -354,6 +357,12 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   return { total: clock, groups: out, items, beds, covers };
 }
 
+/** A bed's level as the render plays it: the level set where the sound is named (a beat's, else its scene's or the story's) *replaces* the
+ * sound's own, which replaces the lane's default. Not a product: a scene at 0.5 over a sound at 0.8 plays at 0.5. */
+function bedLevel(lane: LaneSpec, sound: Row, named: number | null): number {
+  return named ?? level(field(sound, lane.volume)) ?? lane.bed?.default_volume ?? 1;
+}
+
 /** The blocks of a bed lane: which sound runs under each item, merged across consecutive items that share one, at what level. */
 function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds: Map<string, Row>): Bed[] {
   const spec = lane.bed!;
@@ -366,7 +375,7 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     start,
     seconds,
     audio: assetUrl(sound, lane.audio, "audio/"),
-    volume: (level(field(sound, lane.volume)) ?? 1) * (at ?? 1),
+    volume: bedLevel(lane, sound, at),
     loop: lane.loop ? field(sound, lane.loop) !== false : true,
     muffled,
     items: ids,
@@ -389,7 +398,7 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     const at = level(field(row, spec.item_volume)) ?? level(named ? field(named, spec.volume) : null);
     const muffled = !!(named && spec.muffled && field(named, spec.muffled) === true);
     const last = out[out.length - 1];
-    if (last && last.slug === sound.slug && last.volume === (level(field(sound, lane.volume)) ?? 1) * (at ?? 1) && last.muffled === muffled && last.start + last.seconds >= item.start - 1e-6) {
+    if (last && last.slug === sound.slug && last.volume === bedLevel(lane, sound, at) && last.muffled === muffled && last.start + last.seconds >= item.start - 1e-6) {
       last.seconds = item.start + item.seconds - last.start;
       last.items.push(item.id);
     } else {
