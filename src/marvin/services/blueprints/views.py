@@ -62,6 +62,9 @@ A timeline definition::
   blend of ``none`` at one of them switches the overlay off from there up.
 - ``spine.bands`` adds bands over the strip, each wrapping the consecutive items that share a value in its ``field`` (the beats of one scene),
   titled by the ``entry_type`` entry that value names; at most two. They draw only: nothing is reordered.
+- ``spine.cards`` adds a title card (``intro``) and an end card (``outro``): each reads its ``title`` field (the card exists when it has
+  text) and ``seconds`` field (else ``default_seconds``) from the view's entry. A card is laid out as an item of its own, so everything after it
+  starts when the render starts it; the package's render must make the same cards.
 - ``spine.run`` puts a small button on each item that runs a ``workflow`` for just that item: ``entry`` is the workflow input that gets the
   entry's slug, ``item`` the input that gets the item's ``field`` value (a beat's number), ``inputs`` fixed values (a draft's quality).
 - ``actions`` are buttons on the page: each starts a ``wizard`` or a ``workflow`` the same package brings. A workflow action with ``run``
@@ -117,6 +120,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         problem := _check_spine(spine, f"{label} spine")
         or _check_item_run(spine.get("run"), f"{label} spine")
         or _check_bands(spine.get("bands"), f"{label} spine")
+        or _check_cards(spine.get("cards"), f"{label} spine")
     ):
         return problem
     lanes = payload.get("lanes", [])
@@ -138,6 +142,26 @@ def payload_problem(payload: dict, slug: str) -> str | None:
 
 
 MAX_BANDS = 2
+CARD_KINDS = ("intro", "outro")
+
+
+def _check_cards(cards: Any, label: str) -> str | None:
+    """`spine.cards`: a title card before the items and an end card after them, from fields on the view's entry."""
+    if cards is None:
+        return None
+    if not isinstance(cards, dict) or any(k not in CARD_KINDS for k in cards):
+        return f"{label}: cards is {{intro?, outro?}}, each {{title, seconds?, default_seconds?, label?}}"
+    for kind, card in cards.items():
+        where = f"{label} cards.{kind}"
+        if not isinstance(card, dict):
+            return f"{where} is {{title, seconds?, default_seconds?, label?}}"
+        if (problem := _field(card, "title", where, required=True)) or (problem := _field(card, "seconds", where)):
+            return problem
+        if not _number_between(card, "default_seconds", 0.1, 60):
+            return f"{where}: default_seconds must be a number of seconds from 0.1 to 60"
+        if card.get("label") is not None and (not isinstance(card["label"], str) or not card["label"].strip() or len(card["label"]) > 30):
+            return f"{where}: label is a short text"
+    return None
 
 
 def _check_bands(bands: Any, label: str) -> str | None:

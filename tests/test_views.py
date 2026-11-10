@@ -26,6 +26,10 @@ TIMELINE = {
     "title": "Timeline",
     "entry_type": "story",
     "spine": {
+        "cards": {
+            "intro": {"title": "intro_title", "seconds": "intro_seconds", "default_seconds": 2.5, "label": "Title card"},
+            "outro": {"title": "outro_title", "seconds": "outro_seconds", "default_seconds": 3},
+        },
         "bands": [{"entry_type": "scene", "field": "scene", "title": "Scene"}],
         "run": {"workflow": "kit-mark-sold", "entry": "story", "item": "beats", "field": "number", "label": "Draft", "inputs": {"quality": "draft"}},
         "entry_type": "beat",
@@ -173,6 +177,12 @@ def _bad(mutate) -> str | None:
         (lambda p: p["lanes"][3]["bed"].update(end_fade="End Fade"), "end_fade must be a field key"),
         (lambda p: p["lanes"][3]["bed"].update(duck="Music Ducking"), "duck must be a field key"),
         (lambda p: p["lanes"][3]["bed"].update(default_volume="loud"), "default_volume must be a number from 0 to 1"),
+        (lambda p: p["spine"].update(cards="intro"), "cards is {intro?"),
+        (lambda p: p["spine"].update(cards={"middle": {"title": "t"}}), "cards is {intro?"),
+        (lambda p: p["spine"].update(cards={"intro": {"seconds": "intro_seconds"}}), "needs title"),
+        (lambda p: p["spine"].update(cards={"intro": {"title": "Intro Title"}}), "title must be a field key"),
+        (lambda p: p["spine"].update(cards={"intro": {"title": "t", "default_seconds": 0}}), "default_seconds must be"),
+        (lambda p: p["spine"].update(cards={"outro": {"title": "t", "label": " "}}), "label is a short text"),
         (lambda p: p["spine"].update(bands="scene"), "bands is a list"),
         (lambda p: p["spine"].update(bands=[{"entry_type": "scene"}]), "needs field"),
         (lambda p: p["spine"].update(bands=[{"entry_type": "Scene", "field": "scene"}]), "entry_type"),
