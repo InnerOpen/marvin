@@ -34,10 +34,22 @@ export interface BedSpec {
   on?: "entry" | "spine";
   via?: string;
   entry_type?: string;
-  /** The level (0 to 1) on the entry that names the bed, and an override on the spine item. */
+  /** The level (0 to 1) on the entry that names the bed, and an override on the spine item. On a bed that runs under the whole story (no
+   * `via`) the override *replaces* the level while that item plays (a beat's music_volume, 0 = silence) and shows as steps in the block. */
   volume?: string;
   item_volume?: string;
   muffled?: string;
+}
+
+/** A video laid over each spine item's picture. The item's own field wins, then the entry `via` names (a beat's scene), then the view's entry
+ * itself (the story); a blend of `none` at any of them switches the overlay off from there up. */
+export interface CoverSpec {
+  /** The asset field (its attached asset carries the field key as its role). */
+  field: string;
+  blend?: string;
+  opacity?: string;
+  via?: string;
+  entry_type?: string;
 }
 
 export interface LaneSpec {
@@ -49,6 +61,7 @@ export interface LaneSpec {
   in?: string;
   placed?: { field: string; ref: string; at: string };
   bed?: BedSpec;
+  cover?: CoverSpec;
   order?: string;
   text?: string;
   who?: string;
@@ -123,6 +136,30 @@ export interface Bed {
   muffled: boolean;
   /** The spine items it runs under. */
   items: string[];
+  /** When items set a level of their own: the whole block as runs at one level each (an item's level replaces the block's). Else empty. */
+  steps: BedStep[];
+}
+
+export interface BedStep {
+  start: number;
+  seconds: number;
+  volume: number;
+}
+
+/** A video over a stretch of pictures, merged across consecutive items that get the same one. */
+export interface Cover {
+  /** The video's address, which tells two overlays apart. */
+  url: string;
+  /** Its file name, for the label. */
+  name: string;
+  /** The entry type it was set on: the spine's, the `via`'s or the view's own. */
+  from: string;
+  blend: string;
+  /** 0 to 1; 1 when none is set. */
+  opacity: number;
+  start: number;
+  seconds: number;
+  items: string[];
 }
 
 export interface Item {
@@ -155,6 +192,8 @@ export interface Layout {
   items: Item[];
   /** Per bed lane, its blocks in time order. */
   beds: Record<string, Bed[]>;
+  /** Per cover lane, its blocks in time order. */
+  covers: Record<string, Cover[]>;
 }
 
 export const DEFAULT_SECONDS = { hold: 4, lead: 0.3, gap: 0.25, tail: 0.35 };
@@ -177,7 +216,7 @@ export function estimateSeconds(text: string): number {
 }
 
 /** The picture an item shows: the asset attached in the picture field's role (a linked asset field syncs its role to its key). */
-export function assetUrl(row: Row, key: string | undefined, kind: "image/" | "audio/"): string | null {
+export function assetUrl(row: Row, key: string | undefined, kind: "image/" | "audio/" | "video/"): string | null {
   if (!key) return null;
   const hit = (row.assets ?? []).find((a) => a.role === key && a.publicUrl && (a.mimeType ?? "").startsWith(kind));
   return hit?.publicUrl ?? null;
@@ -310,7 +349,9 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   }
   const beds: Record<string, Bed[]> = {};
   for (const lane of bedLanes) beds[lane.id] = bedsOf(lane, items, rows, clock, bySlug(lane));
-  return { total: clock, groups: out, items, beds };
+  const covers: Record<string, Cover[]> = {};
+  for (const lane of lanes.filter((l) => l.cover)) covers[lane.id] = coversOf(lane.cover!, spec, items, rows, lane.id);
+  return { total: clock, groups: out, items, beds, covers };
 }
 
 /** The blocks of a bed lane: which sound runs under each item, merged across consecutive items that share one, at what level. */
@@ -329,10 +370,14 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     loop: lane.loop ? field(sound, lane.loop) !== false : true,
     muffled,
     items: ids,
+    steps: [],
   });
   if (!spec.via && spec.on !== "spine") {
     const sound = rows.entry ? sounds.get(str(field(rows.entry, spec.field))) : undefined;
-    return sound && total > 0 ? [make(sound, 0, total, level(field(rows.entry!, spec.volume)), false, items.map((i) => i.id))] : [];
+    if (!sound || total <= 0) return [];
+    const whole = make(sound, 0, total, level(field(rows.entry!, spec.volume)), false, items.map((i) => i.id));
+    whole.steps = stepsOf(spec, items, rows, whole.volume);
+    return [whole];
   }
   const out: Bed[] = [];
   for (const item of items) {
@@ -350,6 +395,57 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     } else {
       out.push(make(sound, item.start, item.seconds, at, muffled, [item.id]));
     }
+  }
+  return out;
+}
+
+/** A story-wide bed's level over time when spine items set one of their own: runs at one level each, or none when no item changes it. */
+function stepsOf(spec: BedSpec, items: Item[], rows: Rows, base: number): BedStep[] {
+  if (!spec.item_volume) return [];
+  const spine = new Map(rows.spine.map((r) => [r.id, r] as const));
+  const runs: BedStep[] = [];
+  for (const item of items) {
+    const row = spine.get(item.id);
+    const volume = (row ? level(field(row, spec.item_volume)) : null) ?? base;
+    const last = runs[runs.length - 1];
+    if (last && Math.abs(last.volume - volume) < 1e-9) last.seconds = item.start + item.seconds - last.start;
+    else runs.push({ start: item.start, seconds: item.seconds, volume });
+  }
+  return runs.length > 1 || (runs.length === 1 && Math.abs(runs[0].volume - base) > 1e-9) ? runs : [];
+}
+
+/** The file name of a published address, without its query. */
+const fileName = (url: string): string => decodeURIComponent(url.split("?")[0].split("/").pop() ?? url);
+
+/** The cover blocks of a cover lane: for each item the video its own field, else its `via` entry's, else the view's entry's names. */
+function coversOf(spec: CoverSpec, view: TimelineSpec, items: Item[], rows: Rows, laneId: string): Cover[] {
+  const via = new Map((rows.via?.[laneId] ?? []).map((r) => [r.slug, r] as const));
+  const spine = new Map(rows.spine.map((r) => [r.id, r] as const));
+  const out: Cover[] = [];
+  for (const item of items) {
+    const row = spine.get(item.id);
+    const named = row && spec.via ? via.get(str(field(row, spec.via))) : undefined;
+    const tiers: [Row | undefined, string][] = [
+      [row, view.spine.entry_type],
+      [named, spec.entry_type ?? ""],
+      [rows.entry, view.entry_type],
+    ];
+    let found: Cover | null = null;
+    for (const [owner, from] of tiers) {
+      if (!owner) continue;
+      const blend = str(field(owner, spec.blend));
+      if (blend === "none") break;
+      const url = assetUrl(owner, spec.field, "video/");
+      if (!url) continue;
+      found = { url, name: fileName(url), from, blend: blend || "normal", opacity: level(field(owner, spec.opacity)) ?? 1, start: item.start, seconds: item.seconds, items: [item.id] };
+      break;
+    }
+    if (!found) continue;
+    const last = out[out.length - 1];
+    if (last && last.url === found.url && last.blend === found.blend && last.opacity === found.opacity && last.from === found.from && last.start + last.seconds >= item.start - 1e-6) {
+      last.seconds = item.start + item.seconds - last.start;
+      last.items.push(item.id);
+    } else out.push(found);
   }
   return out;
 }
@@ -526,6 +622,8 @@ export interface Overlay {
   audio: string;
   volume: number;
   loop: boolean;
+  /** Where the file's own start falls on the timeline, when that is earlier than `start` (a bed cut into steps keeps playing through them). */
+  origin?: number;
 }
 
 export function overlays(laid: Layout, lanes: LaneSpec[]): Overlay[] {
@@ -536,7 +634,11 @@ export function overlays(laid: Layout, lanes: LaneSpec[]): Overlay[] {
     }
   }
   for (const lane of lanes.filter((l) => l.bed)) {
-    for (const b of laid.beds[lane.id] ?? []) if (b.audio) out.push({ id: b.id, lane: lane.id, start: b.start, seconds: b.seconds, audio: b.audio, volume: b.volume, loop: b.loop });
+    for (const b of laid.beds[lane.id] ?? []) {
+      if (!b.audio) continue;
+      if (b.steps.length === 0) out.push({ id: b.id, lane: lane.id, start: b.start, seconds: b.seconds, audio: b.audio, volume: b.volume, loop: b.loop });
+      else for (const step of b.steps) if (step.volume > 0) out.push({ id: b.id, lane: lane.id, start: step.start, seconds: step.seconds, audio: b.audio, volume: step.volume, loop: b.loop, origin: b.start });
+    }
   }
   return out.sort((a, b) => a.start - b.start);
 }

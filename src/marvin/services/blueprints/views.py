@@ -37,7 +37,7 @@ A timeline definition::
   field, ``text`` a text shown when there is no picture, ``status`` a status field drawn as a dot. ``seconds`` names the fields that time an
   item: ``hold`` is how long an item with nothing in its lanes lasts; ``lead``, ``gap`` and ``tail`` are the silences around and between the
   pieces of a lane that has ``seconds``; ``defaults`` fill in when a field is empty.
-- A ``lane`` is a child type drawn under the spine, in one of three shapes. ``in`` names the field that holds the spine item's slug (a line
+- A ``lane`` is a child type drawn under the spine, in one of four shapes. ``in`` names the field that holds the spine item's slug (a line
   belongs to a beat; ``of`` is then required and scopes the lane's entries to the view's entry). ``placed`` says the spine item lists them:
   ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at`` (the entries come by
   those slugs, so a library sound shared by stories is found; ``of`` is optional). ``bed`` is a sound that runs under a stretch: ``field``
@@ -45,7 +45,11 @@ A timeline definition::
   ``via`` and ``entry_type``, on the entry a spine item's ``via`` field names (a beat's scene names its ambience); consecutive items with the
   same bed merge into one block. ``bed.volume`` is the level field on that entry and ``bed.item_volume`` an override on the spine item.
   ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it
-  repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched).
+  repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
+  that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
+  silence) and shows as steps in the block. ``cover`` is a video laid over each item's picture: ``field`` is the asset field, ``blend`` and
+  ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with ``entry_type``) names, then the view's entry itself, and a
+  blend of ``none`` at one of them switches the overlay off from there up.
 - ``actions`` are buttons on the page: each starts a ``wizard`` or a ``workflow`` the same package brings.
 """
 
@@ -55,7 +59,7 @@ import re
 from typing import Any
 
 VIEW_KINDS = ("timeline",)
-MAX_LANES = 4
+MAX_LANES = 6
 MAX_ACTIONS = 6
 SECONDS_KEYS = ("hold", "lead", "gap", "tail")
 
@@ -146,9 +150,12 @@ def _check_lane(lane: dict, label: str) -> str | None:
         return f"{label} needs a title"
     if problem := _slug(lane, "entry_type", label):
         return problem
-    shapes = [k for k in ("in", "placed", "bed") if lane.get(k) is not None]
+    shapes = [k for k in ("in", "placed", "bed", "cover") if lane.get(k) is not None]
     if len(shapes) != 1:
-        return f"{label}: one of `in` (the field holding the spine item's slug), `placed` ({{field, ref, at}}) or `bed` ({{field, via?}})"
+        return (
+            f"{label}: one of `in` (the field holding the spine item's slug), `placed` ({{field, ref, at}}), "
+            "`bed` ({field, via?}) or `cover` ({field, via?})"
+        )
     if problem := _field(lane, "of", label, required=shapes == ["in"]):
         return problem
     if shapes == ["in"] and (problem := _field(lane, "in", label)):
@@ -170,12 +177,29 @@ def _check_lane(lane: dict, label: str) -> str | None:
             return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"
         if bed.get("entry_type") is not None and (problem := _slug(bed, "entry_type", f"{label} bed")):
             return problem
+    if (cover := lane.get("cover")) is not None:
+        if problem := _check_cover(cover, label):
+            return problem
     if (opens := lane.get("open")) is not None:
         if not isinstance(opens, dict):
             return f"{label}: open is {{wizard}}, the guided setup a piece opens on instead of its own page"
         if problem := _slug(opens, "wizard", f"{label} open"):
             return problem
     return _fields(lane, ("order", "text", "who", "audio", "seconds", "volume", "loop", "estimate_from", "status"), label)
+
+
+def _check_cover(cover: Any, label: str) -> str | None:
+    if not isinstance(cover, dict):
+        return f"{label}: cover is {{field, blend?, opacity?, via?, entry_type?}}"
+    if problem := _field(cover, "field", f"{label} cover", required=True):
+        return problem
+    if problem := _fields(cover, ("blend", "opacity", "via"), f"{label} cover"):
+        return problem
+    if (cover.get("via") is None) != (cover.get("entry_type") is None):
+        return f"{label}: cover.via (the spine item's field naming the entry) and cover.entry_type go together"
+    if cover.get("entry_type") is not None:
+        return _slug(cover, "entry_type", f"{label} cover")
+    return None
 
 
 def _check_actions(actions: Any, label: str) -> str | None:
