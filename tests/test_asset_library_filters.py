@@ -224,3 +224,23 @@ def test_decision_filters_on_what_an_approval_said_about_the_picture(db_session,
     assert _names({"decision": "approved"}, s, gid) == set()
     assert "drawn cover" not in _names({"decision": "none", "versions": "all"}, s, gid)
     assert "decision is one of" in item_query.run(s, gid, item_query.ASSET, {"decision": "maybe"}).note
+
+
+def test_an_assets_usage_lists_the_live_entries_it_is_attached_to_and_the_role_of_each(db_session, workspace, library):
+    from marvin.services.assets import usage
+
+    s, gid = db_session, workspace.gid
+    harbour = library["harbour"]
+    beat, other = _an_entry(s, gid), _an_entry(s, gid)
+    _link(s, beat.id, harbour)  # role "hero-800"
+    _link(s, other.id, harbour)
+
+    found = usage.usage(s, gid, harbour.id)
+    assert {u["slug"] for u in found} == {beat.slug, other.slug} and {u["role"] for u in found} == {"hero-800"}
+    assert found[0]["entry_type"].startswith("note-") and found[0]["entry_type_name"] == "Note"
+
+    other.status = "trashed"  # an entry in the Trash no longer uses it
+    s.commit()
+    assert [u["slug"] for u in usage.usage(s, gid, harbour.id)] == [beat.slug]
+    assert usage.usage(s, gid, library["pier"].id) == []  # an asset nothing uses
+    assert usage.usage(s, uuid.uuid4(), harbour.id) == []  # another workspace sees nothing
