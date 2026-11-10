@@ -25,12 +25,24 @@ export interface SpineSpec {
   status?: string;
   title?: string;
   seconds?: SecondsSpec;
+  /** A title card before the beats and an end card after them, from fields on the view's entry (a story's `intro_title`...). A card exists when
+   * its `title` field has text, lasts the `seconds` field (else `default_seconds`) and is laid out as a real item, so every beat after it starts
+   * when the render starts it. These must match what the render does (ScreenplayStudio render: pull `cards_of`). */
+  cards?: { intro?: CardSpec; outro?: CardSpec };
   /** Extra bands over the strip, each wrapping the consecutive items that share a value in `field` (the beats of one scene), titled by the
    * entry of `entry_type` that value names. They do not reorder anything. */
   bands?: { id?: string; entry_type: string; field: string; title?: string }[];
   /** A button on each item that runs a workflow for just that item (a quick draft of one beat): `entry` is the workflow input that gets the
    * entry's slug, `item` the input that gets this item's `field` value, `inputs` fixed values. */
   run?: { workflow: string; entry: string; item: string; field: string; label?: string; inputs?: Record<string, string | number | boolean> };
+}
+
+export interface CardSpec {
+  title: string;
+  seconds?: string;
+  default_seconds?: number;
+  /** What the card is called on the timeline. */
+  label?: string;
 }
 
 export interface BedSpec {
@@ -205,6 +217,8 @@ export interface Cover {
 export interface Item {
   id: string;
   slug: string;
+  /** Set on a title or end card: not a beat, so it has no entry, no lanes and is not counted as one. */
+  card?: "intro" | "outro";
   /** The value the item's run button hands the workflow (a beat's number as written: "04a"), when the spine declares one. */
   key: string;
   title: string;
@@ -220,6 +234,8 @@ export interface Item {
 }
 
 export interface Group {
+  /** Set on the group a title or end card sits in. */
+  card?: "intro" | "outro";
   id: string | null;
   slug: string | null;
   title: string;
@@ -359,6 +375,16 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   let clock = 0;
   const groups = groupRows(spec.spine, rows);
   const out: Group[] = [];
+  // A title or end card is an item of its own, so everything laid out after it starts when the render starts it.
+  const addCard = (kind: "intro" | "outro") => {
+    const card = cardOf(spec.spine.cards?.[kind], rows.entry, kind);
+    if (!card) return;
+    const item: Item = { id: `card:${kind}`, slug: kind, key: "", title: card.label, number: null, text: card.title, picture: null, status: "", start: clock, seconds: card.seconds, estimated: false, lanes: {}, card: kind };
+    items.push(item);
+    out.push({ card: kind, id: null, slug: null, title: card.label, start: clock, seconds: card.seconds, items: [item] });
+    clock += card.seconds;
+  };
+  addCard("intro");
   for (const g of groups) {
     const groupStart = clock;
     const made: Item[] = [];
@@ -418,6 +444,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
     }
     out.push({ id: g.id, slug: g.slug, title: g.title, start: groupStart, seconds: clock - groupStart, items: made });
   }
+  addCard("outro");
   const beds: Record<string, Bed[]> = {};
   for (const lane of bedLanes) beds[lane.id] = bedsOf(lane, items, rows, clock, bySlug(lane));
   const covers: Record<string, Cover[]> = {};
@@ -520,6 +547,10 @@ function bandsOf(spec: NonNullable<SpineSpec["bands"]>[number], items: Item[], r
   const out: Band[] = [];
   let before: string | null = null; // the item just before, so a stretch only continues across neighbours
   for (const item of items) {
+    if (item.card) {
+      before = item.id; // a card is no beat: it ends a stretch
+      continue;
+    }
     const value = str(field(spine.get(item.id) ?? ({} as Row), spec.field)).trim();
     const last = out[out.length - 1];
     if (value && last && last.slug === value && last.items[last.items.length - 1] === before) {
@@ -532,6 +563,15 @@ function bandsOf(spec: NonNullable<SpineSpec["bands"]>[number], items: Item[], r
     before = item.id;
   }
   return out;
+}
+
+/** A card the entry asks for: its title (a card with no title does not exist) and how long it lasts. */
+function cardOf(spec: CardSpec | undefined, entry: Row | undefined, kind: "intro" | "outro"): { title: string; seconds: number; label: string } | null {
+  if (!spec || !entry) return null;
+  const title = str(field(entry, spec.title)).trim();
+  if (!title) return null;
+  const set = num(field(entry, spec.seconds));
+  return { title, seconds: set !== null && set > 0 ? set : (spec.default_seconds ?? 2.5), label: spec.label ?? (kind === "intro" ? "Title card" : "End card") };
 }
 
 /** A story-wide bed's level over time when spine items set one of their own: runs at one level each, or none when no item changes it. */
@@ -558,6 +598,7 @@ function coversOf(spec: CoverSpec, view: TimelineSpec, items: Item[], rows: Rows
   const spine = new Map(rows.spine.map((r) => [r.id, r] as const));
   const out: Cover[] = [];
   for (const item of items) {
+    if (item.card) continue; // a card has no overlay of its own: the render gives it none
     const row = spine.get(item.id);
     const named = row && spec.via ? via.get(str(field(row, spec.via))) : undefined;
     const tiers: [Row | undefined, string][] = [
@@ -634,8 +675,9 @@ const QUIET_WORDS: Record<Quiet["kind"], string> = {
 export const quietWords = (kind: Quiet["kind"]): string => QUIET_WORDS[kind];
 
 /** The silences the renderer adds in a lane that sits inside the spine items (lines): lead before the first piece, gap between pieces, tail after the last, or the item's whole hold when no piece is timed. Placed and bed lanes have none. */
-export function quiets(items: Item[], lane: LaneSpec): Quiet[] {
+export function quiets(allItems: Item[], lane: LaneSpec): Quiet[] {
   if (!lane.in || lane.placed || lane.bed) return [];
+  const items = allItems.filter((i) => !i.card); // a title or end card has no lines to leave room around
   const out: Quiet[] = [];
   const add = (id: string, kind: Quiet["kind"], start: number, seconds: number) => {
     if (seconds > 0.005) out.push({ id, kind, start, seconds });
@@ -723,8 +765,8 @@ export interface Progress {
 export function progress(spec: TimelineSpec, laid: Layout, noun = { item: "beat", items: "beats" }): Progress[] {
   const out: Progress[] = [];
   if (spec.spine.picture) {
-    const total = laid.items.length;
-    out.push({ label: `${total === 1 ? noun.item : noun.items} with a picture`, done: laid.items.filter((i) => i.picture).length, total });
+    const beats = laid.items.filter((i) => !i.card); // a title or end card is not a beat
+    out.push({ label: `${beats.length === 1 ? noun.item : noun.items} with a picture`, done: beats.filter((i) => i.picture).length, total: beats.length });
   }
   for (const lane of (spec.lanes ?? []).filter((l) => l.audio)) {
     // A bed lane counts its blocks with a take; the others their pieces. A lane with nothing in it says nothing.

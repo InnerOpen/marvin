@@ -583,3 +583,31 @@ test("fade cascade: the film's start and end fades cover what nothing more speci
   assert.deepEqual([story(specific).fadeIn, story(specific).fadeOut], [0.3, 0.4]); // the story's ambience setting is more specific than the film's
   assert.equal(cascaded({ start_fade_seconds: 5 }).beds.music[0].fadeIn, 5); // the music takes the film's start fade
 });
+
+// ── title and end cards: real items, so every beat after them starts when the render starts it ───────────────────────────────────────
+const cardsSpec = { ...spec, spine: { ...spec.spine, cards: { intro: { title: "intro_title", seconds: "intro_seconds", default_seconds: 2.5, label: "Title card" }, outro: { title: "outro_title", seconds: "outro_seconds", default_seconds: 3 } } } };
+const withCards = (story) => layout(cardsSpec, { entry: row("s", story), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } });
+
+test("cards: a title card and an end card are items that shift every beat after them and add to the total", () => {
+  const laid = withCards({ intro_title: "Granny's Advice", intro_seconds: 3, outro_title: "Subscribe" });
+  assert.deepEqual(laid.items.map((i) => [i.card ?? i.slug, i.start, i.seconds]).slice(0, 2), [["intro", 0, 3], ["b1", 3, 4]]);
+  assert.equal(laid.items[0].text, "Granny's Advice");
+  assert.deepEqual(laid.items.at(-1) && [laid.items.at(-1).card, laid.items.at(-1).start, laid.items.at(-1).seconds], ["outro", 23, 3]); // five 4 s beats, then the end card (default 3 s)
+  assert.equal(laid.total, 26);
+  assert.deepEqual([laid.groups[0].card, laid.groups[0].start, laid.groups.at(-1).card], ["intro", 0, "outro"]);
+});
+
+test("cards: a card with no title does not exist; a view with no cards has none; defaults fill in the length", () => {
+  assert.equal(withCards({ intro_title: "  " }).items.some((i) => i.card), false);
+  assert.equal(layout(spec, { entry: row("s", { intro_title: "x" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } }).items.some((i) => i.card), false);
+  const [intro] = withCards({ intro_title: "Hi" }).items;
+  assert.equal(intro.seconds, 2.5);
+});
+
+test("cards: they are not beats (progress), have no bands, no overlay, and play as silence", () => {
+  const laid = withCards({ intro_title: "Hi", outro_title: "Bye" });
+  assert.equal(progress(cardsSpec, laid).find((p) => p.label.includes("picture")).total, 5); // the five beats, not seven items
+  const silent = cues(laid, cardsSpec.lanes).filter((c) => c.item.startsWith("card:"));
+  assert.deepEqual(silent.map((c) => [c.item, c.audio, c.seconds]), [["card:intro", null, 2.5], ["card:outro", null, 3]]);
+  assert.deepEqual(quiets(laid.items, cardsSpec.lanes[0]).filter((q) => q.id.startsWith("card:")), []);
+});

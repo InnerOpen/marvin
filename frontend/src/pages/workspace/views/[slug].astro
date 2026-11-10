@@ -337,8 +337,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         {item.number !== null && <span class="tl-n">{item.number}</span>}
                         {item.status && <span class="tl-dot" data-status={item.status} title={item.status} />}
                       </span>
-                      <a class="tl-open" href={open(item.id)} title={`Open ${item.title}`}>Open</a>
-                      {itemRun && item.key && (
+                      {!item.card && <a class="tl-open" href={open(item.id)} title={`Open ${item.title}`}>Open</a>}
+                      {itemRun && item.key && !item.card && (
                         <button
                           type="button"
                           class="tl-draft"
