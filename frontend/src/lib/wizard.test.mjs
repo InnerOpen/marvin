@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, buttonHref, highlightOf, measuredSeconds, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
+  approvalsOf, buttonHref, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -230,4 +230,15 @@ test("a highlight marks the card whose field has the wanted value", () => {
 test("measured seconds are a real positive length, rounded to the millisecond", () => {
   assert.equal(measuredSeconds("2.6944"), 2.694);
   for (const bad of ["", "0", "-1", "abc", "Infinity", "99999", undefined, null]) assert.equal(measuredSeconds(bad), null);
+});
+
+test("an add form starts from the chosen entries' own values", () => {
+  const entries = { line: { dataJson: { text: "People say.", direction: "tired", speed: 0.9, model: "", empty: null } } };
+  const add = { prefill: { spoken: "line.text", direction: "line.direction", speed: "line.speed", model: "line.model", gone: "nobody.text" } };
+  assert.deepEqual(prefillOf(add, entries), { spoken: "People say.", direction: "tired", speed: "0.9" });
+  assert.deepEqual(prefillOf(undefined, entries), {});
+  // the first of several that has a value
+  const fallback = { prefill: { spoken: "line.delivery_text|line.text" } };
+  assert.deepEqual(prefillOf(fallback, { line: { dataJson: { delivery_text: "[sighs] People say.", text: "People say." } } }), { spoken: "[sighs] People say." });
+  assert.deepEqual(prefillOf(fallback, { line: { dataJson: { delivery_text: " ", text: "People say." } } }), { spoken: "People say." });
 });
