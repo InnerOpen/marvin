@@ -171,6 +171,14 @@ const stepBars = (b: Bed, track: { start: number; seconds: number }) => {
     .filter((st) => st.seconds > 0 && from.seconds > 0)
     .map((st) => ({ left: ((st.from - from.from) / from.seconds) * 100, width: (st.seconds / from.seconds) * 100, height: (st.volume / top) * 100, volume: st.volume, start: st.start, end: st.start + st.seconds }));
 };
+// A bed's fades as ramps at the ends of its block, as a share of the block drawn (a block clipped to a chapter has no ramp where it was cut).
+const fadeRamps = (b: Bed, track: { start: number; seconds: number }) => {
+  const from = clip(b, track);
+  if (from.seconds <= 0) return { inPct: 0, outPct: 0 };
+  const cutAtStart = from.from > b.start + 1e-6;
+  const cutAtEnd = from.from + from.seconds < b.start + b.seconds - 1e-6;
+  return { inPct: cutAtStart ? 0 : Math.min(100, (b.fadeIn / from.seconds) * 100), outPct: cutAtEnd ? 0 : Math.min(100, (b.fadeOut / from.seconds) * 100) };
+};
 const bedsIn = (lane: LaneSpec, track: { start: number; seconds: number }) =>
   (laid?.beds[lane.id] ?? []).filter((b) => b.start < track.start + track.seconds && b.start + b.seconds > track.start);
 const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View";
@@ -308,8 +316,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           data-start={b.start}
                           data-end={b.start + b.seconds}
                           style={`left:${pctIn(track, clip(b, track).from)};width:${pctIn(track, track.start + clip(b, track).seconds)}`}
-                          title={`${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)} · level ${Math.round(b.volume * 100)}%${b.loop ? ", loops" : ""}${b.muffled ? ", muffled" : ""}${b.audio ? "" : "\nno take yet"}`}
+                          title={`${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)} · level ${Math.round(b.volume * 100)}%${b.loop ? ", loops" : ""}${b.muffled ? ", muffled" : ""}${b.fadeIn > 0 ? `\nfades in over ${b.fadeIn.toFixed(1)} s` : ""}${b.fadeOut > 0 ? `\nfades out over ${b.fadeOut.toFixed(1)} s` : ""}${b.audio ? "" : "\nno take yet"}`}
                         >
+                          {fadeRamps(b, track).inPct > 0 && <i class="tl-fade in" aria-hidden="true" style={`width:${fadeRamps(b, track).inPct}%`} title={`fades in over ${b.fadeIn.toFixed(1).replace(/\.0$/, "")} s`} />}
+                          {fadeRamps(b, track).outPct > 0 && <i class="tl-fade out" aria-hidden="true" style={`width:${fadeRamps(b, track).outPct}%`} title={`fades out over ${b.fadeOut.toFixed(1).replace(/\.0$/, "")} s`} />}
                           {stepBars(b, track).map((st) => (
                             <i class:list={["tl-step", { off: st.volume === 0 }]} aria-hidden="true" style={`left:${st.left}%;width:${st.width}%;height:${Math.max(st.height, st.volume === 0 ? 0 : 8)}%`} title={`${timecode(st.start)} → ${timecode(st.end)} · ${st.volume === 0 ? "silent" : `level ${Math.round(st.volume * 100)}%`}`} />
                           ))}
@@ -682,6 +692,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   /* A bed's level over time: bars rising from the foot of the block, a silent stretch hatched. */
   .tl-step { position: absolute; bottom: 0; background: color-mix(in srgb, var(--accent) 22%, transparent); border-left: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); box-sizing: border-box; }
   .tl-step.off { height: 100% !important; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink) 14%, transparent) 0 4px, transparent 4px 8px); }
+  /* A fade: the part of the block that is not loud yet (or no longer) is cut away in a triangle, so the block's edge slopes. */
+  .tl-fade { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--panel) 70%, transparent); pointer-events: none; }
+  .tl-fade.in { left: 0; clip-path: polygon(0 0, 100% 0, 0 100%); }
+  .tl-fade.out { right: 0; clip-path: polygon(0 0, 100% 0, 100% 100%); }
   .tl-cover { cursor: default; border-style: dashed; background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
   .tl-bed.silent { border-style: dotted; background: var(--panel); }
   .tl-bed.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
