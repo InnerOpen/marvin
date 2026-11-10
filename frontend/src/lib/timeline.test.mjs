@@ -71,19 +71,19 @@ test("layout orders beats inside ordered chapters, times them, and puts strays l
   const laid = layout(spec, { spine: beats, groups: chapters, lanes: { lines, sounds } });
   assert.deepEqual(laid.groups.map((g) => [g.title, g.items.map((i) => i.slug)]), [["c1", ["b1", "b2"]], ["c2", ["b3"]], ["", ["b4"]]]);
   const [b1, b2, b3, b4] = laid.items;
-  // b1: lead 0.3 + l1 2.0 + gap 0.25 + l2 1.2 + tail 0.35 = 4.1
-  assert.equal(b1.seconds.toFixed(2), "4.10");
+  // b1: lead 0.3 + l1 2.0 + gap 0.25 + l2 1.2 + tail 0.35 = 4.1, but its 3 s rain sound placed at 1.5 runs to 4.5, and the render lets a beat last until then
+  assert.equal(b1.seconds.toFixed(2), "4.50");
   assert.equal(b1.estimated, true);
   assert.equal(b1.picture, "https://cdn/still.png");
   // b2 has one line with no text and no take: nothing timed, so it holds
   assert.equal(b2.seconds, 4);
-  assert.equal(b2.start.toFixed(2), "4.10");
+  assert.equal(b2.start.toFixed(2), "4.50");
   assert.equal(b2.lanes.lines.length, 1);
   assert.equal(b2.text, "A door.");
   assert.equal(b3.seconds, 6);
-  assert.equal(b4.start.toFixed(2), "14.10");
-  assert.equal(laid.total.toFixed(2), "18.10");
-  assert.equal(laid.groups[0].seconds.toFixed(2), "8.10");
+  assert.equal(b4.start.toFixed(2), "14.50");
+  assert.equal(laid.total.toFixed(2), "18.50");
+  assert.equal(laid.groups[0].seconds.toFixed(2), "8.50");
 });
 
 test("layout places line pieces one after another from the lead, recorded or estimated", () => {
@@ -152,10 +152,10 @@ test("cues walk every second of the timeline: silences, takes and estimated line
       ["id-l1", "0.30", "2.00", "https://cdn/take.mp3"],
       [null, "2.30", "0.25", null],
       ["id-l2", "2.55", "1.20", null],
-      [null, "3.75", "0.35", null],
+      [null, "3.75", "0.75", null], // the beat runs on until its rain sound has finished, so this quiet reaches 4.5
     ],
   );
-  assert.deepEqual(walk.find((c) => c.item === "id-b3"), { item: "id-b3", piece: null, lane: null, start: 8.1, seconds: 6, audio: null });
+  assert.deepEqual(walk.find((c) => c.item === "id-b3"), { item: "id-b3", piece: null, lane: null, start: 8.5, seconds: 6, audio: null });
   assert.equal(walk.find((c) => c.piece === "id-l1").lane, "lines");
   const end = walk[walk.length - 1];
   assert.equal((end.start + end.seconds).toFixed(2), laid.total.toFixed(2));
@@ -240,7 +240,7 @@ test("overlays: placed sounds at their offset and beds under their stretch, in t
 test("quiets: the lead, the gaps and the tail the renderer adds around lines, or a whole hold", () => {
   const laid = layout(spec, { spine: beats, groups: chapters, lanes: { lines, sounds } });
   const q = quiets(laid.items, spec.lanes[0]).map((x) => [x.id, x.kind, x.start.toFixed(2), x.seconds.toFixed(2)]);
-  assert.deepEqual(q.slice(0, 4), [["id-b1:lead", "lead", "0.00", "0.30"], ["id-b1:gap0", "gap", "2.30", "0.25"], ["id-b1:tail", "tail", "3.75", "0.35"], ["id-b2:hold", "hold", "4.10", "4.00"]]);
+  assert.deepEqual(q.slice(0, 4), [["id-b1:lead", "lead", "0.00", "0.30"], ["id-b1:gap0", "gap", "2.30", "0.25"], ["id-b1:tail", "tail", "3.75", "0.75"], ["id-b2:hold", "hold", "4.50", "4.00"]]);
   assert.deepEqual(quiets(laid.items, spec.lanes[1]), []);
 });
 
@@ -626,4 +626,22 @@ test("scene break: none set, zero or no scenes means no pause (whatever a stored
   for (const story of [{}, { scene_break_seconds: 0 }, { scene_break_seconds: "" }, { scene_break_seconds: -1 }]) assert.equal(withBreaks(story, ["deck", "cabin", "deck", "cabin", "deck"]).total, 20);
   assert.equal(withBreaks({ scene_break_seconds: 2 }, []).total, 20);
   assert.equal(layout(spec, { entry: row("s", { scene_break_seconds: 3 }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } }).total, 20); // a view that does not declare it
+});
+
+// ── a beat lasts until its last placed sound has finished, as the render does ──────────────────────────────────────────────────────────
+test("a beat lasts at least until its last placed sound ends, and a sound inside the beat changes nothing", () => {
+  const long = row("rumble", { duration_seconds: 9 }, { assets: [take] });
+  const short = row("click", { duration_seconds: 1 }, { assets: [take] });
+  const place = (cues) => layout(spec, { spine: [row("b1", { story: "s", number: 1, chapter: "c1", sounds: cues }), row("b2", { story: "s", number: 2, chapter: "c1" })], groups: chapters, lanes: { lines: [], sounds: [long, short] } });
+  const over = place([{ sound: "rumble", at: 2 }]); // ends at 11, past the beat's 4 s hold
+  assert.deepEqual(over.items.map((i) => [i.start, i.seconds]), [[0, 11], [11, 4]]);
+  const inside = place([{ sound: "click", at: 1 }]); // ends at 2, inside it
+  assert.deepEqual(inside.items.map((i) => [i.start, i.seconds]), [[0, 4], [4, 4]]);
+  assert.equal(over.total, 15);
+});
+
+test("a sound with no length known does not stretch a beat", () => {
+  const unknown = row("rumble", {}, { assets: [take] });
+  const laid = layout(spec, { spine: [row("b1", { story: "s", number: 1, chapter: "c1", sounds: [{ sound: "rumble", at: 2 }] })], groups: chapters, lanes: { lines: [], sounds: [unknown] } });
+  assert.equal(laid.items[0].seconds, 4);
 });
