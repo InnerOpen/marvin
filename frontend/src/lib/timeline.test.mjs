@@ -243,3 +243,17 @@ test("quiets: the lead, the gaps and the tail the renderer adds around lines, or
   assert.deepEqual(q.slice(0, 4), [["id-b1:lead", "lead", "0.00", "0.30"], ["id-b1:gap0", "gap", "2.30", "0.25"], ["id-b1:tail", "tail", "3.75", "0.35"], ["id-b2:hold", "hold", "4.10", "4.00"]]);
   assert.deepEqual(quiets(laid.items, spec.lanes[1]), []);
 });
+
+test("a line with a take but no stored length keeps the text's estimate and says the take's length is unknown", () => {
+  const spec2 = { ...spec, lanes: [spec.lanes[0]] };
+  const only = [row("b1", { story: "s", number: 1 }), row("b2", { story: "s", number: 2 })];
+  const ls = [
+    row("took", { beat: "b1", number: 1, text: "one two three", speaker: "Ann" }, { assets: [take] }),
+    row("none", { beat: "b2", number: 1, text: "one two three", speaker: "Ann" }),
+  ];
+  const laid = layout(spec2, { spine: only, groups: [], lanes: { lines: ls } });
+  const [a] = laid.items[0].lanes.lines;
+  const [b] = laid.items[1].lanes.lines;
+  assert.deepEqual([a.estimated, a.unmeasured, a.seconds, !!a.audio], [true, true, 1.2, true]);
+  assert.deepEqual([b.estimated, b.unmeasured, !!b.audio], [true, false, false]);
+});

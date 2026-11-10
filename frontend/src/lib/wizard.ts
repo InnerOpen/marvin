@@ -36,6 +36,37 @@ export interface WizardDefinition {
   open?: { entry: string; label: string; view?: string };
 }
 
+/** The name a new entry gets from a gallery's `name`: its parent's title, then the noun and the next number ("01 Granny: People say… · take 3"). */
+export function numberedTitle(base: string, noun: string, existing: number): string {
+  return `${base.trim() || "Untitled"} · ${noun.trim()} ${existing + 1}`;
+}
+
+/** What a step's `show` card reads out: each wanted field of the entry that has a value, labelled by the entry type's own label. */
+export function shownLines(
+  entryData: Record<string, unknown> | null | undefined,
+  schema: { fields?: { key?: string; label?: string }[] | null } | null | undefined,
+  fields: string[],
+): { key: string; label: string; value: string }[] {
+  const labels = new Map((schema?.fields ?? []).map((f) => [f.key, f.label] as const));
+  return fields.flatMap((key) => {
+    const raw = entryData?.[key];
+    const value = typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : "";
+    return value ? [{ key, label: labels.get(key) || key, value }] : [];
+  });
+}
+
+/** The label a gallery's `highlight` puts on a card whose field has the wanted value (the take in use), or null. */
+export function highlightOf(step: Step, data: Record<string, unknown> | null | undefined): string | null {
+  const h = step.highlight as { field: string; value: string; label: string } | undefined;
+  return h && data?.[h.field] === h.value ? h.label : null;
+}
+
+/** The seconds a browser measured for an upload, when they are a real positive number (a field a form posts is text). */
+export function measuredSeconds(raw: unknown): number | null {
+  const n = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 && n < 36000 ? Math.round(n * 1000) / 1000 : null;
+}
+
 /** A step is done when the data says so: a choice or option that is set. Other kinds have no mark of their own (they can be redone). */
 export function isDone(step: Step, ctx: Ctx): boolean {
   return (step.kind === "choose" || step.kind === "option") && !!ctx[step.as];

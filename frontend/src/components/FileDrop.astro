@@ -86,8 +86,14 @@ const recordable = acceptsAudio(accept);
       const one = new DataTransfer();
       one.items.add(file);
       input.files = one.files;
+      // A recording knows how long it ran: keep that beside the file, so a form can pass it on (a picked file has no such clock).
+      const facts = (window as unknown as { AudioRecorder?: { metadataOf?: (f: File) => { recording?: { duration_seconds?: number } } | null } }).AudioRecorder?.metadataOf?.(file);
+      const seconds = facts?.recording?.duration_seconds;
+      if (typeof seconds === "number" && seconds > 0) input.dataset.seconds = String(seconds);
+      else delete input.dataset.seconds;
       show();
     };
+    input.addEventListener("change", () => delete input.dataset.seconds); // a file picked from disk replaces a recording
 
     // "Record…": a take from the page's recorder stands in for a picked file. The recorder's script may run after this one, so the
     // buttons show once the page is ready, and the recorder is looked up again at click time.

@@ -98,6 +98,8 @@ export interface Piece {
   seconds: number;
   /** True when `seconds` came from the text, not a recording. */
   estimated: boolean;
+  /** True when there is a take but its length was never stored (an upload), so `seconds` is still the text's estimate. */
+  unmeasured: boolean;
   audio: string | null;
   /** The entry's own level, 0 to 1, when it declares one. */
   volume: number | null;
@@ -361,6 +363,7 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
     start,
     seconds,
     estimated,
+    unmeasured: estimated && !!assetUrl(row, lane.audio, "audio/"),
     audio: assetUrl(row, lane.audio, "audio/"),
     volume: level(field(row, lane.volume)),
     at,
