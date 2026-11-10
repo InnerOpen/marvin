@@ -116,7 +116,7 @@ export interface Row {
   slug: string;
   title: string;
   dataJson?: Record<string, unknown> | null;
-  assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null }[];
+  assets?: { role?: string | null; name?: string | null; publicUrl?: string | null; mimeType?: string | null }[];
 }
 
 export interface Piece {
@@ -173,7 +173,7 @@ export interface BedStep {
 export interface Cover {
   /** The video's address, which tells two overlays apart. */
   url: string;
-  /** Its file name, for the label. */
+  /** Its title in the library (its file name when it has none), for the label. */
   name: string;
   /** The entry type it was set on: the spine's, the `via`'s or the view's own. */
   from: string;
@@ -242,9 +242,14 @@ export function estimateSeconds(text: string): number {
 
 /** The picture an item shows: the asset attached in the picture field's role (a linked asset field syncs its role to its key). */
 export function assetUrl(row: Row, key: string | undefined, kind: "image/" | "audio/" | "video/"): string | null {
+  return assetOf(row, key, kind)?.publicUrl ?? null;
+}
+
+/** The asset attached in the field's role, with the title it was given in the library. */
+export function assetOf(row: Row, key: string | undefined, kind: "image/" | "audio/" | "video/"): { publicUrl: string; name: string | null } | null {
   if (!key) return null;
   const hit = (row.assets ?? []).find((a) => a.role === key && a.publicUrl && (a.mimeType ?? "").startsWith(kind));
-  return hit?.publicUrl ?? null;
+  return hit?.publicUrl ? { publicUrl: hit.publicUrl, name: hit.name?.trim() || null } : null;
 }
 
 /** A lane piece's seconds: the recording's duration when it has one, else an estimate from its text, else nothing (a sound with no file). */
@@ -473,7 +478,7 @@ function stepsOf(spec: BedSpec, items: Item[], rows: Rows, base: number): BedSte
   return runs.length > 1 || (runs.length === 1 && Math.abs(runs[0].volume - base) > 1e-9) ? runs : [];
 }
 
-/** The file name of a published address, without its query. */
+/** The file name of a published address, without its query: only for an asset with no title, since a published name is often just an id. */
 const fileName = (url: string): string => decodeURIComponent(url.split("?")[0].split("/").pop() ?? url);
 
 /** The cover blocks of a cover lane: for each item the video its own field, else its `via` entry's, else the view's entry's names. */
@@ -494,9 +499,10 @@ function coversOf(spec: CoverSpec, view: TimelineSpec, items: Item[], rows: Rows
       if (!owner) continue;
       const blend = str(field(owner, spec.blend));
       if (blend === "none") break;
-      const url = assetUrl(owner, spec.field, "video/");
-      if (!url) continue;
-      found = { url, name: fileName(url), from, blend: blend || "normal", opacity: level(field(owner, spec.opacity)) ?? 1, start: item.start, seconds: item.seconds, items: [item.id] };
+      const asset = assetOf(owner, spec.field, "video/");
+      if (!asset) continue;
+      const url = asset.publicUrl;
+      found = { url, name: asset.name ?? fileName(url), from, blend: blend || "normal", opacity: level(field(owner, spec.opacity)) ?? 1, start: item.start, seconds: item.seconds, items: [item.id] };
       break;
     }
     if (!found) continue;

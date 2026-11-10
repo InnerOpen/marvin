@@ -480,3 +480,13 @@ test("a beat inserted as 04a sits between 04 and 05, as the render orders them, 
   const laid = layout(spec, { spine: [row("b5", { story: "s", number: "05", chapter: "c1" }), row("b4a", { story: "s", number: "04a", chapter: "c1" }), row("b4", { story: "s", number: "04", chapter: "c1" }), row("b10", { story: "s", number: "10", chapter: "c1" }), row("b2", { story: "s", number: 2, chapter: "c1" })], groups: chapters, lanes: { lines: [], sounds: [] } });
   assert.deepEqual(laid.items.map((i) => i.slug), ["b2", "b4", "b4a", "b5", "b10"]);
 });
+
+test("overlay lane: a block is named by the asset's title; its file name is only the fallback for one with no title", () => {
+  const titled = { ...rain, name: "Light rain on glass" };
+  const [c] = coverLaid({ storyAssets: [titled] }).covers.overlay;
+  assert.equal(c.name, "Light rain on glass");
+  assert.equal(coverLaid({ storyAssets: [{ ...rain, name: "  " }] }).covers.overlay[0].name, "rain-loop.webm");
+  assert.equal(coverLaid({ storyAssets: [rain] }).covers.overlay[0].name, "rain-loop.webm");
+  // two videos with different titles but one file are still one video: they merge by address, the label is the first's
+  assert.equal(coverLaid({ storyAssets: [titled] }).covers.overlay.length, 1);
+});
