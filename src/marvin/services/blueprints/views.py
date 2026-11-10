@@ -56,6 +56,8 @@ A timeline definition::
   silence) and shows as steps in the block. ``cover`` is a video laid over each item's picture: ``field`` is the asset field, ``blend`` and
   ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with ``entry_type``) names, then the view's entry itself, and a
   blend of ``none`` at one of them switches the overlay off from there up.
+- ``spine.run`` puts a small button on each item that runs a ``workflow`` for just that item: ``entry`` is the workflow input that gets the
+  entry's slug, ``item`` the input that gets the item's ``field`` value (a beat's number), ``inputs`` fixed values (a draft's quality).
 - ``actions`` are buttons on the page: each starts a ``wizard`` or a ``workflow`` the same package brings. A workflow action with ``run``
   (``{entry, inputs?}``) starts it at once, ``entry`` naming the input that gets the entry's slug, and the page follows the job it makes.
 """
@@ -105,7 +107,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
     spine = payload.get("spine")
     if not isinstance(spine, dict):
         return f"{label} needs a spine: the entry type laid out in time, {{entry_type, of, ...}}"
-    if problem := _check_spine(spine, f"{label} spine"):
+    if problem := _check_spine(spine, f"{label} spine") or _check_item_run(spine.get("run"), f"{label} spine"):
         return problem
     lanes = payload.get("lanes", [])
     if not isinstance(lanes, list) or len(lanes) > MAX_LANES:
@@ -123,6 +125,24 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         if problem := _check_lane(lane, f"lane {lid!r} of {label}"):
             return problem
     return _check_actions(payload.get("actions"), label)
+
+
+def _check_item_run(run: Any, label: str) -> str | None:
+    """`spine.run`: a button on each item that runs a workflow for just that item (a quick draft of one beat)."""
+    if run is None:
+        return None
+    shape = f"{label}: run is {{workflow, entry, item, field, label?, inputs?}}"
+    if not isinstance(run, dict):
+        return shape
+    if not isinstance(run.get("workflow"), str) or not _SLUG.match(run["workflow"]):
+        return f"{label}: run.workflow is the slug of a workflow the package brings"
+    if problem := _fields(run, ("entry", "item", "field"), f"{label} run"):
+        return problem
+    if any(run.get(k) is None for k in ("entry", "item", "field")):
+        return shape
+    if run.get("label") is not None and (not isinstance(run["label"], str) or not run["label"].strip() or len(run["label"]) > 40):
+        return f"{label}: run.label is a short text"
+    return _check_run({"entry": run["entry"], "inputs": run.get("inputs")}, ["workflow"], "run", label)
 
 
 def _check_spine(spine: dict, label: str) -> str | None:
