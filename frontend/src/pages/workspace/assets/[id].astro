@@ -1,5 +1,6 @@
 ---
 import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
+import UsedIn from "@/components/UsedIn.astro";
 import AssetLineage from "@/components/AssetLineage.astro";
 import AssetMetaValue from "@/components/AssetMetaValue.astro";
 import AssetTextPreview from "@/components/AssetTextPreview.astro";
@@ -290,22 +291,7 @@ const showAiPanel = aiEnabled && isImage;
             </dl>
           </div>
 
-          <div class="sidebar-section">
-            <h3>Used in</h3>
-            {usedIn.length === 0 ? (
-              <p class="muted">Not attached to any entry.</p>
-            ) : (
-              <ul class="used-in">
-                {usedIn.map((u) => (
-                  <li>
-                    <a href={`/workspace/entries/${u.entryId}`}>{u.title || u.slug}</a>
-                    <span class="muted"> · {u.entryTypeName}</span>
-                    {u.role && <code class="role" title="The role this attachment carries">{u.role}</code>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <UsedIn items={usedIn} />
         </aside>
       </div>
     </>
@@ -509,8 +495,6 @@ const showAiPanel = aiEnabled && isImage;
     margin: 0;
   }
 
-  .used-in { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.875rem; }
-  .used-in .role { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--panel-2, var(--panel)); font-size: 0.75rem; }
   .info-list dt {
     font-size: 0.75rem;
     font-weight: 600;

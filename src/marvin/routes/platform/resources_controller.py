@@ -7,7 +7,9 @@ from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor
 from marvin.schemas.platform import ResourceCreate, ResourceRead, ResourceUpdate
 from marvin.schemas.platform.assets import TypeCount
+from marvin.schemas.platform.resources import ResourceUsage
 from marvin.services import trash
+from marvin.services.assets import usage as links_usage
 from marvin.services.event_bus_service.event_types import EventOperation, EventResourceData, EventTypes
 
 router = APIRouter(prefix="/resources")
@@ -70,6 +72,13 @@ class ResourcesController(BaseUserController):
             .all()
         )
         return [TypeCount(type=kind, count=n) for kind, n in rows]
+
+    @router.get("/{item_id}/usage", response_model=list[ResourceUsage], summary="Where a resource is used")
+    def get_resource_usage(self, item_id: UUID4) -> list[ResourceUsage]:
+        """The entries this resource is attached to, and the role each attachment carries. Entries in the Trash and internal ones are left out."""
+        if not self.repos.resources.get_one(item_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found.")
+        return [ResourceUsage(**row) for row in links_usage.resource_usage(self.session, self.group_id, item_id)]
 
     @router.get("/{item_id}", response_model=ResourceRead, summary="Get Resource")
     def get_resource(self, item_id: UUID4) -> ResourceRead:

@@ -131,3 +131,15 @@ class EntryResourceRead(ResourceSummary, ResourcePlacement):
     """Resource metadata plus entry-specific placement details."""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ResourceUsage(_MarvinModel):
+    """One entry a resource is attached to, and the role the attachment carries."""
+
+    entry_id: UUID4
+    slug: str
+    title: str
+    status: str | None = None
+    entry_type: str
+    entry_type_name: str
+    role: str | None = None

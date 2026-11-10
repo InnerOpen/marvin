@@ -244,3 +244,32 @@ def test_an_assets_usage_lists_the_live_entries_it_is_attached_to_and_the_role_o
     assert [u["slug"] for u in usage.usage(s, gid, harbour.id)] == [beat.slug]
     assert usage.usage(s, gid, library["pier"].id) == []  # an asset nothing uses
     assert usage.usage(s, uuid.uuid4(), harbour.id) == []  # another workspace sees nothing
+
+
+def test_a_resources_usage_lists_the_live_entries_it_is_attached_to_and_the_role_of_each(db_session, workspace):
+    from marvin.db.models.platform import Resources
+    from marvin.db.models.platform.entry_resources import EntryResources
+    from marvin.services.assets import usage
+
+    s, gid = db_session, workspace.gid
+    resource = Resources(
+        session=s, group_id=gid, slug=f"res-{uuid.uuid4().hex[:6]}", name="Waxed canvas", resource_type="material", created_by=workspace.uid
+    )
+    s.add(resource)
+    s.commit()
+    beat, other = _an_entry(s, gid), _an_entry(s, gid)
+    s.add_all(
+        [
+            EntryResources(entry_id=beat.id, resource_id=resource.id, role="material", position=0),
+            EntryResources(entry_id=other.id, resource_id=resource.id, position=0),
+        ]
+    )
+    s.commit()
+
+    found = usage.resource_usage(s, gid, resource.id)
+    assert {u["slug"] for u in found} == {beat.slug, other.slug} and {u["role"] for u in found} == {"material", None}
+
+    other.status = "trashed"  # an entry in the Trash no longer uses it
+    s.commit()
+    assert [u["slug"] for u in usage.resource_usage(s, gid, resource.id)] == [beat.slug]
+    assert usage.resource_usage(s, uuid.uuid4(), resource.id) == []  # another workspace sees nothing

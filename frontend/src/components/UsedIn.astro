@@ -1,0 +1,32 @@
+---
+// "Used in": the entries something (an asset, a resource) is attached to, and the role each attachment carries. The thing itself has no role:
+// the role belongs to the link, so this is where it shows. Fed by GET /assets/{id}/usage or /resources/{id}/usage.
+export interface Props {
+  items: { entryId: string; slug: string; title: string; entryTypeName: string; role?: string | null }[];
+}
+const { items } = Astro.props;
+---
+
+<div class="sidebar-section">
+  <h3>Used in</h3>
+  {items.length === 0 ? (
+    <p class="muted">Not attached to any entry.</p>
+  ) : (
+    <ul class="used-in">
+      {items.map((u) => (
+        <li>
+          <a href={`/workspace/entries/${u.entryId}`}>{u.title || u.slug}</a>
+          <span class="muted"> · {u.entryTypeName}</span>
+          {u.role && <code class="role" title="The role this attachment carries">{u.role}</code>}
+        </li>
+      ))}
+    </ul>
+  )}
+</div>
+
+<style>
+  .sidebar-section { padding: 1.5rem; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+  .sidebar-section h3 { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; }
+  .used-in { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.875rem; }
+  .used-in .role { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--panel-2, var(--panel)); font-size: 0.75rem; }
+</style>
