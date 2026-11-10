@@ -344,9 +344,9 @@ test("overlay lane: a blend of none switches the overlay off from that level up,
   ]);
 });
 
-test("overlay lane: nothing named anywhere draws nothing, and an image attached in that role is not a video", () => {
+test("overlay lane: nothing named anywhere draws nothing, and a file that is no picture or video is not an overlay", () => {
   assert.deepEqual(coverLaid({}).covers, { overlay: [] });
-  assert.deepEqual(coverLaid({ storyAssets: [{ role: "overlay", publicUrl: "https://cdn/x.png", mimeType: "image/png" }] }).covers.overlay, []);
+  assert.deepEqual(coverLaid({ storyAssets: [{ role: "overlay", publicUrl: "https://cdn/x.pdf", mimeType: "application/pdf" }] }).covers.overlay, []);
 });
 
 test("overlay lane: a view without one has no covers", () => {
