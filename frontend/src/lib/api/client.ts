@@ -175,7 +175,8 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
             detailText = JSON.stringify(d);
           }
         }
-        const errorMessage = detailText ?? `API request failed with ${response.status}`;
+        // A 413 with no detail is the network in front of Marvin (Cloudflare's 100 MB body limit), not Marvin's own message.
+        const errorMessage = detailText ?? (response.status === 413 ? "The file is too big for one upload (about 100 MB at most)." : `API request failed with ${response.status}`);
 
         const error = new ApiRequestError(errorMessage, response.status, url.toString(), errorBody);
 
