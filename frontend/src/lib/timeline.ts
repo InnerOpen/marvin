@@ -25,6 +25,9 @@ export interface SpineSpec {
   status?: string;
   title?: string;
   seconds?: SecondsSpec;
+  /** A button on each item that runs a workflow for just that item (a quick draft of one beat): `entry` is the workflow input that gets the
+   * entry's slug, `item` the input that gets this item's `field` value, `inputs` fixed values. */
+  run?: { workflow: string; entry: string; item: string; field: string; label?: string; inputs?: Record<string, string | number | boolean> };
 }
 
 export interface BedSpec {
@@ -185,6 +188,8 @@ export interface Cover {
 export interface Item {
   id: string;
   slug: string;
+  /** The value the item's run button hands the workflow (a beat's number as written: "04a"), when the spine declares one. */
+  key: string;
   title: string;
   number: number | null;
   text: string;
@@ -268,7 +273,15 @@ export function itemSeconds(row: Row, timed: { seconds: number }[], spec: Second
   return s.lead + timed.reduce((sum, p) => sum + p.seconds, 0) + s.gap * (timed.length - 1) + s.tail;
 }
 
+/** A number as a person writes beats: 4, "04" or "04a" (a beat inserted after 04), as its digits and its letters. Null for anything else. */
+const sequence = (v: unknown): [number, string] | null => {
+  const m = /^\s*0*(\d+)\s*([a-z]*)\s*$/i.exec(typeof v === "number" ? String(v) : typeof v === "string" ? v : "");
+  return m ? [Number(m[1]), m[2].toLowerCase()] : null;
+};
+
 const byOrder = (key: string | undefined) => (a: Row, b: Row) => {
+  const [p, q] = [sequence(field(a, key)), sequence(field(b, key))];
+  if (p && q && (p[0] !== q[0] || p[1] !== q[1])) return p[0] !== q[0] ? p[0] - q[0] : p[1].localeCompare(q[1]); // 04, 04a, 05: as the render orders them
   const [x, y] = [num(field(a, key)), num(field(b, key))];
   if (x !== null && y !== null && x !== y) return x - y;
   if (x === null && y !== null) return 1;
@@ -317,6 +330,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
       const item: Item = {
         id: row.id,
         slug: row.slug,
+        key: str(field(row, spec.spine.run?.field)),
         title: str(field(row, spec.spine.title)) || row.title,
         number: num(field(row, spec.spine.order)),
         text: str(field(row, spec.spine.text)),

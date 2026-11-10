@@ -468,3 +468,15 @@ test("overlays: a music bed that ducks and fades carries both, and one that does
   const [q] = overlays(quiet, duckSpec.lanes).filter((o) => o.lane === "music");
   assert.equal(q.duck, undefined);
 });
+
+test("an item carries the value its run button hands the workflow, exactly as written (04a keeps its letter and zero)", () => {
+  const runSpec = { ...spec, spine: { ...spec.spine, run: { workflow: "screenplay-render", entry: "story", item: "beats", field: "number", inputs: { quality: "draft" } } } };
+  const laid = layout(runSpec, { spine: [row("b4", { story: "s", number: "04a", chapter: "c1" }), row("b5", { story: "s", number: "05", chapter: "c1" })], groups: chapters, lanes: { lines: [], sounds: [] } });
+  assert.deepEqual(laid.items.map((i) => i.key), ["04a", "05"]);
+  assert.deepEqual(layout(spec, { spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } }).items.map((i) => i.key), ["", "", "", "", ""]); // no run declared: nothing
+});
+
+test("a beat inserted as 04a sits between 04 and 05, as the render orders them, with or without zeros", () => {
+  const laid = layout(spec, { spine: [row("b5", { story: "s", number: "05", chapter: "c1" }), row("b4a", { story: "s", number: "04a", chapter: "c1" }), row("b4", { story: "s", number: "04", chapter: "c1" }), row("b10", { story: "s", number: "10", chapter: "c1" }), row("b2", { story: "s", number: 2, chapter: "c1" })], groups: chapters, lanes: { lines: [], sounds: [] } });
+  assert.deepEqual(laid.items.map((i) => i.slug), ["b2", "b4", "b4a", "b5", "b10"]);
+});

@@ -26,6 +26,7 @@ TIMELINE = {
     "title": "Timeline",
     "entry_type": "story",
     "spine": {
+        "run": {"workflow": "kit-mark-sold", "entry": "story", "item": "beats", "field": "number", "label": "Draft", "inputs": {"quality": "draft"}},
         "entry_type": "beat",
         "of": "story",
         "order": "number",
@@ -162,6 +163,23 @@ def _bad(mutate) -> str | None:
         (lambda p: p["lanes"][3]["bed"].update(end_fade="End Fade"), "end_fade must be a field key"),
         (lambda p: p["lanes"][3]["bed"].update(duck="Music Ducking"), "duck must be a field key"),
         (lambda p: p["lanes"][3]["bed"].update(default_volume="loud"), "default_volume must be a number from 0 to 1"),
+        (lambda p: p["spine"].update(run="draft"), "run is {workflow"),
+        (lambda p: p["spine"].update(run={"workflow": "Draft It", "entry": "story", "item": "beats", "field": "number"}), "run.workflow is"),
+        (lambda p: p["spine"].update(run={"workflow": "kit-mark-sold", "entry": "story", "item": "beats"}), "run is {workflow"),
+        (
+            lambda p: p["spine"].update(run={"workflow": "kit-mark-sold", "entry": "Story", "item": "beats", "field": "number"}),
+            "entry must be a field key",
+        ),
+        (
+            lambda p: p["spine"].update(run={"workflow": "kit-mark-sold", "entry": "story", "item": "beats", "field": "number", "label": " "}),
+            "run.label",
+        ),
+        (
+            lambda p: p["spine"].update(
+                run={"workflow": "kit-mark-sold", "entry": "story", "item": "beats", "field": "number", "inputs": {"q": ["x"]}}
+            ),
+            "run.inputs is",
+        ),
         (lambda p: p["lanes"][1]["placed"].update(filter="effect"), "placed.filter is"),
         (lambda p: p["lanes"][1]["placed"].update(filter={}), "placed.filter is"),
         (lambda p: p["lanes"][1]["placed"].update(filter={"Kind": "effect"}), "placed.filter is"),
