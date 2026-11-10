@@ -204,6 +204,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
   import { matchesAccept } from "@/lib/assetAccept";
   import { assetItem, canAdd, matches, nameFromFile, serialize, uploadSlug } from "@/lib/linkedItems";
   import { fetchApi } from "@/lib/api/client";
+  import { uploadTooBig } from "@/lib/uploadLimit";
 
   type AudioRecorderApi = {
     open: (o: { suggestedName?: string }) => Promise<File | null>;
@@ -386,8 +387,18 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
        * aside meanwhile), as many as the field has room for. */
       const take = async (files: FileList | File[] | null | undefined) => {
         const room = multiple ? (max ? Math.max(0, max - ids().length) : Infinity) : 1;
-        const list = [...(files ?? [])].slice(0, room);
-        if (!list.length) return;
+        const picked = [...(files ?? [])].slice(0, room);
+        // A file over what one upload can carry is refused now, with what to do, instead of "Uploading…" for minutes and then nothing.
+        const tooBig = picked.map(uploadTooBig).filter((m): m is string => !!m);
+        const list = picked.filter((f) => !uploadTooBig(f));
+        if (!list.length) {
+          if (tooBig.length) {
+            error.textContent = tooBig.join(" ");
+            error.hidden = false;
+            if (!dialog.open) dialog.showModal();
+          }
+          return;
+        }
         if (list.length === 1 && !name.value.trim()) name.value = nameFromFile(list[0].name);
         dialog.close();
         const next: Ready[] = [];
@@ -395,6 +406,10 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
         ready = next;
         dialog.showModal();
         show();
+        if (tooBig.length) {
+          error.textContent = tooBig.join(" ");
+          error.hidden = false;
+        }
       };
       openUpload.addEventListener("click", () => {
         reset();

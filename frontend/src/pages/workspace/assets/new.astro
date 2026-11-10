@@ -299,6 +299,7 @@ try {
   import { createSdkClient } from '@/lib/sdk';
   import { isRetryable } from '@/lib/uploadQueue';
   import { queueUpload } from '@/lib/uploadQueueClient';
+  import { uploadTooBig } from '@/lib/uploadLimit';
 
   const sdk = createSdkClient();
   const form = document.getElementById('uploadForm') as HTMLFormElement;
@@ -470,14 +471,23 @@ try {
 
   // Handle file selection
   // One file keeps the single-file form (with the cropper); more become a batch.
-  function handleFiles(files: FileList) {
+  function handleFiles(all: FileList) {
     dropRecordingFacts();
+    // A file over what one upload can carry is refused here, at once, instead of hanging or failing after minutes of sending.
+    const tooBig = Array.from(all).map(uploadTooBig).filter((m): m is string => !!m);
+    const files = Array.from(all).filter((f) => !uploadTooBig(f));
+    if (tooBig.length) showError(tooBig.join(' '));
+    else errorMessage.style.display = 'none';
+    if (!files.length) {
+      fileInput.value = '';
+      return;
+    }
     if (files.length === 1) {
       handleFile(files[0]);
       return;
     }
     selectedFile = null;
-    selectedFiles = Array.from(files);
+    selectedFiles = files;
     uploadPlaceholder.style.display = 'none';
     uploadPreview.style.display = 'none';
     uploadBatch.style.display = 'block';
