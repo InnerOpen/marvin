@@ -791,11 +791,11 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .pick-search { max-width: 28rem; }
   .tile[hidden], .choice[hidden] { display: none; }
   .current { margin: 0 0 12px; display: grid; gap: 6px; justify-items: start; }
-  .current img { max-width: min(100%, 22rem); max-height: 20rem; border-radius: var(--radius); border: 1px solid var(--line); object-fit: contain; background: var(--bg); }
+  .current img { max-width: min(100%, 22rem); max-height: 20rem; border-radius: var(--radius); object-fit: contain; background: var(--bg); }
   .current figcaption { color: var(--muted); font-size: 14px; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
-  .tile { position: relative; display: grid; justify-items: center; align-content: start; gap: 8px; padding: 14px 10px 12px; text-align: center; cursor: pointer; border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px); background: var(--bg); font-size: 15px; transition: border-color 0.15s, background-color 0.15s; }
-  .tile:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+  .tile { position: relative; display: grid; justify-items: center; align-content: start; gap: 8px; padding: 14px 10px 12px; text-align: center; cursor: pointer; border: 1px solid transparent; border-radius: calc(var(--radius) + 4px); background: var(--bg); font-size: 15px; transition: border-color 0.15s, background-color 0.15s; }
+  .tile:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .tile input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
   .tile:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--bg)); box-shadow: 0 0 0 1px var(--accent); }
   .tile:has(input:checked)::after { content: "✓"; position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-ink, #fff); font-size: 13px; font-weight: 700; }
@@ -805,12 +805,14 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .tpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .tpic .gnone { font-size: 44px; }
   @media (prefers-reduced-motion: reduce) { .tile { transition: none; } }
-  .choice { display: flex; gap: 10px; align-items: center; cursor: pointer; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
-  .choice:hover { border-color: var(--muted); }
+  /* Everything you can pick in a step is a darker panel with no outline; the accent outline shows on hover and on the one picked. */
+  .choice { display: flex; gap: 10px; align-items: center; cursor: pointer; padding: 10px 14px; border: 1px solid transparent; border-radius: var(--radius); background: var(--bg); }
+  .choice:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .choice:has(input:checked) { border-color: var(--accent); }
   /* A section inside the step's card is a darker panel, not an outlined box: the same as the sections inside a card on the Workflows page. */
   .create { border: 0; background: var(--bg); border-radius: var(--radius); padding: 16px; display: grid; gap: 14px; margin: 0; }
-  .create legend { padding: 0 6px; font-size: 13px; color: var(--muted); }
+  .create legend { float: left; width: 100%; padding: 0; margin: 0 0 2px; font-size: 14px; font-weight: 600; color: var(--ink); }
+  .create legend + * { clear: both; }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .req { color: var(--color-error, #c0392b); }
   .replace { display: grid; gap: 10px; }
@@ -843,13 +845,13 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .gtrash { display: flex; justify-content: flex-end; margin: 0; }
   .gtrash button { background: none; border: 0; padding: 2px 4px; color: var(--muted); font-size: 12px; cursor: pointer; }
   .gtrash button:hover { color: var(--color-error); text-decoration: underline; }
-  .showcard { border: 1px solid var(--line); border-left: 4px solid var(--color-primary); border-radius: var(--radius); background: var(--panel-2); padding: 12px 14px; margin: 0 0 16px; display: grid; gap: 8px; }
+  .showcard { border: 0; border-left: 4px solid var(--color-primary); border-radius: var(--radius); background: var(--panel-2); padding: 12px 14px; margin: 0 0 16px; display: grid; gap: 8px; }
   .showhead { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
   .showcard dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }
   .showcard dt { color: var(--muted); }
   .showcard dd { margin: 0; white-space: pre-wrap; }
-  .gcard { display: grid; grid-template-rows: auto 1fr; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); overflow: hidden; text-decoration: none; color: inherit; }
-  .gcard:hover { border-color: var(--accent); }
+  .gcard { display: grid; grid-template-rows: auto 1fr; border: 1px solid transparent; border-radius: var(--radius); background: var(--bg); overflow: hidden; text-decoration: none; color: inherit; }
+  .gcard:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .gpic { aspect-ratio: 1; background: var(--panel-2); display: grid; place-items: center; position: relative; }
   .gplay { position: absolute; right: 8px; bottom: 8px; }
   .gpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -871,7 +873,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .decided summary { cursor: pointer; font-size: 13px; color: var(--muted); }
   .decided ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
   .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  .checks li { padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .checks li { padding: 10px 14px; border: 0; border-radius: var(--radius); background: var(--bg); }
   .checks .ok { color: var(--ink); border-color: var(--accent); }
   .checks .no { color: var(--muted); }
   .checks .fix { margin-left: 8px; font-size: 13px; color: var(--accent); }
