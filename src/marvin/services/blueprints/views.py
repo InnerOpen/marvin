@@ -55,7 +55,8 @@ A timeline definition::
   silence) and shows as steps in the block. ``cover`` is a video laid over each item's picture: ``field`` is the asset field, ``blend`` and
   ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with ``entry_type``) names, then the view's entry itself, and a
   blend of ``none`` at one of them switches the overlay off from there up.
-- ``actions`` are buttons on the page: each starts a ``wizard`` or a ``workflow`` the same package brings.
+- ``actions`` are buttons on the page: each starts a ``wizard`` or a ``workflow`` the same package brings. A workflow action with ``run``
+  (``{entry, inputs?}``) starts it at once, ``entry`` naming the input that gets the entry's slug, and the page follows the job it makes.
 """
 
 from __future__ import annotations
@@ -222,6 +223,20 @@ def _check_cover(cover: Any, label: str) -> str | None:
     return None
 
 
+def _check_run(run: Any, targets: list[str], action_label: str, label: str) -> str | None:
+    """`run` makes a workflow action start the workflow at once: {entry: the input that receives the entry's slug, inputs?: fixed values}."""
+    if targets != ["workflow"]:
+        return f"{label}: action {action_label!r} runs a workflow, so it needs `workflow`, not a wizard"
+    if not isinstance(run, dict) or not isinstance(run.get("entry"), str) or not _NAME.match(run["entry"]):
+        return f"{label}: action {action_label!r} run is {{entry, inputs?}}: entry is the workflow input that gets the entry's slug"
+    inputs = run.get("inputs")
+    if inputs is not None and not (
+        isinstance(inputs, dict) and len(inputs) <= 8 and all(_NAME.match(k) and isinstance(v, str | int | float | bool) for k, v in inputs.items())
+    ):
+        return f"{label}: action {action_label!r} run.inputs is up to 8 input names with text, number or yes/no values"
+    return None
+
+
 def _check_actions(actions: Any, label: str) -> str | None:
     if actions is None:
         return None
@@ -233,4 +248,6 @@ def _check_actions(actions: Any, label: str) -> str | None:
         targets = [k for k in ("wizard", "workflow") if action.get(k) is not None]
         if len(targets) != 1 or not isinstance(action[targets[0]], str) or not _SLUG.match(action[targets[0]]):
             return f"{label}: action {action['label']!r} names either a wizard or a workflow by slug"
+        if (run := action.get("run")) is not None and (problem := _check_run(run, targets, action["label"], label)):
+            return problem
     return None
