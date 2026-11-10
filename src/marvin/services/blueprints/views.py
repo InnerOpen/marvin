@@ -170,6 +170,11 @@ def _check_lane(lane: dict, label: str) -> str | None:
             return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"
         if bed.get("entry_type") is not None and (problem := _slug(bed, "entry_type", f"{label} bed")):
             return problem
+    if (opens := lane.get("open")) is not None:
+        if not isinstance(opens, dict):
+            return f"{label}: open is {{wizard}}, the guided setup a piece opens on instead of its own page"
+        if problem := _slug(opens, "wizard", f"{label} open"):
+            return problem
     return _fields(lane, ("order", "text", "who", "audio", "seconds", "volume", "loop", "estimate_from", "status"), label)
 
 

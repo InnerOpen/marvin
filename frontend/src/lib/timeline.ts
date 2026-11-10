@@ -59,6 +59,8 @@ export interface LaneSpec {
   loop?: string;
   estimate_from?: string;
   status?: string;
+  /** A guided setup (of the same package) a piece of this lane opens on, with the piece chosen, instead of its own page: a line opens its takes. */
+  open?: { wizard: string };
 }
 
 export interface ActionSpec {

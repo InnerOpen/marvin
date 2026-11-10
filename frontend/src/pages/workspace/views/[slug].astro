@@ -12,6 +12,8 @@ import { getWizard } from "@/lib/api/wizards";
 import type { Step } from "@/lib/wizard";
 import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
+import { listWizards } from "@/lib/api/wizards";
+import { buttonHref } from "@/lib/wizard";
 import { type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, overlays, progress, quiets, quietWords, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
@@ -38,12 +40,19 @@ let entry: Row | null = null;
 let candidates: Row[] = [];
 let laid: Layout | null = null;
 let actions: { label: string; href: string }[] = [];
+const laneOpens: Record<string, (pieceSlug: string) => string> = {}; // lane id -> where a piece of it opens (a guided setup), when the lane says so
 if (spec && authToken) {
   entry = await entryOfType(spec.entry_type, entryRef, authToken);
   if (!entry) {
     candidates = (await findEntries({ entry_type: spec.entry_type }, authToken, 50)).entries;
   } else {
     const whose = entry.slug;
+    // A lane may open a guided setup with the piece chosen (a line opens its takes) instead of the entry's own page.
+    for (const lane of spec.lanes ?? []) {
+      if (!lane.open) continue;
+      const found = (await listWizards(authToken, lane.entry_type).catch(() => [])).find((w) => w.slug === lane.open!.wizard && w.button);
+      if (found) laneOpens[lane.id] = (pieceSlug) => buttonHref(found.slug, found.button!, { slug: pieceSlug, dataJson: lane.of ? { [lane.of]: whose } : {} });
+    }
     const none = { entries: [] as Row[], total: 0 };
     const [spine, ...laneRows] = await Promise.all([
       findEntries({ entry_type: spec.spine.entry_type, fields: { [spec.spine.of]: whose } }, authToken, MAX_ROWS),
@@ -295,7 +304,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       <a
                         class:list={["tl-piece", { estimated: p.estimated && !p.unmeasured, unmeasured: p.unmeasured, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
                         role="listitem"
-                        href={open(p.id)}
+                        href={laneOpens[lane.id] ? laneOpens[lane.id](p.slug) : open(p.id)}
                         data-piece={p.id}
                         style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px`}
                         title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}`}

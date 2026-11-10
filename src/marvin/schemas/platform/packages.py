@@ -110,6 +110,12 @@ class PackageManifest(_MarvinModel):
             opened = ((blueprint.payload or {}).get("open") or {}).get("view")
             if opened is not None and opened not in views:
                 problems.append(f"wizard '{blueprint.slug}': open.view names {opened!r}, which this package does not bring")
+        # A lane opens a guided setup of this same package on the piece clicked.
+        for blueprint in (b for b in self.blueprints if b.kind == "view"):
+            for lane in (blueprint.payload or {}).get("lanes") or []:
+                opened_setup = (lane.get("open") or {}).get("wizard") if isinstance(lane, dict) and isinstance(lane.get("open"), dict) else None
+                if opened_setup is not None and opened_setup not in wizards:
+                    problems.append(f"view '{blueprint.slug}': lane {lane.get('id')!r} opens {opened_setup!r}, which this package does not bring")
         # A view's buttons start a wizard or a workflow of this same package, for the same reason.
         for blueprint in (b for b in self.blueprints if b.kind == "view"):
             for action in (blueprint.payload or {}).get("actions") or []:
