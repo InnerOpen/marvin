@@ -544,3 +544,42 @@ test("a scene that was not found is titled by its slug; a view with no bands has
   assert.deepEqual([scene[0].title, scene[0].id, scene[0].items.length], ["gone", null, 2]);
   assert.deepEqual(layout(spec, { spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } }).bands, {});
 });
+
+// ── fades cascade: the sound's, then the story's, then the beat's ────────────────────────────────────────────────────────────────────────
+const cascadeSpec = {
+  ...bedSpec,
+  lanes: bedSpec.lanes.map((l) =>
+    l.id === "ambience"
+      ? { ...l, bed: { ...l.bed, item_field: "ambience", entry_field: "ambience", fade_in: "fade_in", fade_out: "fade_out", default_fade_in: 0.6, default_fade_out: 0.6, start_fade: "start_fade_seconds", end_fade: "end_fade_seconds", entry_fade_in: "ambience_fade_in", entry_fade_out: "ambience_fade_out", item_fade_in: "ambience_fade_in", item_fade_out: "ambience_fade_out" } }
+      : l.id === "music"
+        ? { ...l, bed: { ...l.bed, fade_in: "fade_in", fade_out: "fade_out", default_fade_out: 2, start_fade: "start_fade_seconds", end_fade: "end_fade_seconds" } }
+        : l,
+  ),
+};
+const cascaded = (story, beatData = [], soundData = {}) =>
+  layout(cascadeSpec, {
+    entry: row("s", { music: "waltz", ambience: "hum", ...story }),
+    spine: bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, ...(beatData[i] ?? {}) } })),
+    groups: chapters,
+    lanes: { lines: [], sounds: [], ambience: [...bedSounds, row("hum", { volume: 0.2, ...soundData }, { assets: [tune] })], music: bedSounds },
+    via: { ambience: scenes },
+  });
+const story = (laid) => laid.beds.ambience.find((b) => b.slug === "hum"); // the story's own bed, under the whole film
+const sea1 = (laid) => laid.beds.ambience.find((b) => b.slug === "sea" && b.start === 0); // the first scene's block
+
+test("fade cascade: the sound's own fade is the base, the story's replaces it, a beat's replaces the story's", () => {
+  assert.deepEqual([story(cascaded({}, [], { fade_in: 1.5, fade_out: 2.5 })).fadeIn, story(cascaded({}, [], { fade_in: 1.5, fade_out: 2.5 })).fadeOut], [1.5, 2.5]); // the sound alone
+  const byStory = cascaded({ ambience_fade_in: 3, ambience_fade_out: 4 }, [], { fade_in: 1.5, fade_out: 2.5 });
+  assert.deepEqual([story(byStory).fadeIn, story(byStory).fadeOut], [3, 4]); // the story over the sound
+  assert.deepEqual([sea1(byStory).fadeIn, sea1(byStory).fadeOut], [3, 4]); // …and over the scenes' beds too (their first block is 8 s, so a 4 s fade is just the half it may take)
+  const byBeat = cascaded({ ambience_fade_in: 3 }, [{ ambience_fade_in: 0.5, ambience_fade_out: 1 }]);
+  assert.deepEqual([sea1(byBeat).fadeIn, sea1(byBeat).fadeOut], [0.5, 0.6]); // the first beat's own fade-in; the block's last beat sets none, so the default fade-out
+});
+
+test("fade cascade: the film's start and end fades cover what nothing more specific set, and a specific one is not replaced by them", () => {
+  const film = cascaded({ start_fade_seconds: 5, end_fade_seconds: 6 }, [], { fade_in: 1, fade_out: 1 });
+  assert.deepEqual([story(film).fadeIn, story(film).fadeOut], [5, 6]); // the film's, over the sound's
+  const specific = cascaded({ start_fade_seconds: 5, end_fade_seconds: 6, ambience_fade_in: 0.3, ambience_fade_out: 0.4 });
+  assert.deepEqual([story(specific).fadeIn, story(specific).fadeOut], [0.3, 0.4]); // the story's ambience setting is more specific than the film's
+  assert.equal(cascaded({ start_fade_seconds: 5 }).beds.music[0].fadeIn, 5); // the music takes the film's start fade
+});

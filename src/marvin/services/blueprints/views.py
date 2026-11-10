@@ -48,7 +48,9 @@ A timeline definition::
   a level set there *replaces* the sound's own (not multiplied), and ``bed.default_volume`` (0 to 1) plays when none is set.
   ``bed.fade_in`` / ``bed.fade_out`` name the sound's fade fields (seconds), ``bed.default_fade_in`` / ``default_fade_out`` what the render does
   when they are empty, and ``bed.end_fade`` a field on the view's entry for how long every bed fades out at the end of the film; the block
-  draws them and Play follows them. ``bed.item_field`` (a field on each spine item) names that item's own sound, winning over the ``via``
+  draws them and Play follows them; ``bed.start_fade`` is the same for the start of the film, and ``bed.entry_fade_in`` /
+  ``entry_fade_out`` (on the entry) and ``bed.item_fade_in`` / ``item_fade_out`` (on each item) make the lane's own fades cascade: the sound's,
+  then the entry's, then the item's. ``bed.item_field`` (a field on each spine item) names that item's own sound, winning over the ``via``
   entry's, and ``bed.entry_field`` / ``bed.entry_volume`` name a sound under the whole film and its level: it plays together with the others,
   as the render layers them. ``bed.duck`` is a field on the view's entry holding none, light or strong: how far the bed goes down under each
   spoken line.
@@ -218,7 +220,24 @@ def _check_bed(bed: Any, label: str) -> str | None:
         return problem
     if problem := _fields(
         bed,
-        ("via", "volume", "item_volume", "muffled", "fade_in", "fade_out", "end_fade", "duck", "item_field", "entry_field", "entry_volume"),
+        (
+            "via",
+            "volume",
+            "item_volume",
+            "muffled",
+            "fade_in",
+            "fade_out",
+            "start_fade",
+            "end_fade",
+            "entry_fade_in",
+            "entry_fade_out",
+            "item_fade_in",
+            "item_fade_out",
+            "duck",
+            "item_field",
+            "entry_field",
+            "entry_volume",
+        ),
         f"{label} bed",
     ):
         return problem
