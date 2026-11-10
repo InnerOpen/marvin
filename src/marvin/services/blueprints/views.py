@@ -48,14 +48,18 @@ A timeline definition::
   a level set there *replaces* the sound's own (not multiplied), and ``bed.default_volume`` (0 to 1) plays when none is set.
   ``bed.fade_in`` / ``bed.fade_out`` name the sound's fade fields (seconds), ``bed.default_fade_in`` / ``default_fade_out`` what the render does
   when they are empty, and ``bed.end_fade`` a field on the view's entry for how long every bed fades out at the end of the film; the block
-  draws them and Play follows them. ``bed.duck`` is a field on the view's entry holding none, light or strong: how far the bed goes
-  down under each spoken line.
+  draws them and Play follows them. ``bed.item_field`` (a field on each spine item) names that item's own sound, winning over the ``via``
+  entry's, and ``bed.entry_field`` / ``bed.entry_volume`` name a sound under the whole film and its level: it plays together with the others,
+  as the render layers them. ``bed.duck`` is a field on the view's entry holding none, light or strong: how far the bed goes down under each
+  spoken line.
   ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it
   repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
   that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
   silence) and shows as steps in the block. ``cover`` is a video laid over each item's picture: ``field`` is the asset field, ``blend`` and
   ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with ``entry_type``) names, then the view's entry itself, and a
   blend of ``none`` at one of them switches the overlay off from there up.
+- ``spine.bands`` adds bands over the strip, each wrapping the consecutive items that share a value in its ``field`` (the beats of one scene),
+  titled by the ``entry_type`` entry that value names; at most two. They draw only: nothing is reordered.
 - ``spine.run`` puts a small button on each item that runs a ``workflow`` for just that item: ``entry`` is the workflow input that gets the
   entry's slug, ``item`` the input that gets the item's ``field`` value (a beat's number), ``inputs`` fixed values (a draft's quality).
 - ``actions`` are buttons on the page: each starts a ``wizard`` or a ``workflow`` the same package brings. A workflow action with ``run``
@@ -107,7 +111,11 @@ def payload_problem(payload: dict, slug: str) -> str | None:
     spine = payload.get("spine")
     if not isinstance(spine, dict):
         return f"{label} needs a spine: the entry type laid out in time, {{entry_type, of, ...}}"
-    if problem := _check_spine(spine, f"{label} spine") or _check_item_run(spine.get("run"), f"{label} spine"):
+    if (
+        problem := _check_spine(spine, f"{label} spine")
+        or _check_item_run(spine.get("run"), f"{label} spine")
+        or _check_bands(spine.get("bands"), f"{label} spine")
+    ):
         return problem
     lanes = payload.get("lanes", [])
     if not isinstance(lanes, list) or len(lanes) > MAX_LANES:
@@ -125,6 +133,32 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         if problem := _check_lane(lane, f"lane {lid!r} of {label}"):
             return problem
     return _check_actions(payload.get("actions"), label)
+
+
+MAX_BANDS = 2
+
+
+def _check_bands(bands: Any, label: str) -> str | None:
+    """`spine.bands`: extra bands over the strip, each wrapping the consecutive items that share a value (the beats of one scene)."""
+    if bands is None:
+        return None
+    if not isinstance(bands, list) or len(bands) > MAX_BANDS:
+        return f"{label}: bands is a list of at most {MAX_BANDS}, each {{entry_type, field, id?, title?}}"
+    seen: set[str] = set()
+    for band in bands:
+        if not isinstance(band, dict):
+            return f"{label}: each band is {{entry_type, field, id?, title?}}"
+        if (problem := _slug(band, "entry_type", f"{label} band")) or (problem := _field(band, "field", f"{label} band", required=True)):
+            return problem
+        if band.get("id") is not None and not (isinstance(band["id"], str) and _ID.match(band["id"])):
+            return f"{label}: band id must be a short lowercase name"
+        if band.get("title") is not None and (not isinstance(band["title"], str) or not band["title"].strip() or len(band["title"]) > 40):
+            return f"{label}: band title is a short text"
+        key = band.get("id") or band["field"]
+        if key in seen:
+            return f"{label}: band {key!r} is used twice"
+        seen.add(key)
+    return None
 
 
 def _check_item_run(run: Any, label: str) -> str | None:
@@ -182,7 +216,11 @@ def _check_bed(bed: Any, label: str) -> str | None:
         return f"{label}: bed is {{field, via?, entry_type?, volume?, item_volume?}}"
     if problem := _field(bed, "field", f"{label} bed", required=True):
         return problem
-    if problem := _fields(bed, ("via", "volume", "item_volume", "muffled", "fade_in", "fade_out", "end_fade", "duck"), f"{label} bed"):
+    if problem := _fields(
+        bed,
+        ("via", "volume", "item_volume", "muffled", "fade_in", "fade_out", "end_fade", "duck", "item_field", "entry_field", "entry_volume"),
+        f"{label} bed",
+    ):
         return problem
     if (bed.get("via") is None) != (bed.get("entry_type") is None):
         return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"

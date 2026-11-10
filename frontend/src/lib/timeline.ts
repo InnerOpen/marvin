@@ -25,6 +25,9 @@ export interface SpineSpec {
   status?: string;
   title?: string;
   seconds?: SecondsSpec;
+  /** Extra bands over the strip, each wrapping the consecutive items that share a value in `field` (the beats of one scene), titled by the
+   * entry of `entry_type` that value names. They do not reorder anything. */
+  bands?: { id?: string; entry_type: string; field: string; title?: string }[];
   /** A button on each item that runs a workflow for just that item (a quick draft of one beat): `entry` is the workflow input that gets the
    * entry's slug, `item` the input that gets this item's `field` value, `inputs` fixed values. */
   run?: { workflow: string; entry: string; item: string; field: string; label?: string; inputs?: Record<string, string | number | boolean> };
@@ -52,6 +55,12 @@ export interface BedSpec {
   default_fade_in?: number;
   default_fade_out?: number;
   end_fade?: string;
+  /** A bed that layers, as the render plays ambience: `item_field` on each spine item names its own sound (it wins over the `via` entry's
+   * `field`: a beat's own over its scene's), and `entry_field` on the view's entry names a sound under the whole film (the story's), which
+   * plays together with those, its level in `entry_volume`. */
+  item_field?: string;
+  entry_field?: string;
+  entry_volume?: string;
   /** A field on the view's entry holding `none`, `light` or `strong`: how far the bed goes down under each spoken line (Play follows it). */
   duck?: string;
 }
@@ -211,10 +220,23 @@ export interface Group {
   items: Item[];
 }
 
+/** A stretch of consecutive items that share a value (the beats of one scene), drawn as a band over them. */
+export interface Band {
+  /** The entry the value names (to open it), when it was found. */
+  id: string | null;
+  slug: string;
+  title: string;
+  start: number;
+  seconds: number;
+  items: string[];
+}
+
 export interface Layout {
   total: number;
   groups: Group[];
   items: Item[];
+  /** Per band (its `id`, else its `field`), its stretches in time order. */
+  bands: Record<string, Band[]>;
   /** Per bed lane, its blocks in time order. */
   beds: Record<string, Bed[]>;
   /** Per cover lane, its blocks in time order. */
@@ -303,6 +325,8 @@ interface Rows {
   lanes: Record<string, Row[]>;
   /** Per bed lane with `via`, the entries the spine items name (the scenes). */
   via?: Record<string, Row[]>;
+  /** Per band, the entries its field names (the scenes), to title the band. */
+  bands?: Record<string, Row[]>;
 }
 
 const level = (v: unknown): number | null => {
@@ -390,7 +414,9 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   for (const lane of bedLanes) beds[lane.id] = bedsOf(lane, items, rows, clock, bySlug(lane));
   const covers: Record<string, Cover[]> = {};
   for (const lane of lanes.filter((l) => l.cover)) covers[lane.id] = coversOf(lane.cover!, spec, items, rows, lane.id);
-  return { total: clock, groups: out, items, beds, covers };
+  const bands: Record<string, Band[]> = {};
+  for (const band of spec.spine.bands ?? []) bands[band.id ?? band.field] = bandsOf(band, items, rows, band.id ?? band.field);
+  return { total: clock, groups: out, items, bands, beds, covers };
 }
 
 /** A bed's level as the render plays it: the level set where the sound is named (a beat's, else its scene's or the story's) *replaces* the
@@ -444,14 +470,19 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     return [whole];
   }
   const out: Bed[] = [];
+  // The story's own bed under the whole film, which plays together with the beds of items and scenes (the render layers them).
+  const storySound = spec.entry_field && rows.entry ? sounds.get(str(field(rows.entry, spec.entry_field))) : undefined;
+  const everywhere = storySound && total > 0 ? [make(storySound, 0, total, level(field(rows.entry!, spec.entry_volume)), false, items.map((i) => i.id))] : [];
   for (const item of items) {
     const row = spine.get(item.id);
     if (!row) continue;
     const named = spec.via ? via.get(str(field(row, spec.via))) : row;
-    const sound = named ? sounds.get(str(field(named, spec.field))) : undefined;
+    // a beat's own sound wins over its scene's; each is a bed of its own level
+    const own = spec.item_field ? sounds.get(str(field(row, spec.item_field))) : undefined;
+    const sound = own ?? (named ? sounds.get(str(field(named, spec.field))) : undefined);
     if (!sound) continue;
-    const at = level(field(row, spec.item_volume)) ?? level(named ? field(named, spec.volume) : null);
-    const muffled = !!(named && spec.muffled && field(named, spec.muffled) === true);
+    const at = level(field(row, spec.item_volume)) ?? (own ? null : level(named ? field(named, spec.volume) : null));
+    const muffled = !own && !!(named && spec.muffled && field(named, spec.muffled) === true);
     const last = out[out.length - 1];
     if (last && last.slug === sound.slug && last.volume === bedLevel(lane, sound, at) && last.muffled === muffled && last.start + last.seconds >= item.start - 1e-6) {
       last.seconds = item.start + item.seconds - last.start;
@@ -459,6 +490,27 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     } else {
       out.push(make(sound, item.start, item.seconds, at, muffled, [item.id]));
     }
+  }
+  return [...everywhere, ...out];
+}
+
+/** The bands of one band spec: runs of consecutive items whose row holds the same non-empty value. */
+function bandsOf(spec: NonNullable<SpineSpec["bands"]>[number], items: Item[], rows: Rows, key: string): Band[] {
+  const spine = new Map(rows.spine.map((r) => [r.id, r] as const));
+  const named = new Map((rows.bands?.[key] ?? []).map((r) => [r.slug, r] as const));
+  const out: Band[] = [];
+  let before: string | null = null; // the item just before, so a stretch only continues across neighbours
+  for (const item of items) {
+    const value = str(field(spine.get(item.id) ?? ({} as Row), spec.field)).trim();
+    const last = out[out.length - 1];
+    if (value && last && last.slug === value && last.items[last.items.length - 1] === before) {
+      last.seconds = item.start + item.seconds - last.start;
+      last.items.push(item.id);
+    } else if (value) {
+      const entry = named.get(value);
+      out.push({ id: entry?.id ?? null, slug: value, title: entry?.title || value, start: item.start, seconds: item.seconds, items: [item.id] });
+    }
+    before = item.id;
   }
   return out;
 }

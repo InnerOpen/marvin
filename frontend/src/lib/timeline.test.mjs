@@ -490,3 +490,57 @@ test("overlay lane: a block is named by the asset's title; its file name is only
   // two videos with different titles but one file are still one video: they merge by address, the label is the first's
   assert.equal(coverLaid({ storyAssets: [titled] }).covers.overlay.length, 1);
 });
+
+// ── layered ambience (the story's under the film, a beat's or its scene's over it) and scene bands ─────────────────────────────────────
+const layerSpec = {
+  ...bedSpec,
+  lanes: bedSpec.lanes.map((l) => (l.id === "ambience" ? { ...l, bed: { ...l.bed, item_field: "ambience", entry_field: "ambience", entry_volume: "ambience_volume" } } : l)),
+};
+const gull = { role: "audio", publicUrl: "https://cdn/gull.mp3", mimeType: "audio/mpeg" };
+const layered = (storyData, beatData = []) =>
+  layout(layerSpec, {
+    entry: row("s", { music: "waltz", ...storyData }),
+    spine: bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, ...(beatData[i] ?? {}) } })),
+    groups: chapters,
+    lanes: { lines: [], sounds: [], ambience: [...bedSounds, row("hum", { volume: 0.2, loop: true }, { assets: [tune] }), row("gull", { volume: 0.7 }, { assets: [gull] })], music: bedSounds },
+    via: { ambience: scenes },
+  });
+
+test("layered ambience: the story's bed runs under the whole film and is its own block beside the scenes' blocks", () => {
+  const amb = layered({ ambience: "hum", ambience_volume: 0.1 }).beds.ambience;
+  assert.deepEqual(amb[0] && [amb[0].slug, amb[0].start, amb[0].seconds, amb[0].volume], ["hum", 0, 20, 0.1]);
+  assert.deepEqual(amb.slice(1).map((b) => b.slug), ["sea", "sea", "sea"]); // the scenes' blocks are still there, layered with it
+});
+
+test("layered ambience: a beat's own sound replaces its scene's for that beat, unmuffled, and stacks with the story's", () => {
+  const amb = layered({ ambience: "hum" }, [undefined, undefined, { ambience: "gull" }]).beds.ambience;
+  assert.deepEqual(amb.map((b) => [b.slug, b.start, b.seconds, b.muffled]), [["hum", 0, 20, false], ["sea", 0, 8, false], ["gull", 8, 4, false], ["sea", 12, 4, true]]);
+});
+
+test("layered ambience: a story that names none adds no block, and playback has every layer at once", () => {
+  assert.deepEqual(layered({}).beds.ambience.map((b) => b.slug), ["sea", "sea", "sea"]);
+  const over = overlays(layered({ ambience: "hum" }), layerSpec.lanes).filter((o) => o.lane === "ambience");
+  assert.equal(over.filter((o) => o.start < 8 && o.start + o.seconds > 1).length, 2); // the story's and the first scene's, together
+});
+
+const sceneBand = { entry_type: "scene", field: "scene", title: "Scene" };
+const bandSpec = { ...spec, spine: { ...spec.spine, bands: [sceneBand] } };
+const bandLaid = (scenesOn) =>
+  layout(bandSpec, {
+    spine: bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, scene: scenesOn[i] ?? "" } })),
+    groups: chapters,
+    lanes: { lines: [], sounds: [] },
+    bands: { scene: [row("deck", {}, { title: "On deck" }), row("cabin", {})].map((r) => ({ ...r, title: r.slug === "deck" ? "On the deck" : "Below" })) },
+  });
+
+test("scene bands wrap the consecutive beats that share a scene, titled by the scene, and leave beats with none out", () => {
+  const { scene } = bandLaid(["deck", "deck", "cabin", "", "deck"]).bands;
+  assert.deepEqual(scene.map((b) => [b.slug, b.title, b.start, b.seconds, b.items.length]), [["deck", "On the deck", 0, 8, 2], ["cabin", "Below", 8, 4, 1], ["deck", "On the deck", 16, 4, 1]]);
+  assert.ok(scene[0].id && scene[2].id); // found, so it can be opened
+});
+
+test("a scene that was not found is titled by its slug; a view with no bands has none", () => {
+  const { scene } = bandLaid(["gone", "gone"]).bands;
+  assert.deepEqual([scene[0].title, scene[0].id, scene[0].items.length], ["gone", null, 2]);
+  assert.deepEqual(layout(spec, { spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } }).bands, {});
+});
