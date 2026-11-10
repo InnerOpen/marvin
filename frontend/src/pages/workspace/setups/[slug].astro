@@ -223,6 +223,7 @@ const uploadAccept = step?.kind === "gallery" && step.upload ? galleryAccept(ste
 const uploadNoun = { audio: "sound", image: "picture", file: "file" }[acceptKind(uploadAccept)];
 // A sound can be recorded instead of picked (the drop zone's Record button): the recorder is on the page once, when the step takes one.
 // A gallery's add form may hold a file box of its own (`add.file`): it takes recordings too.
+const lengthField: string | undefined = step?.upload?.seconds ?? step?.add?.file?.seconds; // where a card's sound length lives
 const addAccept = step?.kind === "gallery" && step.add?.file ? galleryAccept({ upload: step.add.file } as any) : null;
 const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept) || acceptsAudio(addAccept);
 ---
@@ -480,11 +481,12 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                             <span class="gbadges">
                               {highlightOf(step, r.dataJson) && <span class="pill inuse">{highlightOf(step, r.dataJson)}</span>}
                               {badges.map((b) => <span class="pill">{String(r.dataJson?.[b])}</span>)}
-                              {step.upload?.seconds && r.dataJson?.[step.upload.seconds] && <span class="pill">{Number(r.dataJson[step.upload.seconds]).toFixed(1)} s</span>}
+                              {lengthField && r.dataJson?.[lengthField] && <span class="pill">{Number(r.dataJson[lengthField]).toFixed(1)} s</span>}
                             </span>
                           )}
                         </div>
                       </a>
+                      <div class="gbar">
                       {(step.card_actions ?? []).some((a: any) => cardActionShown(a, r.dataJson)) && (
                         <div class="gacts">
                           {(step.card_actions as { label: string; when?: any }[]).map((a, n) => cardActionShown(a, r.dataJson) && (
@@ -504,6 +506,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                           <button type="submit" title="Move to the Trash">🗑 Remove</button>
                         </form>
                       )}
+                      </div>
                       </div>
                     );
                   })}
@@ -528,7 +531,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                           <div class="form-group">
                             <label>Your own take</label>
                             <p class="muted">Record or upload one, then use the first button. Leave it empty to have ElevenLabs make it from the words above.</p>
-                            <FileDrop accept={addAccept ?? undefined} hint="Record or upload one take." nameFrom="add_title" />
+                            <FileDrop accept={addAccept ?? undefined} hint="Record or upload one take." nameFrom="add_title" required={false} />
                           </div>
                         )}
                         <div class="actions">
@@ -831,6 +834,8 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .pill.inuse { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
   .approvals { display: grid; gap: 12px; margin: 0 0 16px; }
   .approval-audio { width: 100%; }
+  .gbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .gbar .gtrash { margin-left: auto; }
   .gacts { display: flex; flex-wrap: wrap; gap: 6px; }
   .gact { margin: 0; }
   .gwrap { display: grid; gap: 4px; align-content: start; }
