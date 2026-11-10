@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, buttonHref, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
+  approvalsOf, buttonHref, highlightOf, measuredSeconds, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -202,4 +202,32 @@ test("a setup's button opens it on the entry, carrying what the entry's fields h
   // no step: the setup opens on its first unanswered step; an empty field carries nothing
   const bare = new URL(buttonHref("x", { entryType: "a", label: "L", key: "k" }, { slug: "s", dataJson: null }), "http://x");
   assert.deepEqual(Object.fromEntries(bare.searchParams), { k: "s" });
+});
+
+test("a gallery names what it makes after its parent, the noun and the next number", () => {
+  assert.equal(numberedTitle("01 Granny: People say…", "take", 0), "01 Granny: People say… · take 1");
+  assert.equal(numberedTitle("  ", "take", 2), "Untitled · take 3");
+});
+
+test("a show card reads out the wanted fields that have a value, with the type's own labels", () => {
+  const schema = { fields: [{ key: "text", label: "Text" }, { key: "direction", label: "Direction" }, { key: "speaker" }] };
+  const data = { text: " People say. ", direction: "", speaker: "granny", status: "draft", n: 3 };
+  assert.deepEqual(shownLines(data, schema, ["speaker", "text", "direction", "n", "missing"]), [
+    { key: "speaker", label: "speaker", value: "granny" },
+    { key: "text", label: "Text", value: "People say." },
+    { key: "n", label: "n", value: "3" },
+  ]);
+  assert.deepEqual(shownLines(null, null, ["text"]), []);
+});
+
+test("a highlight marks the card whose field has the wanted value", () => {
+  const step = { highlight: { field: "status", value: "in_use", label: "In use" } };
+  assert.equal(highlightOf(step, { status: "in_use" }), "In use");
+  assert.equal(highlightOf(step, { status: "recorded" }), null);
+  assert.equal(highlightOf({}, { status: "in_use" }), null);
+});
+
+test("measured seconds are a real positive length, rounded to the millisecond", () => {
+  assert.equal(measuredSeconds("2.6944"), 2.694);
+  for (const bad of ["", "0", "-1", "abc", "Infinity", "99999", undefined, null]) assert.equal(measuredSeconds(bad), null);
 });

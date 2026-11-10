@@ -52,6 +52,7 @@ _FIELD = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")  # an entry type's field ke
 # A file input's accept: MIME patterns (audio/*, image/png) or extensions (.webp), comma-separated.
 _ACCEPT_PART = r"(?:[a-z]+/(?:\*|[a-z0-9.+-]+)|\.[a-z0-9]{1,10})"
 _ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IGNORECASE)
+MAX_SHOWN = 8
 RESERVED_KEYS = ("step", "notice")  # address parameters the page uses for itself: never a context key
 _STEP_ID = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
@@ -111,7 +112,11 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         kind = step.get("kind")
         if kind not in STEP_KINDS:
             return f"{label} has kind {kind!r}; it must be one of {', '.join(STEP_KINDS)}"
-        if (problem := _check_when(step.get("when"), known, label)) or (problem := _check_step(step, kind, known, entries, label, seen - {sid})):
+        if (
+            (problem := _check_when(step.get("when"), known, label))
+            or (problem := _check_step(step, kind, known, entries, label, seen - {sid}))
+            or (problem := _check_show(step.get("show"), entries, label))
+        ):
             return problem
         if kind in ("option", "choose"):
             known.add(step["as"])
@@ -153,6 +158,19 @@ def _check_button(spec: Any, entries: set[str], steps: set[str], slug: str) -> s
     if also is not None:
         if not isinstance(also, dict) or len(also) > 4 or not all(k in entries and k != spec["key"] and _is_field(v) for k, v in also.items()):
             return f'wizard {slug!r}: button.also maps choose-step keys to field keys of the entry, e.g. {{"story": "story"}}'
+    return None
+
+
+def _check_show(spec: Any, entries: set[str], label: str) -> str | None:
+    """``show`` on any step: a card above it with the chosen entry's own words, ``{entry, fields}``: ``entry`` is a key an earlier choose step
+    set and ``fields`` (at most 8) the fields to read out, so someone recording a line sees the line, its direction and the rest."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict) or spec.get("entry") not in entries:
+        return f"{label}: show needs entry, a key an earlier choose step set"
+    fields = spec.get("fields")
+    if not isinstance(fields, list) or not fields or len(fields) > MAX_SHOWN or not all(_is_field(f) for f in fields):
+        return f"{label}: show.fields is a list of 1 to {MAX_SHOWN} field keys"
     return None
 
 
@@ -238,6 +256,8 @@ def _check_upload_spec(s: _Step, upload: Any, what: str) -> str | None:
         return f"{s.label}: {what} needs the asset field the file goes into"
     if upload.get("accept") is not None and not (isinstance(upload["accept"], str) and _ACCEPT.match(upload["accept"])):
         return f"{s.label}: {what}.accept is a file input's accept, like audio/* or image/png,.webp"
+    if upload.get("seconds") is not None and not _is_field(upload["seconds"]):
+        return f"{s.label}: {what}.seconds is the number field that takes the sound's length, measured in the browser"
     return None
 
 
@@ -331,6 +351,17 @@ def _check_gallery(s: _Step) -> str | None:
             return f"{s.label}: {key} must be a field key"
     if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
         return problem
+    if step.get("layout") not in (None, "cards", "list"):
+        return f"{s.label}: layout is cards (the default) or list"
+    if (name := step.get("name")) is not None:
+        if not isinstance(name, dict) or name.get("from") not in s.entries or not isinstance(name.get("noun"), str) or not name["noun"].strip():
+            return f"{s.label}: name is {{from, noun}}: from is a key an earlier choose step set, noun the word that follows its title (take)"
+    if (hi := step.get("highlight")) is not None and not (
+        isinstance(hi, dict) and _is_field(hi.get("field")) and isinstance(hi.get("value"), str) and isinstance(hi.get("label"), str)
+    ):
+        return f"{s.label}: highlight is {{field, value, label}}, the card whose field has that value is marked with the label"
+    if step.get("added") is not None and not (isinstance(step["added"], str) and step["added"].strip()):
+        return f"{s.label}: added is the line shown after one is added or uploaded"
     if step.get("add") is not None and (problem := _check_create(s, step["add"])):
         return problem.replace("create", "add")
     if (upload := step.get("upload")) is not None and (problem := _check_upload_spec(s, upload, "upload")):

@@ -1,7 +1,7 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
 import { acceptKind, isKind } from "./acceptKind";
-import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, fieldRole, galleryAccept, generateAsRun, hasValue, listSpec, missingForNewRow, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
+import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, fieldRole, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
 import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, entryOfType, findEntries, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
@@ -118,8 +118,16 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
   const type = await typeBySlug(step.entry_type, authToken);
   if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
   const seed = () => suppliedData(step, ctx);
+  /** The name a gallery gives a new entry when none was typed: its parent's title, the noun and the next number. */
+  const named = async (): Promise<string> => {
+    const from = step.name as { from: string; noun: string } | undefined;
+    if (!from) return "";
+    const parent = await entryBySlug(ctx[from.from], authToken);
+    const count = (await findEntries(listSpec(step, ctx), authToken)).entries.length;
+    return numberedTitle(parent?.title ?? "", from.noun, count);
+  };
   if (action === "add") {
-    const title = text(form, "add_title");
+    const title = text(form, "add_title") || (await named());
     if (!title) throw new StepError("Give it a name.", ["add_title"]);
     const data = withAutoSlug(type, { ...seed(), ...postedData(form, type, askedKeys(type, step.add?.fields, Object.keys(seed()))) }, title);
     await createOf(type, title, data, authToken);
@@ -132,11 +140,14 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
     if (!(file instanceof File) || file.size === 0) throw new Error(`Choose a ${words.noun} to upload.`);
     if (!isKind(file, kind)) throw new Error(words.notOne);
     if (file.size > MAX_UPLOAD_BYTES) throw new Error(`That ${words.noun} is too big (25 MB at most).`);
-    const title = text(form, "upload_title") || file.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim() || "Untitled";
+    const title = text(form, "upload_title") || (await named()) || file.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim() || "Untitled";
     // The asset carries the name the person gave it (with the file's own ending), not whatever the file was called ("recording.webm").
     const ending = /\.[a-z0-9]{1,5}$/i.exec(file.name)?.[0] ?? "";
     const assetId = await uploadAsset(file, `${step.entry_type}-${title}`, authToken, `${title}${ending}`);
-    await createOf(type, title, withAutoSlug(type, { ...seed(), [step.upload.field]: assetId }, title), authToken);
+    // A sound's length is measured in the browser as it is picked (a file's own length is not stored anywhere else) and kept on the new entry.
+    const seconds = step.upload.seconds ? measuredSeconds(text(form, "upload_seconds")) : null;
+    const lengthData = step.upload.seconds && seconds !== null ? { [step.upload.seconds]: seconds } : {};
+    await createOf(type, title, withAutoSlug(type, { ...seed(), [step.upload.field]: assetId, ...lengthData }, title), authToken);
     return { ctx, stay: true, notice: "added" };
   }
   if (action === "generate") {

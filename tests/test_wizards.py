@@ -346,3 +346,51 @@ def test_the_wizards_of_an_entry_type_are_those_with_a_button_on_it(db_session, 
     assert [w.slug for w in here] == ["narrate"] and here[0].button.key == "story" and here[0].button.also == {"world": "world"}
     assert service.list_wizards(db_session, workspace.id, "beat") == []
     assert [w.slug for w in service.list_wizards(db_session, workspace.id)] == ["narrate"]
+
+
+def _takes_wizard(**gallery) -> dict:
+    step = {
+        "id": "takes",
+        "kind": "gallery",
+        "title": "Takes",
+        "entry_type": "take",
+        "parent_field": "line",
+        "parent": "line",
+        "audio": "audio",
+        "upload": {"field": "audio", "accept": "audio/*", "seconds": "duration_seconds"},
+        "layout": "list",
+        "name": {"from": "line", "noun": "take"},
+        "highlight": {"field": "status", "value": "in_use", "label": "In use"},
+        "added": "Saved as the line's take.",
+        "show": {"entry": "line", "fields": ["speaker", "text", "direction"]},
+        **gallery,
+    }
+    return {
+        "title": "Takes",
+        "steps": [
+            {"id": "line", "kind": "choose", "title": "Line", "as": "line", "entry_type": "speech-line"},
+            step,
+        ],
+    }
+
+
+def test_a_gallery_may_list_takes_name_them_after_a_line_and_measure_an_upload():
+    assert payload_problem(_takes_wizard(), "takes") is None
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [
+        ({"layout": "grid"}, "layout"),
+        ({"name": {"from": "nope", "noun": "take"}}, "name is"),
+        ({"name": {"from": "line", "noun": " "}}, "name is"),
+        ({"highlight": {"field": "status"}}, "highlight"),
+        ({"added": " "}, "added"),
+        ({"upload": {"field": "audio", "seconds": "bad key"}}, "seconds"),
+        ({"show": {"entry": "nope", "fields": ["text"]}}, "show needs entry"),
+        ({"show": {"entry": "line", "fields": []}}, "show.fields"),
+        ({"show": {"entry": "line", "fields": [f"f{i}" for i in range(9)]}}, "show.fields"),
+    ],
+)
+def test_a_wrong_takes_gallery_says_what_is_wrong(change, words):
+    assert words in (payload_problem(_takes_wizard(**change), "takes") or "")

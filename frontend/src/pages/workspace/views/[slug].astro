@@ -267,7 +267,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     <span class="tl-lane-name">
                       <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>
                       {lane.title}
-                      {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.estimated)) && <em>hatched: no take yet, length estimated</em>}
+                      {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.estimated && !p.unmeasured)) && <em>hatched: no take yet, length estimated</em>}
+                      {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.unmeasured)) && <em>dashed edge: take attached, length not stored</em>}
                     </span>
                     {lane.bed &&
                       bedsIn(lane, track).map((b) => (
@@ -292,12 +293,12 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     ))}
                     {track.items.flatMap((item) => item.lanes[lane.id] ?? []).map((p) => (
                       <a
-                        class:list={["tl-piece", { estimated: p.estimated, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
+                        class:list={["tl-piece", { estimated: p.estimated && !p.unmeasured, unmeasured: p.unmeasured, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
                         role="listitem"
                         href={open(p.id)}
                         data-piece={p.id}
                         style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px`}
-                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}`}
+                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}`}
                       >
                         {p.who && <b>{p.who}</b>}
                         <span>{firstWords(p.text || p.title)}</span>
@@ -624,6 +625,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece b { font-weight: 600; }
   .tl-piece span { overflow: hidden; text-overflow: ellipsis; }
   .tl-piece.estimated { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--panel)) 0 6px, var(--panel) 6px 10px); border-style: dashed; }
+  .tl-piece.unmeasured { border-right-style: dashed; border-right-width: 3px; }
   .tl-piece.untimed { border-style: dotted; background: var(--panel-2); padding: 0 4px; }
   .tl-piece.placed { border-radius: 999px; border-color: var(--muted); background: var(--panel-2); }
   .tl-piece.placed.recorded { border-color: var(--ink); }

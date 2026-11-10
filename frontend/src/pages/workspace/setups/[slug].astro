@@ -13,7 +13,7 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, generateAsRun, isDone, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, generateAsRun, highlightOf, isDone, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -104,6 +104,9 @@ let createFirst = false; // the choose step's make-a-new-one form comes before t
 let uploadHeld = false; // the upload step's field already holds something (a value, or a file attached under its role)
 let addFields: any[] = [];
 let genStep: Step | null = null; // a gallery's generate action, as the run step it is
+let showTitle = ""; // a step's `show` card: the chosen entry's title, address and the fields it reads out
+let showHref = "";
+let showLines: { key: string; label: string; value: string }[] = [];
 // A shown text field that holds another entry's slug (`ref`) is a pick list. In a wizard the list is narrowed by the entries chosen so
 // far that the referenced type has a field for (a cast member's actor comes from the chosen world's troupe, not every actor).
 let refs: Record<string, RefOption[]> = {};
@@ -111,6 +114,13 @@ const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, ctx);
 
 // Drawn whatever happened to a post: an error shows above a complete page, never an empty one.
 if (authToken && def && step) {
+  if (step.show && entries[step.show.entry]) {
+    const shown = entries[step.show.entry];
+    const shownType = await typeBySlug(entryTypeOf(def, step.show.entry) ?? "", authToken);
+    showTitle = shown.title;
+    showHref = `/workspace/entries/${shown.id}`;
+    showLines = shownLines(shown.dataJson, shownType?.schemaJson as any, step.show.fields);
+  }
   if (step.kind === "choose" || step.kind === "list") {
     const type = await typeBySlug(step.entry_type, authToken);
     missingType = !type;
@@ -206,7 +216,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   </div>
 
   {problem && <div class="alert alert-error">{problem}</div>}
-  {notice && !problem && <div class="alert alert-info">{notice}</div>}
+  {notice && !problem && <div class="alert alert-info">{notice === NOTICES.added && step?.added ? step.added : notice}</div>}
   {!problem && !wizard && <div class="alert alert-info">There is no guided setup called “{slug}” here. <a href="/workspace/setups">See the ones there are.</a></div>}
 
   {
@@ -231,6 +241,12 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
           <p class="eyebrow">Step {here + 1} of {steps.length}</p>
           <h3>{step.title}</h3>
           {step.help && <p class="help">{step.help}</p>}
+          {showTitle && (
+            <aside class="showcard" aria-label={showTitle}>
+              <div class="showhead"><strong>{showTitle}</strong><a class="muted" href={showHref}>Open ↗</a></div>
+              <dl>{showLines.map((l) => (<><dt>{l.label}</dt><dd>{l.value}</dd></>))}</dl>
+            </aside>
+          )}
           {stepProblem && <div class="step-error" role="alert">{stepProblem}</div>}
 
           {step.kind === "option" && (
@@ -406,13 +422,13 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
             <div class="gallery" data-watch={step.generate && (notice === NOTICES.started || pendingCards.length) ? "1" : undefined} data-workflow={genStep?.workflow} data-entries={watchIds.join(",")} data-pending={String(pendingCards.length)}>
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
               {!missingType && (
-                <div class="cards">
+                <div class:list={["cards", { rows: step.layout === "list" }]}>
                   {cards.map((r) => {
                     const pic = cardPicture(r.assets, pictureRole);
                     const sound = cardAudio(r.assets, step.audio);
                     const badges = ((step.badges ?? []) as string[]).filter((b) => r.dataJson?.[b]);
                     return (
-                      <a class="gcard" href={`/workspace/entries/${r.id}`}>
+                      <a class:list={["gcard", { marked: !!highlightOf(step, r.dataJson) }]} href={`/workspace/entries/${r.id}`}>
                         <div class="gpic">
                           {pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(r.title || "?").slice(0, 1)}</span>}
                           {/* The play button keeps its click to itself (PlayButton.astro), so playing does not open the entry. */}
@@ -421,7 +437,13 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                         <div class="gbody">
                           <strong>{r.title}</strong>
                           {step.subtitle && r.dataJson?.[step.subtitle] && <span class="muted gsub">{String(r.dataJson[step.subtitle]).slice(0, 80)}</span>}
-                          {badges.length > 0 && <span class="gbadges">{badges.map((b) => <span class="pill">{String(r.dataJson?.[b])}</span>)}</span>}
+                          {(badges.length > 0 || highlightOf(step, r.dataJson)) && (
+                            <span class="gbadges">
+                              {highlightOf(step, r.dataJson) && <span class="pill inuse">{highlightOf(step, r.dataJson)}</span>}
+                              {badges.map((b) => <span class="pill">{String(r.dataJson?.[b])}</span>)}
+                              {step.upload?.seconds && r.dataJson?.[step.upload.seconds] && <span class="pill">{Number(r.dataJson[step.upload.seconds]).toFixed(1)} s</span>}
+                            </span>
+                          )}
                         </div>
                       </a>
                     );
@@ -446,8 +468,9 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                   {step.upload && (
                     <details class="gaction">
                       <summary class="button secondary">⬆ Upload a {uploadNoun}</summary>
-                      <form method="post" class="form gform" enctype="multipart/form-data">
+                      <form method="post" class="form gform" enctype="multipart/form-data" data-measure={step.upload.seconds ? "1" : undefined}>
                         <input type="hidden" name="action" value="upload" />
+                        {step.upload.seconds && <input type="hidden" name="upload_seconds" value="" />}
                         <p class="muted">The {uploadNoun} becomes a new {typeName.toLowerCase()}, named for the file unless you name it here.</p>
                         <FileDrop accept={uploadAccept ?? undefined} hint={`One ${uploadNoun}.`} nameFrom="upload_title" />
                         <div class="form-group"><label for="upload_title">Name (optional)</label><input class="input" id="upload_title" name="upload_title" /></div>
@@ -584,6 +607,30 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
 </AppLayout>
 
 <script>
+  // A sound's length is not stored anywhere when it is uploaded or recorded: measure it here, as it is posted, so the new entry knows how long it is.
+  document.querySelectorAll<HTMLFormElement>("form[data-measure]").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      const input = form.querySelector<HTMLInputElement>('input[type="file"]');
+      const file = input?.files?.[0];
+      const out = form.querySelector<HTMLInputElement>('input[name="upload_seconds"]');
+      if (!file || !out || out.value) return;
+      // A recording brings the length its recorder counted; a file from disk is measured by decoding it.
+      if (input?.dataset.seconds) {
+        out.value = input.dataset.seconds;
+        return;
+      }
+      e.preventDefault();
+      try {
+        const Audio = window.AudioContext || (window as any).webkitAudioContext;
+        const context = new Audio();
+        out.value = String((await context.decodeAudioData(await file.arrayBuffer())).duration);
+        void context.close?.();
+      } catch {
+        /* the length stays unknown: the entry is still made */
+      }
+      form.submit();
+    });
+  });
   import { fetchApi } from "@/lib/api/client";
   // A pick list longer than a few: type to narrow it by name (and by the line under it), as you type.
   const search = document.querySelector<HTMLInputElement>("[data-pick-search]");
@@ -688,6 +735,16 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .run { display: grid; gap: 14px; }
   .gallery { display: grid; gap: 16px; }
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .cards.rows { grid-template-columns: 1fr; gap: 8px; }
+  .cards.rows .gcard { grid-template-rows: none; grid-template-columns: 64px 1fr; align-items: center; }
+  .cards.rows .gpic { aspect-ratio: auto; height: 64px; }
+  .gcard.marked { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
+  .pill.inuse { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+  .showcard { border: 1px solid var(--line); border-left: 4px solid var(--color-primary); border-radius: var(--radius); background: var(--panel-2); padding: 12px 14px; margin: 0 0 16px; display: grid; gap: 8px; }
+  .showhead { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .showcard dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }
+  .showcard dt { color: var(--muted); }
+  .showcard dd { margin: 0; white-space: pre-wrap; }
   .gcard { display: grid; grid-template-rows: auto 1fr; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); overflow: hidden; text-decoration: none; color: inherit; }
   .gcard:hover { border-color: var(--accent); }
   .gpic { aspect-ratio: 1; background: var(--panel-2); display: grid; place-items: center; position: relative; }
