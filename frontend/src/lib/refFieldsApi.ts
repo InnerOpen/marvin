@@ -2,18 +2,18 @@
 
 import { fetchApi } from "./api/client";
 import { listEntryTypes } from "./api/entryTypes";
-import { type RefOption, tiered, refFieldsOf, refOptions, refScope, refTypesOf, type RefVia } from "./refFields";
+import { type RefOption, tiered, refFieldsOf, refOptions, refScope, type RefVia } from "./refFields";
 
 const MAX_OPTIONS = 500;
 
-async function entriesOf(entryType: string, fields: Record<string, string>, authToken: string): Promise<RefOption[]> {
+async function entriesOf(entryType: string, fields: Record<string, string>, authToken: string, listenRole?: string | null): Promise<RefOption[]> {
   const spec = Object.keys(fields).length ? { entry_type: entryType, fields } : { entry_type: entryType };
-  const found = await fetchApi<{ entries?: { slug?: string; title?: string }[] }>(
+  const found = await fetchApi<{ entries?: { slug?: string; title?: string; assets?: { role?: string; publicUrl?: string; mimeType?: string }[] }[] }>(
     "/api/platform/entries/query",
     { method: "POST", body: JSON.stringify({ spec, limit: MAX_OPTIONS }) },
     authToken,
   ).catch(() => ({ entries: [] }));
-  return refOptions(found.entries ?? []);
+  return refOptions(found.entries ?? [], listenRole);
 }
 
 /** What a field's `ref_via` prefers for this entry: the values of `via.field` on the entries whose fields match this entry's. */
@@ -47,18 +47,19 @@ export async function refOptionsFor(
   const fields = refFieldsOf(schema);
   if (!fields.length || !authToken) return {};
   const types = ctx && Object.keys(ctx).length ? await listEntryTypes(authToken).catch(() => []) : [];
-  const byType = Object.fromEntries(
-    await Promise.all(
-      refTypesOf(schema).map(async (slug) => {
-        const typeSchema = types.find((t) => t.slug === slug)?.schemaJson as { fields?: any[] } | null | undefined;
-        return [slug, await entriesOf(slug, ctx ? refScope(typeSchema, ctx) : {}, authToken)] as const;
-      }),
-    ),
-  );
+  // One query per referenced type with its narrowing (a wizard's choices so far, the field's own filter) and whether to carry a recording.
+  const asked = new Map<string, Promise<RefOption[]>>();
+  const optionsOf = (f: (typeof fields)[number]) => {
+    const typeSchema = types.find((t) => t.slug === f.ref)?.schemaJson as { fields?: any[] } | null | undefined;
+    const narrow = { ...(ctx ? refScope(typeSchema, ctx) : {}), ...f.filter };
+    const id = `${f.ref}|${JSON.stringify(narrow)}|${f.listen ?? ""}`;
+    if (!asked.has(id)) asked.set(id, entriesOf(f.ref, narrow, authToken, f.listen));
+    return asked.get(id)!;
+  };
   return Object.fromEntries(
     await Promise.all(
       fields.map(async (f) => {
-        const all = byType[f.ref] ?? [];
+        const all = await optionsOf(f);
         if (!f.vias.length || !data) return [f.key, all] as const;
         const tiers = await Promise.all(
           f.vias.map(async (via) => ({ label: via.label ?? `Cast in this ${Object.keys(via.match).length ? via.match[Object.keys(via.match)[0]] : "story"}`, slugs: await viaValues(via, data, authToken) })),

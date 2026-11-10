@@ -11,9 +11,10 @@ from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor, require_workspace_role
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
-from marvin.schemas.platform.assets import TypeCount
+from marvin.schemas.platform.assets import AssetUsage, TypeCount
 from marvin.services import trash
 from marvin.services.assets import scope
+from marvin.services.assets import usage as asset_usage
 from marvin.services.assets.asset_storage_service import AssetRejected, AssetStorageService
 from marvin.services.assets.scope import ASK, LIBRARY, SCOPES, upload_scope
 from marvin.services.event_bus_service.event_types import EventAssetData, EventTypes
@@ -197,6 +198,14 @@ class AssetsController(BaseUserController):
             .all()
         )
         return [TypeCount(type=kind, count=n) for kind, n in rows]
+
+    @router.get("/{item_id}/usage", response_model=list[AssetUsage], summary="Where an asset is used")
+    def get_asset_usage(self, item_id: UUID4) -> list[AssetUsage]:
+        """The entries this asset is attached to, and the role each attachment carries (the asset itself has no role). Entries in the Trash and
+        internal ones are left out."""
+        if not self.repos.assets.get_one(item_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        return [AssetUsage(**row) for row in asset_usage.usage(self.session, self.group_id, item_id)]
 
     @router.get("/{item_id}", response_model=AssetRead, summary="Get Asset")
     def get_asset(self, item_id: UUID4) -> AssetRead:

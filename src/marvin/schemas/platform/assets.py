@@ -8,6 +8,18 @@ from pydantic import UUID4, AliasChoices, ConfigDict, Field, PrivateAttr, String
 from marvin.schemas._marvin import _MarvinModel
 
 
+class AssetUsage(_MarvinModel):
+    """One entry an asset is attached to, and the role the attachment carries (a beat's `still`)."""
+
+    entry_id: UUID4
+    slug: str
+    title: str
+    status: str | None = None
+    entry_type: str
+    entry_type_name: str
+    role: str | None = None
+
+
 class TypeCount(_MarvinModel):
     """How many of a kind there are (an asset type, a resource type): the sidebar's folds."""
 

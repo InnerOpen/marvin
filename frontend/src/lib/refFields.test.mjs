@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent, tiered, refViasOf } from "./refFields.ts";
+import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent, tiered, refViasOf, refFilterOf, refListenOf } from "./refFields.ts";
 
 const schema = {
   fields: [
@@ -22,9 +22,9 @@ test("only a text field's non-empty ref refers to a type", () => {
 
 test("the ref fields of a schema, with their types", () => {
   assert.deepEqual(refFieldsOf(schema), [
-    { key: "voice", ref: "voice", vias: [] },
-    { key: "narrator", ref: "voice", vias: [] },
-    { key: "actor", ref: "actor", vias: [] },
+    { key: "voice", ref: "voice", vias: [], filter: {}, listen: null },
+    { key: "narrator", ref: "voice", vias: [], filter: {}, listen: null },
+    { key: "actor", ref: "actor", vias: [], filter: {}, listen: null },
   ]);
 });
 
@@ -80,7 +80,7 @@ test("ref_via: a well-formed one or a list of tiers counts, and refFieldsOf carr
   assert.deepEqual(refViasOf({}), []);
   assert.deepEqual(refViasOf({ ref_via: { entry_type: "cast-member", field: "voice", match: {} } }), []);
   assert.deepEqual(refViasOf({ ref_via: [{ entry_type: "cast-member", match: { story: "story" } }, via] }), [via]);
-  assert.deepEqual(refFieldsOf({ fields: [{ key: "voice", type: "text", ref: "voice", ref_via: via }] }), [{ key: "voice", ref: "voice", vias: [via] }]);
+  assert.deepEqual(refFieldsOf({ fields: [{ key: "voice", type: "text", ref: "voice", ref_via: via }] }), [{ key: "voice", ref: "voice", vias: [via], filter: {}, listen: null }]);
 });
 
 test("tiered: each option under the first tier that names it, the rest last; nobody named leaves the list as it is", () => {
@@ -91,4 +91,21 @@ test("tiered: each option under the first tier that names it, the rest last; nob
   ]);
   assert.equal(tiered(all, [{ label: "x", slugs: [] }], "y"), all);
   assert.equal(tiered(all, [{ label: "x", slugs: ["nobody"] }], "y"), all);
+});
+
+test("ref_filter and ref_listen: only well-formed ones count, and refOptions carries a recording to hear", () => {
+  assert.deepEqual(refFilterOf({ ref_filter: { kind: "music", bad: 3, "": "x" } }), { kind: "music" });
+  assert.deepEqual(refFilterOf({ ref_filter: ["kind"] }), {});
+  assert.deepEqual(refFilterOf({}), {});
+  assert.equal(refListenOf({ ref_listen: " audio " }), "audio");
+  assert.equal(refListenOf({ ref_listen: "" }), null);
+  const heard = { role: "audio", publicUrl: "https://cdn/x.mp3", mimeType: "audio/mpeg" };
+  const entries = [
+    { slug: "a", title: "Harbour", assets: [heard] },
+    { slug: "b", title: "Wind", assets: [{ role: "audio", publicUrl: "https://cdn/p.png", mimeType: "image/png" }] },
+    { slug: "c", title: "Silent", assets: [] },
+  ];
+  // options come sorted by title: Harbour, Silent, Wind
+  assert.deepEqual(refOptions(entries, "audio").map((o) => [o.slug, o.audio ?? null]), [["a", "https://cdn/x.mp3"], ["c", null], ["b", null]]);
+  assert.equal(refOptions(entries)[0].audio, undefined); // without a role to play, nothing is carried
 });

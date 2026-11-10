@@ -4,6 +4,7 @@
  * labelled by its title and posting its slug. A value that is not among them (a deleted entry, one outside a wizard's scope) stays as an
  * option marked "(not found)", so saving never drops it unseen.
  */
+import PlayButton from "@/components/PlayButton.astro";
 import { type RefOption, withCurrent } from "@/lib/refFields";
 
 export interface Props {
@@ -22,6 +23,9 @@ export interface Props {
 const { field, value, error, options } = Astro.props;
 const inputId = `field-${field.key}`;
 const selected = value || field.defaultValue || "";
+// A pick list of things that can be heard (a sound's recording) puts a play button beside it for the one chosen.
+const listens = options.some((o) => o.audio);
+const heardNow = options.find((o) => o.slug === selected)?.audio;
 /** The options in their headings, in the order the headings first appear; options with no heading come as they are. */
 const groups = (list: RefOption[]): [string, RefOption[]][] => {
   const out = new Map<string, RefOption[]>();
@@ -36,22 +40,46 @@ const groups = (list: RefOption[]): [string, RefOption[]][] => {
     {field.required && <span class="required">*</span>}
   </label>
 
+  <div class="ref-row" data-ref-listen={listens ? "1" : undefined}>
   <select id={inputId} name={`dataJson.${field.key}`} required={field.required} class:list={["field-select", { error }]}>
     <option value="">— none —</option>
     {groups(withCurrent(options, selected)).map(([heading, list]) =>
       heading ? (
-        <optgroup label={heading}>{list.map((o) => <option value={o.slug} selected={o.slug === selected}>{o.title}</option>)}</optgroup>
+        <optgroup label={heading}>{list.map((o) => <option value={o.slug} data-audio={o.audio} selected={o.slug === selected}>{o.title}</option>)}</optgroup>
       ) : (
-        list.map((o) => <option value={o.slug} selected={o.slug === selected}>{o.title}</option>)
+        list.map((o) => <option value={o.slug} data-audio={o.audio} selected={o.slug === selected}>{o.title}</option>)
       ),
     )}
   </select>
+  {listens && (
+    <span class="ref-listen" hidden={!heardNow}>
+      <PlayButton src={heardNow ?? ""} label="Listen to the one chosen" />
+    </span>
+  )}
+  </div>
 
   {field.helpText && <p class="field-help">{field.helpText}</p>}
   {error && <p class="field-error">{error}</p>}
 </div>
 
+<script>
+  // The play button follows the chosen option: its recording, or hidden when the chosen one has none.
+  document.querySelectorAll<HTMLElement>("[data-ref-listen]").forEach((row) => {
+    const select = row.querySelector("select");
+    const holder = row.querySelector<HTMLElement>(".ref-listen");
+    const button = holder?.querySelector<HTMLElement>(".play-btn");
+    if (!select || !holder || !button) return;
+    select.addEventListener("change", () => {
+      const src = select.selectedOptions[0]?.dataset.audio ?? "";
+      button.dataset.src = src;
+      holder.hidden = !src;
+    });
+  });
+</script>
+
 <style>
+  .ref-row { display: flex; align-items: center; gap: 8px; }
+  .ref-row select { flex: 1 1 auto; min-width: 0; }
   .field-group { display: grid; gap: 0.5rem; }
   label { font-weight: 600; font-size: 0.875rem; color: var(--ink); }
   .required { color: var(--color-error); margin-left: 2px; }

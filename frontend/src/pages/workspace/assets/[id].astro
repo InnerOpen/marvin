@@ -9,7 +9,7 @@ import ItemTrashBanner from "@/components/ItemTrashBanner.astro";
 import SuggestionBanner from "@/components/SuggestionBanner.astro";
 import TagChips from "@/components/TagChips.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { isTextMime } from "@/lib/assetText";
 import { isUnsearchableImage } from "@/lib/assetLibraryView";
 import { listCollections } from "@/lib/api/collections";
@@ -55,6 +55,10 @@ const attachedTags = (((asset as any)?.tags as string[] | undefined) || [])
   .map((slug) => tagBySlug.get(slug))
   .filter(Boolean)
   .map((t) => ({ id: t!.id, name: t!.name }));
+
+// Where it is used: the entries it is attached to and the role of each attachment (the asset has no role of its own).
+let usedIn: { entryId: string; slug: string; title: string; entryType: string; entryTypeName: string; role?: string | null }[] = [];
+if (asset && authToken) usedIn = await fetchApi<typeof usedIn>(`/api/platform/assets/${id}/usage`, {}, authToken).catch(() => []);
 
 // AI assist: only shown for image assets when AI is enabled for the workspace.
 let aiEnabled = false;
@@ -285,6 +289,23 @@ const showAiPanel = aiEnabled && isImage;
               <dd><code>{asset.storageProvider}</code></dd>
             </dl>
           </div>
+
+          <div class="sidebar-section">
+            <h3>Used in</h3>
+            {usedIn.length === 0 ? (
+              <p class="muted">Not attached to any entry.</p>
+            ) : (
+              <ul class="used-in">
+                {usedIn.map((u) => (
+                  <li>
+                    <a href={`/workspace/entries/${u.entryId}`}>{u.title || u.slug}</a>
+                    <span class="muted"> · {u.entryTypeName}</span>
+                    {u.role && <code class="role" title="The role this attachment carries">{u.role}</code>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </aside>
       </div>
     </>
@@ -488,6 +509,8 @@ const showAiPanel = aiEnabled && isImage;
     margin: 0;
   }
 
+  .used-in { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.875rem; }
+  .used-in .role { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--panel-2, var(--panel)); font-size: 0.75rem; }
   .info-list dt {
     font-size: 0.75rem;
     font-weight: 600;
