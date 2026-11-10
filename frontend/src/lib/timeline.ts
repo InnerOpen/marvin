@@ -42,6 +42,13 @@ export interface BedSpec {
   /** The level when neither the item, the entry that names the bed nor the sound itself sets one: what the render falls back to (0.12 for
    * music, 0.5 for ambience). Without it, 1. */
   default_volume?: number;
+  /** The sound's own fade fields (seconds), what the render uses when they are empty (`default_fade_*`: ambience crossfades over 0.6, music
+   * fades out over 2), and the field on the view's entry that sets how long every bed fades out at the end of the film (it wins there). */
+  fade_in?: string;
+  fade_out?: string;
+  default_fade_in?: number;
+  default_fade_out?: number;
+  end_fade?: string;
 }
 
 /** A video laid over each spine item's picture. The item's own field wins, then the entry `via` names (a beat's scene), then the view's entry
@@ -141,6 +148,9 @@ export interface Bed {
   items: string[];
   /** When items set a level of their own: the whole block as runs at one level each (an item's level replaces the block's). Else empty. */
   steps: BedStep[];
+  /** Seconds the block rises from silence at its start and falls to it at its end, as the render fades it (0 for none). */
+  fadeIn: number;
+  fadeOut: number;
 }
 
 export interface BedStep {
@@ -363,6 +373,16 @@ function bedLevel(lane: LaneSpec, sound: Row, named: number | null): number {
   return named ?? level(field(sound, lane.volume)) ?? lane.bed?.default_volume ?? 1;
 }
 
+/** How a bed block fades as the render plays it: in over the sound's own `fade_in` (else the lane's default), out over its `fade_out`, and a
+ * block that runs to the end of the film out over the story's own setting when it has one. Neither is longer than half the block. */
+function bedFades(spec: BedSpec, sound: Row, start: number, seconds: number, total: number, entry: Row | undefined): { fadeIn: number; fadeOut: number } {
+  const own = (key: string | undefined, fallback: number | undefined) => Math.max(0, num(field(sound, key)) ?? fallback ?? 0);
+  const atEnd = start + seconds >= total - 1e-6;
+  const story = atEnd && entry ? num(field(entry, spec.end_fade)) : null;
+  const half = seconds / 2;
+  return { fadeIn: Math.min(own(spec.fade_in, spec.default_fade_in), half), fadeOut: Math.min(story !== null && story > 0 ? story : own(spec.fade_out, spec.default_fade_out), half) };
+}
+
 /** The blocks of a bed lane: which sound runs under each item, merged across consecutive items that share one, at what level. */
 function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds: Map<string, Row>): Bed[] {
   const spec = lane.bed!;
@@ -380,6 +400,7 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     muffled,
     items: ids,
     steps: [],
+    ...bedFades(spec, sound, start, seconds, total, rows.entry),
   });
   if (!spec.via && spec.on !== "spine") {
     const sound = rows.entry ? sounds.get(str(field(rows.entry, spec.field))) : undefined;

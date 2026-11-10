@@ -45,6 +45,8 @@ A timeline definition::
   ``via`` and ``entry_type``, on the entry a spine item's ``via`` field names (a beat's scene names its ambience); consecutive items with the
   same bed merge into one block. ``bed.volume`` is the level field on that entry and ``bed.item_volume`` an override on the spine item;
   a level set there *replaces* the sound's own (not multiplied), and ``bed.default_volume`` (0 to 1) plays when none is set.
+  ``bed.fade_in`` / ``bed.fade_out`` name the sound's fade fields (seconds), ``bed.default_fade_in`` / ``default_fade_out`` what the render does
+  when they are empty, and ``bed.end_fade`` a field on the view's entry for how long every bed fades out at the end of the film; the block draws them.
   ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it
   repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
   that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
@@ -146,6 +148,30 @@ def _check_spine(spine: dict, label: str) -> str | None:
     return None if bad is None else f"{label}: seconds.defaults.{bad} must be a number of seconds, 0 or more"
 
 
+def _number_between(spec: dict, key: str, low: float, high: float) -> bool:
+    value = spec.get(key)
+    return value is None or (not isinstance(value, bool) and isinstance(value, int | float) and low <= value <= high)
+
+
+def _check_bed(bed: Any, label: str) -> str | None:
+    if not isinstance(bed, dict):
+        return f"{label}: bed is {{field, via?, entry_type?, volume?, item_volume?}}"
+    if problem := _field(bed, "field", f"{label} bed", required=True):
+        return problem
+    if problem := _fields(bed, ("via", "volume", "item_volume", "muffled", "fade_in", "fade_out", "end_fade"), f"{label} bed"):
+        return problem
+    if (bed.get("via") is None) != (bed.get("entry_type") is None):
+        return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"
+    if bed.get("entry_type") is not None and (problem := _slug(bed, "entry_type", f"{label} bed")):
+        return problem
+    for key in ("default_fade_in", "default_fade_out"):
+        if not _number_between(bed, key, 0, 30):
+            return f"{label}: bed.{key} must be a number of seconds from 0 to 30"
+    if not _number_between(bed, "default_volume", 0, 1):
+        return f"{label}: bed.default_volume must be a number from 0 to 1"
+    return None
+
+
 def _check_lane(lane: dict, label: str) -> str | None:
     if not isinstance(lane.get("title"), str) or not lane["title"].strip():
         return f"{label} needs a title"
@@ -167,20 +193,8 @@ def _check_lane(lane: dict, label: str) -> str | None:
         for key in ("field", "ref", "at"):
             if problem := _field(placed, key, f"{label} placed", required=True):
                 return problem
-    if (bed := lane.get("bed")) is not None:
-        if not isinstance(bed, dict):
-            return f"{label}: bed is {{field, via?, entry_type?, volume?, item_volume?}}"
-        if problem := _field(bed, "field", f"{label} bed", required=True):
-            return problem
-        if problem := _fields(bed, ("via", "volume", "item_volume", "muffled"), f"{label} bed"):
-            return problem
-        if (bed.get("via") is None) != (bed.get("entry_type") is None):
-            return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"
-        if bed.get("entry_type") is not None and (problem := _slug(bed, "entry_type", f"{label} bed")):
-            return problem
-        default = bed.get("default_volume")
-        if default is not None and (isinstance(default, bool) or not isinstance(default, int | float) or not 0 <= default <= 1):
-            return f"{label}: bed.default_volume must be a number from 0 to 1"
+    if (bed := lane.get("bed")) is not None and (problem := _check_bed(bed, label)):
+        return problem
     if (cover := lane.get("cover")) is not None:
         if problem := _check_cover(cover, label):
             return problem

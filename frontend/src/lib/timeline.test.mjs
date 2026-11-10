@@ -378,3 +378,41 @@ test("bed levels: the sound's own level beats the default, and the level where i
   assert.equal(laid.beds.music[0].volume, 0.3); // the waltz's own 0.3, not 0.12
   assert.equal(laid.beds.ambience[0].volume, 0.5); // the deck scene's 0.5, not the sea's 0.8
 });
+
+// ── fades on bed blocks, as the render plays them ─────────────────────────────────────────────────────────────────────────────────────
+const fadeSpec = {
+  ...bedSpec,
+  lanes: bedSpec.lanes.map((l) =>
+    l.id === "music"
+      ? { ...l, bed: { field: "music", fade_in: "fade_in", fade_out: "fade_out", default_fade_out: 2, end_fade: "end_fade_seconds" } }
+      : l.id === "ambience"
+        ? { ...l, bed: { ...l.bed, fade_in: "fade_in", fade_out: "fade_out", default_fade_in: 0.6, default_fade_out: 0.6, end_fade: "end_fade_seconds" } }
+        : l,
+  ),
+};
+const fadeLaid = (story, soundsData = {}) =>
+  layout(fadeSpec, {
+    entry: row("s", { music: "waltz", ...story }),
+    spine: bedBeats,
+    groups: chapters,
+    lanes: { lines: [], sounds: [], ambience: [row("sea", { volume: 0.8, ...soundsData }, { assets: [sea] })], music: [row("waltz", { volume: 0.3, ...soundsData }, { assets: [tune] })] },
+    via: { ambience: [...scenes, row("nowhere", { ambience: "sea", ambience_volume: 0.5 })] }, // the last beat has a bed too, so one block runs to the end
+  });
+
+test("bed fades: music fades out over 2 s by default and in over nothing; a crossfade is 0.6 s on an ambience", () => {
+  const laid = fadeLaid({});
+  assert.deepEqual([laid.beds.music[0].fadeIn, laid.beds.music[0].fadeOut], [0, 2]);
+  assert.deepEqual(laid.beds.ambience.map((b) => [b.fadeIn, b.fadeOut]), [[0.6, 0.6], [0.6, 0.6], [0.6, 0.6], [0.6, 0.6]]);
+});
+
+test("bed fades: the sound's own fades replace the defaults", () => {
+  const laid = fadeLaid({}, { fade_in: 1.5, fade_out: 3 });
+  assert.deepEqual([laid.beds.music[0].fadeIn, laid.beds.music[0].fadeOut], [1.5, 3]);
+});
+
+test("bed fades: the story's end fade wins for the music and for the ambience block that runs to the end, and for no other", () => {
+  const laid = fadeLaid({ end_fade_seconds: 5 }, { fade_out: 1 });
+  assert.equal(laid.beds.music[0].fadeOut, 5);
+  const amb = laid.beds.ambience;
+  assert.deepEqual(amb.map((b) => b.fadeOut), [1, 1, 1, 2]); // only the last block touches the end of the film; its 5 s is held to half of its 4 s, as the render does
+});
