@@ -388,7 +388,7 @@ if (entry && entryType && authToken) {
     for (const spec of cueSpecsFor(defs, entryType.slug)) {
       const found = await fetchApi<{ entries?: { slug: string; title: string; dataJson?: Record<string, unknown>; assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null }[] }[] }>(
         "/api/platform/entries/query",
-        { method: "POST", body: JSON.stringify({ spec: { entry_type: spec.entryType }, limit: 500 }) },
+        { method: "POST", body: JSON.stringify({ spec: { entry_type: spec.entryType, ...(spec.filter ? { fields: spec.filter } : {}) }, limit: 500 }) },
         authToken,
       ).catch(() => ({ entries: [] }));
       const options: CueOption[] = (found.entries ?? [])

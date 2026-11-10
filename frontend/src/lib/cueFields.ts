@@ -16,14 +16,23 @@ export interface CueSpec {
   /** The referenced entry's asset field holding a sound to hear, and its length field, when the lane declares them. */
   audio?: string;
   seconds?: string;
+  /** Only entries whose fields hold these values are offered (a beat's sound effects offer sounds of kind effect). */
+  filter?: Record<string, string>;
 }
 
 interface ViewLike {
   definition?: {
     kind?: string;
     spine?: { entry_type?: string };
-    lanes?: { id?: string; title?: string; entry_type?: string; placed?: { field: string; ref: string; at: string }; audio?: string; seconds?: string }[];
+    lanes?: { id?: string; title?: string; entry_type?: string; placed?: { field: string; ref: string; at: string; filter?: Record<string, unknown> }; audio?: string; seconds?: string }[];
   };
+}
+
+/** The well-formed part of a placed lane's `filter`: field keys with text values; nothing when there is none. */
+function filterOf(raw: unknown): Record<string, string> | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  const entries = Object.entries(raw).filter(([k, v]) => k && typeof v === "string" && v);
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 /** The cue lists an entry of `typeSlug` carries, from the views whose spine is that type; one per field. */
@@ -42,6 +51,7 @@ export function cueSpecsFor(views: readonly ViewLike[], typeSlug: string): CueSp
         title: lane.title || lane.id || lane.entry_type,
         audio: lane.audio,
         seconds: lane.seconds,
+        ...(filterOf(lane.placed.filter) ? { filter: filterOf(lane.placed.filter) } : {}),
       });
     }
   }
