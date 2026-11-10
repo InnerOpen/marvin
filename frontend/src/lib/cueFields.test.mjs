@@ -34,3 +34,10 @@ test("cues parse from JSON text or a list, keep what else they carried, and seri
   assert.deepEqual(parseCues({ sound: "a" }, spec), []);
   assert.equal(serializeCues([], spec), "[]");
 });
+
+test("a placed lane's filter limits what is offered: well-formed text values only, nothing when there are none", () => {
+  const withFilter = (filter) => [{ definition: { kind: "timeline", spine: { entry_type: "beat" }, lanes: [{ id: "sounds", entry_type: "sound", placed: { field: "sounds", ref: "sound", at: "at", filter } }] } }];
+  assert.deepEqual(cueSpecsFor(withFilter({ kind: "effect" }), "beat")[0].filter, { kind: "effect" });
+  assert.deepEqual(cueSpecsFor(withFilter({ kind: "effect", bad: 3, "": "x" }), "beat")[0].filter, { kind: "effect" });
+  for (const nothing of [{}, ["kind"], "effect", { kind: 3 }, undefined]) assert.equal("filter" in cueSpecsFor(withFilter(nothing), "beat")[0], false);
+});
