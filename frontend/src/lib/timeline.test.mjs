@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cues, estimateSeconds, quiets, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -256,4 +256,20 @@ test("a line with a take but no stored length keeps the text's estimate and says
   const [b] = laid.items[1].lanes.lines;
   assert.deepEqual([a.estimated, a.unmeasured, a.seconds, !!a.audio], [true, true, 1.2, true]);
   assert.deepEqual([b.estimated, b.unmeasured, !!b.audio], [true, false, false]);
+});
+
+test("stackRows: pieces that overlap in time go on different rows, and a free row is reused", () => {
+  const pieces = [
+    { start: 0, seconds: 3 }, // row 0
+    { start: 1, seconds: 3 }, // overlaps the first: row 1
+    { start: 2, seconds: 1 }, // row 0 and row 1 are busy: row 2
+    { start: 4, seconds: 1 }, // the others are done: row 0 again
+  ];
+  assert.deepEqual(stackRows(pieces), [0, 1, 2, 0]);
+  assert.deepEqual(stackRows([]), []);
+  assert.deepEqual(stackRows([{ start: 0, seconds: 1 }, { start: 1, seconds: 1 }]), [0, 0]); // back to back share a row
+  // a zero-length piece still holds its row for a moment, so a neighbour starting just after does not hide its label
+  assert.deepEqual(stackRows([{ start: 0, seconds: 0 }, { start: 0.5, seconds: 1 }]), [0, 1]);
+  // rows come back in the order given, whatever the time order
+  assert.deepEqual(stackRows([{ start: 5, seconds: 1 }, { start: 0, seconds: 6 }]), [1, 0]);
 });

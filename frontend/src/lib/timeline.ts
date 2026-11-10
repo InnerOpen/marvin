@@ -422,6 +422,26 @@ export function quiets(items: Item[], lane: LaneSpec): Quiet[] {
   return out;
 }
 
+/**
+ * The row each piece of a lane goes on, so overlapping pieces (two sound effects at the same moment) stack instead of sitting on top of each
+ * other: in time order, each takes the first row that is free by its start. `minSeconds` stops a very short piece from sharing a row with a
+ * neighbour whose label it would hide. The rows come back in the order the pieces were given.
+ */
+export function stackRows(pieces: { start: number; seconds: number }[], minSeconds = 0.8): number[] {
+  const rows: number[] = [];
+  const free: number[] = []; // for each row, when it is free again
+  [...pieces.keys()]
+    .sort((a, b) => pieces[a].start - pieces[b].start || b - a)
+    .forEach((i) => {
+      const p = pieces[i];
+      let r = free.findIndex((end) => end <= p.start + 1e-6);
+      if (r < 0) r = free.length;
+      free[r] = p.start + Math.max(p.seconds, minSeconds);
+      rows[i] = r;
+    });
+  return rows;
+}
+
 export function scale(items: { seconds: number }[], total: number, width: number): number {
   if (total <= 0 || width <= 0) return 0;
   const fit = width / total;

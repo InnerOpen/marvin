@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, overlays, progress, quiets, quietWords, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
+import { type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -271,8 +271,13 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   ))}
                 </div>
 
-                {lanes.map((lane) => (
-                  <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title}>
+                {lanes.map((lane) => {
+                  // Pieces that overlap in time (two sound effects at one moment) stack on rows instead of sitting on top of each other.
+                  const lanePieces = track.items.flatMap((item) => item.lanes[lane.id] ?? []);
+                  const laneRows = stackRows(lanePieces);
+                  const laneHeight = 44 + Math.max(0, ...laneRows) * 28;
+                  return (
+                  <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title} style={laneRows.some((r) => r > 0) ? `height:${laneHeight}px` : undefined}>
                     <span class="tl-lane-name">
                       <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>
                       {lane.title}
@@ -300,13 +305,13 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         <small>{q.seconds.toFixed(2).replace(/\.?0+$/, "")}</small>
                       </span>
                     ))}
-                    {track.items.flatMap((item) => item.lanes[lane.id] ?? []).map((p) => (
+                    {lanePieces.map((p, n) => (
                       <a
                         class:list={["tl-piece", { estimated: p.estimated && !p.unmeasured, unmeasured: p.unmeasured, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
                         role="listitem"
                         href={laneOpens[lane.id] ? laneOpens[lane.id](p.slug) : open(p.id)}
                         data-piece={p.id}
-                        style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px`}
+                        style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}`}
                         title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}`}
                       >
                         {p.who && <b>{p.who}</b>}
@@ -314,7 +319,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       </a>
                     ))}
                   </div>
-                ))}
+                  );
+                })}
 
                 <div class="tl-playhead" data-playhead hidden><i /></div>
               </div>
