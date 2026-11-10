@@ -632,7 +632,7 @@ function coversOf(spec: CoverSpec, view: TimelineSpec, items: Item[], rows: Rows
       if (!owner) continue;
       const blend = str(field(owner, spec.blend));
       if (blend === "none") break;
-      const asset = assetOf(owner, spec.field, "video/");
+      const asset = assetOf(owner, spec.field, "video/") ?? assetOf(owner, spec.field, "image/"); // a video, or a picture or GIF
       if (!asset) continue;
       const url = asset.publicUrl;
       found = { url, name: asset.name ?? fileName(url), from, blend: blend || "normal", opacity: level(field(owner, spec.opacity)) ?? 1, start: item.start, seconds: item.seconds, items: [item.id] };

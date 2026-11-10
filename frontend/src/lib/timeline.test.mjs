@@ -645,3 +645,12 @@ test("a sound with no length known does not stretch a beat", () => {
   const laid = layout(spec, { spine: [row("b1", { story: "s", number: 1, chapter: "c1", sounds: [{ sound: "rumble", at: 2 }] })], groups: chapters, lanes: { lines: [], sounds: [unknown] } });
   assert.equal(laid.items[0].seconds, 4);
 });
+
+test("overlay lane: a PNG or an animated GIF is an overlay too, named by its title", () => {
+  const png = { role: "overlay", publicUrl: "https://cdn/media/card.png", mimeType: "image/png", name: "Real fact card" };
+  const gif = { role: "overlay", publicUrl: "https://cdn/media/typed.gif", mimeType: "image/gif" };
+  assert.deepEqual(coverLaid({ storyAssets: [png] }).covers.overlay.map((c) => [c.name, c.items.length]), [["Real fact card", 5]]);
+  assert.equal(coverLaid({ storyAssets: [gif] }).covers.overlay[0].name, "typed.gif");
+  const audio = { role: "overlay", publicUrl: "https://cdn/x.mp3", mimeType: "audio/mpeg" };
+  assert.deepEqual(coverLaid({ storyAssets: [audio] }).covers.overlay, []); // a sound is no overlay
+});
