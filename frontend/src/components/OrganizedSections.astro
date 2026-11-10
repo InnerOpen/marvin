@@ -42,7 +42,10 @@ const { id, noun, emptyAll } = Astro.props;
 
   .org-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: var(--panel); scroll-margin-top: 80px; transition: border-color 0.15s, box-shadow 0.15s; }
   .org-card:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
-  .org-card.off { opacity: 0.6; }
+  /* An off item is dimmed in its words only. Dimming the whole card dimmed its switch and its ⋯ menu too, and made the card a layer of its own
+     that a later card could paint over, so the menu's Delete could sit hidden underneath the next card. */
+  .org-card.off .org-card-main { opacity: 0.6; }
+  .org-card:has(.org-menu:not([hidden])) { position: relative; z-index: 25; }
   .org-card.linked { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
   .org-card-main { flex: 1; min-width: 0; }
   .org-card-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14.5px; }
