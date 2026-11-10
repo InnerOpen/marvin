@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, buttonHref, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
+  approvalsOf, buttonHref, cardActionShown, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -247,4 +247,15 @@ test("a long list of numbered entries runs from the lowest to the highest", () =
   const rows = ["10 Cook: Soup", "2 Cook: Salt", "02 Granny: Hi", "1 Cook: Hello", "b", "A"].map((title) => ({ title }));
   assert.deepEqual(naturalByTitle(rows).map((r) => r.title), ["1 Cook: Hello", "2 Cook: Salt", "02 Granny: Hi", "10 Cook: Soup", "A", "b"]);
   assert.deepEqual(naturalByTitle([{ title: null }, { title: "a" }]).map((r) => r.title ?? ""), ["", "a"]);
+});
+
+test("a card action shows on the cards its when allows", () => {
+  const use = { label: "Use this one", set: { status: "in_use" }, when: { field: "status", op: "neq", value: "in_use" } };
+  assert.equal(cardActionShown(use, { status: "recorded" }), true);
+  assert.equal(cardActionShown(use, { status: "in_use" }), false);
+  assert.equal(cardActionShown(use, {}), true);
+  const retry = { label: "Try again", set: { status: "queued" }, when: { field: "status", op: "eq", value: "draft" } };
+  assert.equal(cardActionShown(retry, { status: "draft" }), true);
+  assert.equal(cardActionShown(retry, { status: "recorded" }), false);
+  assert.equal(cardActionShown({ label: "x", set: { a: 1 } }, null), true);
 });

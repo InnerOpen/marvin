@@ -2,7 +2,7 @@
 
 import { fetchApi } from "./api/client";
 import { listEntryTypes } from "./api/entryTypes";
-import { type RefOption, preferred, refFieldsOf, refOptions, refScope, refTypesOf, type RefVia } from "./refFields";
+import { type RefOption, tiered, refFieldsOf, refOptions, refScope, refTypesOf, type RefVia } from "./refFields";
 
 const MAX_OPTIONS = 500;
 
@@ -59,8 +59,11 @@ export async function refOptionsFor(
     await Promise.all(
       fields.map(async (f) => {
         const all = byType[f.ref] ?? [];
-        if (!f.via || !data) return [f.key, all] as const;
-        return [f.key, preferred(all, await viaValues(f.via, data, authToken), `Cast in this ${f.via.match[Object.keys(f.via.match)[0]] ?? "story"}`, `Other ${f.ref}s`)] as const;
+        if (!f.vias.length || !data) return [f.key, all] as const;
+        const tiers = await Promise.all(
+          f.vias.map(async (via) => ({ label: via.label ?? `Cast in this ${Object.keys(via.match).length ? via.match[Object.keys(via.match)[0]] : "story"}`, slugs: await viaValues(via, data, authToken) })),
+        );
+        return [f.key, tiered(all, tiers, `Other ${f.ref}s`)] as const;
       }),
     ),
   );

@@ -151,6 +151,16 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
     await createOf(type, title, data, authToken);
     return { ctx, stay: true, notice: "added" };
   }
+  if (action === "card") {
+    // A button on a card sets fields on that entry (Use this one: status in_use). The entry must be one this gallery lists, and the button
+    // one the step declares: nothing else is taken from the form.
+    const acts = (step.card_actions ?? []) as { set: Record<string, unknown> }[];
+    const chosen = acts[Number(text(form, "card_do"))];
+    const entry = (await findEntries(listSpec(step, ctx), authToken)).entries.find((e) => e.id === text(form, "card_id"));
+    if (!chosen || !entry) throw new Error("That one is not in this list any more.");
+    await setData(entry, chosen.set, authToken);
+    return { ctx, stay: true, notice: "changed" };
+  }
   if (action === "trash") {
     // Only what this gallery lists can be trashed from it: the id is checked against its own entries, never taken on trust.
     const id = text(form, "trash_id");

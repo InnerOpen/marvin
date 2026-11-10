@@ -13,7 +13,7 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, shownLines, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -159,6 +159,7 @@ if (authToken && def && step) {
     missingType = !type;
     typeName = type?.name ?? step.entry_type;
     cards = (await findEntries(listSpec(step, ctx), authToken)).entries;
+    if (step.sort === "natural") cards = naturalByTitle(cards);
     pictureRole = fieldRole(type, step.picture);
     addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
     refs = await refsFor(addFields);
@@ -484,6 +485,18 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                           )}
                         </div>
                       </a>
+                      {(step.card_actions ?? []).some((a: any) => cardActionShown(a, r.dataJson)) && (
+                        <div class="gacts">
+                          {(step.card_actions as { label: string; when?: any }[]).map((a, n) => cardActionShown(a, r.dataJson) && (
+                            <form method="post" class="gact">
+                              <input type="hidden" name="action" value="card" />
+                              <input type="hidden" name="card_id" value={r.id} />
+                              <input type="hidden" name="card_do" value={String(n)} />
+                              <button class="button secondary small" type="submit">{a.label}</button>
+                            </form>
+                          ))}
+                        </div>
+                      )}
                       {step.trash && (
                         <form method="post" class="gtrash" data-confirm={highlightOf(step, r.dataJson) ? `“${r.title}” is the one this plays. Move it to the Trash? What was already set from it stays until you choose another.` : `Move “${r.title}” to the Trash? You can bring it back from the Trash.`}>
                           <input type="hidden" name="action" value="trash" />
@@ -818,6 +831,8 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
   .pill.inuse { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
   .approvals { display: grid; gap: 12px; margin: 0 0 16px; }
   .approval-audio { width: 100%; }
+  .gacts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .gact { margin: 0; }
   .gwrap { display: grid; gap: 4px; align-content: start; }
   .gtrash { display: flex; justify-content: flex-end; margin: 0; }
   .gtrash button { background: none; border: 0; padding: 2px 4px; color: var(--muted); font-size: 12px; cursor: pointer; }

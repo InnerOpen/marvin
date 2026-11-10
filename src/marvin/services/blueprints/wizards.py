@@ -380,18 +380,27 @@ def _check_add_extras(s: _Step, add: Any) -> str | None:
     return None
 
 
-def _check_gallery(s: _Step) -> str | None:
+def _check_gallery_extras(s: _Step) -> str | None:
+    """A gallery's presentation and card options: sort, card_actions, trash, layout, name, highlight, added."""
     step = s.step
-    scoped = [k for k in ("parent", "parent_field") if step.get(k) is not None]
-    if len(scoped) == 1:
-        return f"{s.label}: parent and parent_field go together (or neither)"
-    if scoped and not _is_field(step.get("parent_field")):
-        return f"{s.label}: parent_field must be a field key"
-    for key in ("picture", "audio", "subtitle"):
-        if step.get(key) is not None and not _is_field(step[key]):
-            return f"{s.label}: {key} must be a field key"
-    if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
-        return problem
+    if step.get("sort") not in (None, "natural"):
+        return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
+    if (acts := step.get("card_actions")) is not None:
+        if not isinstance(acts, list) or not 1 <= len(acts) <= 3:
+            return f"{s.label}: card_actions is a list of 1 to 3 buttons shown on each card"
+        for a in acts:
+            if not isinstance(a, dict) or not isinstance(a.get("label"), str) or not a["label"].strip():
+                return f"{s.label}: each card action needs a label"
+            setting = a.get("set")
+            if not (
+                isinstance(setting, dict) and setting and all(_is_field(k) and isinstance(v, str | int | float | bool) for k, v in setting.items())
+            ):
+                return f"{s.label}: a card action's set maps field keys to text, numbers or true/false"
+            when = a.get("when")
+            if when is not None and not (
+                isinstance(when, dict) and _is_field(when.get("field")) and when.get("op") in ("eq", "neq") and isinstance(when.get("value"), str)
+            ):
+                return f"{s.label}: a card action's when is {{field, op: eq or neq, value}}: it shows only on cards that match"
     if step.get("trash") is not None and not isinstance(step["trash"], bool):
         return f"{s.label}: trash is true or false: each card gets a Move to Trash button"
     if step.get("layout") not in (None, "cards", "list"):
@@ -405,6 +414,23 @@ def _check_gallery(s: _Step) -> str | None:
         return f"{s.label}: highlight is {{field, value, label}}, the card whose field has that value is marked with the label"
     if step.get("added") is not None and not (isinstance(step["added"], str) and step["added"].strip()):
         return f"{s.label}: added is the line shown after one is added or uploaded"
+    return None
+
+
+def _check_gallery(s: _Step) -> str | None:
+    step = s.step
+    scoped = [k for k in ("parent", "parent_field") if step.get(k) is not None]
+    if len(scoped) == 1:
+        return f"{s.label}: parent and parent_field go together (or neither)"
+    if scoped and not _is_field(step.get("parent_field")):
+        return f"{s.label}: parent_field must be a field key"
+    for key in ("picture", "audio", "subtitle"):
+        if step.get(key) is not None and not _is_field(step[key]):
+            return f"{s.label}: {key} must be a field key"
+    if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
+        return problem
+    if problem := _check_gallery_extras(s):
+        return problem
     if step.get("add") is not None and (
         (problem := _check_create(s, step["add"])) and (problem := problem.replace("create", "add")) or (problem := _check_add_extras(s, step["add"]))
     ):

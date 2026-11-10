@@ -383,6 +383,12 @@ def test_a_gallery_may_list_takes_name_them_after_a_line_and_measure_an_upload()
     [
         ({"layout": "grid"}, "layout"),
         ({"trash": "yes"}, "trash is"),
+        ({"sort": "newest"}, "sort is"),
+        ({"card_actions": []}, "card_actions"),
+        ({"card_actions": [{"label": " ", "set": {"status": "x"}}]}, "needs a label"),
+        ({"card_actions": [{"label": "x", "set": {}}]}, "set maps"),
+        ({"card_actions": [{"label": "x", "set": {"status": [1]}}]}, "set maps"),
+        ({"card_actions": [{"label": "x", "set": {"status": "x"}, "when": {"field": "status", "op": "gt", "value": "a"}}]}, "when is"),
         ({"name": {"from": "nope", "noun": "take"}}, "name is"),
         ({"name": {"from": "line", "noun": " "}}, "name is"),
         ({"highlight": {"field": "status"}}, "highlight"),
@@ -464,3 +470,8 @@ def test_a_choose_step_may_sort_naturally():
     assert payload_problem(payload, "narrate") is None
     payload["steps"][1]["sort"] = "newest"
     assert "sort is natural" in (payload_problem(payload, "narrate") or "")
+
+
+def test_a_gallery_card_may_carry_actions_that_set_fields_and_sorts_naturally():
+    good = [{"label": "Use this one", "set": {"status": "in_use"}, "when": {"field": "status", "op": "neq", "value": "in_use"}}]
+    assert payload_problem(_takes_wizard(card_actions=good, sort="natural"), "takes") is None
