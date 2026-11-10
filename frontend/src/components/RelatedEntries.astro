@@ -1,0 +1,44 @@
+---
+/**
+ * RelatedEntries: what points at this entry (its beats, its lines, its takes), each group a heading with a count and the first entries as
+ * links. Read-only: the link lives in the other entries' own fields, so this is always what is really there.
+ */
+import type { RelatedGroup } from "@/lib/related";
+import { withReturn } from "@/lib/entryBack";
+
+export interface Props {
+  groups: RelatedGroup[];
+  /** The page to come back to from a related entry. */
+  from?: string;
+}
+const { groups, from } = Astro.props;
+---
+
+<section class="related" aria-label="Related entries">
+  {groups.map((g) => (
+    <div class="related-group">
+      <h3>{g.title} <span class="count">{g.total}</span></h3>
+      <ul>
+        {g.rows.map((r) => (
+          <li>
+            <a href={withReturn(`/workspace/entries/${r.id}`, from)}>{r.title}</a>
+            {r.status && <span class="status">{r.status}</span>}
+          </li>
+        ))}
+      </ul>
+      {g.total > g.rows.length && <p class="muted more">and {g.total - g.rows.length} more</p>}
+    </div>
+  ))}
+</section>
+
+<style>
+  .related { display: grid; gap: 16px; margin: 20px 0; }
+  .related-group h3 { margin: 0 0 6px; font-size: 0.9375rem; }
+  .count { margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--panel-2, var(--panel)); color: var(--muted); font-size: 0.75rem; font-weight: 500; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 260px; overflow: auto; }
+  li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 0.875rem; }
+  li a { color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li a:hover { text-decoration: underline; }
+  .status { color: var(--muted); font-size: 0.75rem; flex: 0 0 auto; }
+  .more { margin: 4px 0 0; font-size: 0.8125rem; }
+</style>
