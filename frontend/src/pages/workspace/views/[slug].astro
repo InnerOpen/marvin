@@ -252,7 +252,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           )}
           <a class="button secondary" href={open(entry.id)}>Open the {spec.entry_type.replace(/-/g, " ")}</a>
         </div>
-        <p class="tl-run muted" data-run-status role="status" aria-live="polite" hidden></p>
+        {/* A floating note, not a line in the header: nothing on the page moves when a draft starts or reports. */}
+        <div class="tl-run" data-run-status role="status" aria-live="polite" hidden>
+          <span data-run-text></span>
+          <button type="button" class="tl-run-close" data-run-close aria-label="Dismiss">×</button>
+        </div>
       </header>
 
       {laid.items.length === 0 ? (
@@ -615,6 +619,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
 
     // A button that runs a workflow here (a render preview): start it, then follow the job it makes until it is done or has failed.
     const runStatus = root.querySelector<HTMLElement>("[data-run-status]");
+    const runText = runStatus?.querySelector<HTMLElement>("[data-run-text]");
+    runStatus?.querySelector("[data-run-close]")?.addEventListener("click", () => (runStatus.hidden = true));
     const POLL_MS = 4000;
     const GIVE_UP_MS = 30 * 60 * 1000;
     root.querySelectorAll<HTMLButtonElement>("[data-run]").forEach((button) =>
@@ -624,16 +630,16 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         const slug = button.dataset.runSlug || "";
         const since = Date.now();
         const say = (text: string, url: string | null = null) => {
-          if (!runStatus) return;
+          if (!runStatus || !runText) return;
           runStatus.hidden = false;
-          runStatus.replaceChildren(document.createTextNode(text));
+          runText.replaceChildren(document.createTextNode(text));
           if (url) {
             const link = document.createElement("a");
             link.href = url;
             link.target = "_blank";
             link.rel = "noopener noreferrer";
             link.textContent = " Open the video ↗";
-            runStatus.append(link);
+            runText.append(link);
           }
         };
         button.disabled = true;
@@ -697,7 +703,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-title h2 { margin: 0 0 4px; }
   .tl-facts { margin: 0; font-size: 14px; }
   .tl-total { font-variant-numeric: tabular-nums; font-size: 16px; }
-  .tl-run { margin: 6px 0 0; font-size: 0.875rem; }
+  .tl-run { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 40; display: flex; align-items: center; gap: 12px; max-width: min(560px, calc(100vw - 32px)); padding: 10px 14px; font-size: 0.875rem; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 24px rgb(0 0 0 / 0.25); }
+  .tl-run[hidden] { display: none; }
+  .tl-run-close { flex: none; border: 0; background: transparent; color: var(--muted); font-size: 1.25rem; line-height: 1; padding: 0 2px; cursor: pointer; }
   .tl-actions, .tl-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .tl-zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
   .tl-zoom button { margin: 0; padding: 7px 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
@@ -789,6 +797,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     .tl-head { align-items: stretch; }
     /* Play, zoom and layout stay within reach: a bar fixed to the bottom of the phone's screen; the other buttons wrap above the strip. */
     /* Inset from the sides so the app's floating buttons (chat, theme) in the bottom corners stay clear of it. */
+    .tl-run { bottom: 84px; } /* above the fixed Play bar */
     .tl-actions { position: fixed; left: 72px; right: 72px; bottom: 0; z-index: 20; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; gap: 6px; box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08); }
     .tl-actions .tl-play { flex: 1 1 100%; justify-content: center; }
     .tl-actions .tl-zoom { flex: 1 1 100%; justify-content: center; }
