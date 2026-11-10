@@ -204,9 +204,9 @@ test("bed lanes: a scene's ambience runs under its beats as one block, splits on
   const laid = layout(bedSpec, { entry: row("s", { music: "waltz" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } });
   const amb = laid.beds.ambience;
   assert.deepEqual(amb.map((b) => [b.slug, b.start, b.seconds, b.items.length, Number(b.volume.toFixed(2)), b.muffled, b.loop]), [
-    ["sea", 0, 8, 2, 0.4, false, true], // b1 + b2 at 0.8 × 0.5
-    ["sea", 8, 4, 1, 0.16, false, true], // b3 lowers its own level: 0.8 × 0.2
-    ["sea", 12, 4, 1, 0.4, true, true], // the hold: same sound, muffled, so its own block
+    ["sea", 0, 8, 2, 0.5, false, true], // b1 + b2 at the scene's 0.5: it replaces the sound's own 0.8, as in the render
+    ["sea", 8, 4, 1, 0.2, false, true], // b3 sets its own level
+    ["sea", 12, 4, 1, 0.5, true, true], // the hold: same sound, muffled, so its own block
   ]);
   assert.equal(amb[0].audio, "https://cdn/sea.mp3");
   assert.deepEqual(laid.beds.music.map((b) => [b.slug, b.start, b.seconds, Number(b.volume.toFixed(2)), b.items.length]), [["waltz", 0, 20, 0.3, 5]]);
@@ -229,10 +229,10 @@ test("overlays: placed sounds at their offset and beds under their stretch, in t
   const over = overlays(laid, bedSpec.lanes);
   assert.deepEqual(over.map((o) => o.lane), ["ambience", "music", "ambience", "ambience", "sounds"]);
   assert.deepEqual(over.map((o) => [o.id, o.start, o.seconds, o.loop, Number(o.volume.toFixed(2))]), [
-    ["id-sea", 0, 8, true, 0.4],
+    ["id-sea", 0, 8, true, 0.5],
     ["id-waltz", 0, laid.total, true, 0.3],
-    ["id-sea", 8, 4, true, 0.16],
-    ["id-sea", 12, 4, true, 0.4],
+    ["id-sea", 8, 4, true, 0.2],
+    ["id-sea", 12, 4, true, 0.5],
     ["id-gull", 21, 2, false, 0.6], // the placed effect at its offset inside b6 (which starts at 20); the one with no take is not played
   ]);
 });
@@ -351,4 +351,30 @@ test("overlay lane: nothing named anywhere draws nothing, and an image attached 
 
 test("overlay lane: a view without one has no covers", () => {
   assert.deepEqual(layout(spec, { spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } }).covers, {});
+});
+
+// ── a bed's level is the render's: where named, else the sound's own, else the lane's default ─────────────────────────────────────────
+const quietSounds = [row("sea", {}, { assets: [sea] }), row("waltz", {}, { assets: [tune] })]; // neither sets a level
+const defaultsSpec = {
+  ...bedSpec,
+  lanes: bedSpec.lanes.map((l) => (l.id === "music" ? { ...l, bed: { field: "music", item_volume: "music_volume", default_volume: 0.12 } } : l.id === "ambience" ? { ...l, bed: { ...l.bed, default_volume: 0.5 } } : l)),
+};
+
+test("bed levels: a sound with no level of its own plays at the lane's default (0.12 for music, 0.5 for ambience), as the render does", () => {
+  const laid = layout(defaultsSpec, { entry: row("s", { music: "waltz" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], ambience: quietSounds, music: quietSounds }, via: { ambience: [row("deck", { ambience: "sea" })] } });
+  assert.equal(laid.beds.music[0].volume, 0.12);
+  assert.equal(laid.beds.ambience[0].volume, 0.5);
+  assert.equal(layout(bedSpec, { entry: row("s", { music: "waltz" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], ambience: quietSounds, music: quietSounds } }).beds.music[0].volume, 1); // no default declared: full
+});
+
+test("bed levels: a beat that sets 0.3 over music at the default 0.12 is a step *up*, drawn as one", () => {
+  const spine = bedBeats.map((b, i) => (i === 2 ? { ...b, dataJson: { ...b.dataJson, music_volume: 0.3 } } : b));
+  const laid = layout(defaultsSpec, { entry: row("s", { music: "waltz" }), spine, groups: chapters, lanes: { lines: [], sounds: [], ambience: quietSounds, music: quietSounds }, via: {} });
+  assert.deepEqual(laid.beds.music[0].steps.map((s) => [s.start, s.seconds, s.volume]), [[0, 8, 0.12], [8, 4, 0.3], [12, 8, 0.12]]);
+});
+
+test("bed levels: the sound's own level beats the default, and the level where it is named beats both", () => {
+  const laid = layout(defaultsSpec, { entry: row("s", { music: "waltz" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } });
+  assert.equal(laid.beds.music[0].volume, 0.3); // the waltz's own 0.3, not 0.12
+  assert.equal(laid.beds.ambience[0].volume, 0.5); // the deck scene's 0.5, not the sea's 0.8
 });

@@ -43,7 +43,8 @@ A timeline definition::
   those slugs, so a library sound shared by stories is found; ``of`` is optional). ``bed`` is a sound that runs under a stretch: ``field``
   names the lane entry's slug on the view's entry itself (a story's music, one block under everything), or on each spine item, or, with
   ``via`` and ``entry_type``, on the entry a spine item's ``via`` field names (a beat's scene names its ambience); consecutive items with the
-  same bed merge into one block. ``bed.volume`` is the level field on that entry and ``bed.item_volume`` an override on the spine item.
+  same bed merge into one block. ``bed.volume`` is the level field on that entry and ``bed.item_volume`` an override on the spine item;
+  a level set there *replaces* the sound's own (not multiplied), and ``bed.default_volume`` (0 to 1) plays when none is set.
   ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it
   repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
   that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
@@ -177,6 +178,9 @@ def _check_lane(lane: dict, label: str) -> str | None:
             return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"
         if bed.get("entry_type") is not None and (problem := _slug(bed, "entry_type", f"{label} bed")):
             return problem
+        default = bed.get("default_volume")
+        if default is not None and (isinstance(default, bool) or not isinstance(default, int | float) or not 0 <= default <= 1):
+            return f"{label}: bed.default_volume must be a number from 0 to 1"
     if (cover := lane.get("cover")) is not None:
         if problem := _check_cover(cover, label):
             return problem
