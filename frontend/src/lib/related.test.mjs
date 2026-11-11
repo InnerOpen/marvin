@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { childrenOf, MAX_RELATED } from "./related.ts";
 
-test("children: the well-formed lookups of a schema, in order, at most six", () => {
+test("children: the well-formed lookups of a schema, in order, at most ten", () => {
   const schema = {
     children: [
       { title: " Beats ", entry_type: "beat", field: "story" },
@@ -20,6 +20,6 @@ test("children: the well-formed lookups of a schema, in order, at most six", () 
   assert.deepEqual(childrenOf({}), []);
   assert.deepEqual(childrenOf(null), []);
   assert.deepEqual(childrenOf({ children: "beats" }), []);
-  const many = { children: Array.from({ length: 9 }, (_, i) => ({ title: `T${i}`, entry_type: "beat", field: "story" })) };
+  const many = { children: Array.from({ length: 14 }, (_, i) => ({ title: `T${i}`, entry_type: "beat", field: "story" })) };
   assert.equal(childrenOf(many).length, MAX_RELATED);
 });
