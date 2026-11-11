@@ -11,6 +11,8 @@ export interface RefOption {
   group?: string;
   /** A recording to hear before choosing it (the field's `ref_listen`: the asset role to play), when the entry has one. */
   audio?: string;
+  /** The values of the entry's fields the pick list is matched on (the field's `ref_match`), so the form can narrow the list as it is edited. */
+  match?: Record<string, string>;
 }
 
 /**
@@ -32,6 +34,7 @@ interface FieldLike {
   ref_via?: unknown;
   ref_filter?: unknown;
   ref_listen?: unknown;
+  ref_match?: unknown;
 }
 
 type SchemaLike = { fields?: FieldLike[] | null } | null | undefined;
@@ -59,11 +62,21 @@ export function refViasOf(field: FieldLike): RefVia[] {
 }
 
 /** The fields of a schema that refer to another type, each with that type's slug (and its `ref_via` tiers, when it has any). */
-export function refFieldsOf(schema: SchemaLike): { key: string; ref: string; vias: RefVia[]; filter: Record<string, string>; listen: string | null }[] {
+export function refFieldsOf(schema: SchemaLike): { key: string; ref: string; vias: RefVia[]; filter: Record<string, string>; listen: string | null; match: Record<string, string> }[] {
   return fieldsOf(schema).flatMap((f) => {
     const ref = refOf(f);
-    return ref && f.key ? [{ key: f.key, ref, vias: refViasOf(f), filter: refFilterOf(f), listen: refListenOf(f) }] : [];
+    return ref && f.key ? [{ key: f.key, ref, vias: refViasOf(f), filter: refFilterOf(f), listen: refListenOf(f), match: refMatchOf(f) }] : [];
   });
+}
+
+/**
+ * `ref_match` on a ref field: the entries offered are those whose field (the key) holds what this entry's own field (the value) holds now.
+ * A beat's chapter is `{"story": "story"}`: only the chapters of the beat's own story. The form narrows the list as that field is edited.
+ */
+export function refMatchOf(field: FieldLike): Record<string, string> {
+  const raw = field.ref_match;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).filter(([k, v]) => k && typeof v === "string" && v));
 }
 
 /** `ref_filter` on a ref field: only the entries whose fields hold these values are offered (a music field offers sounds of kind music). */
@@ -97,14 +110,16 @@ export function refTypesOf(schema: SchemaLike): string[] {
 
 /** Entries as pick-list options, by title (ignoring case); an entry without a slug cannot be referred to, so it is left out. */
 export function refOptions(
-  entries: { slug?: string | null; title?: string | null; assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null }[] | null }[],
+  entries: { slug?: string | null; title?: string | null; dataJson?: Record<string, unknown> | null; assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null }[] | null }[],
   listenRole?: string | null,
+  matchKeys: string[] = [],
 ): RefOption[] {
   return entries
     .filter((e): e is typeof e & { slug: string } => typeof e.slug === "string" && e.slug !== "")
     .map((e) => {
       const heard = listenRole ? e.assets?.find((a) => a.role === listenRole && a.publicUrl && (a.mimeType ?? "").startsWith("audio/")) : undefined;
-      return { slug: e.slug, title: e.title?.trim() || e.slug, ...(heard?.publicUrl ? { audio: heard.publicUrl } : {}) };
+      const match = Object.fromEntries(matchKeys.flatMap((k) => (typeof e.dataJson?.[k] === "string" && e.dataJson[k] ? [[k, e.dataJson[k] as string]] : [])));
+      return { slug: e.slug, title: e.title?.trim() || e.slug, ...(heard?.publicUrl ? { audio: heard.publicUrl } : {}), ...(matchKeys.length ? { match } : {}) };
     })
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
 }
@@ -122,4 +137,21 @@ export function withCurrent(options: RefOption[], value: unknown): RefOption[] {
 export function refScope(typeSchema: SchemaLike, ctx: Record<string, string>): Record<string, string> {
   const keys = new Set(fieldsOf(typeSchema).map((f) => f.key));
   return Object.fromEntries(Object.entries(ctx).filter(([k, v]) => v && keys.has(k)));
+}
+
+/**
+ * The options a `ref_match` field offers now: those whose matched fields equal this entry's (`ctx`: this entry's field name -> its value).
+ * With nothing to match on yet (the story not chosen) the list is left whole. The option already chosen always stays, so saving never drops it
+ * unseen: when it does not match it is marked as belonging elsewhere.
+ */
+export function narrowOptions(options: RefOption[], match: Record<string, string>, ctx: Record<string, string | null | undefined>, selected: string): RefOption[] {
+  const wanted = Object.entries(match).map(([theirs, mine]) => [theirs, (ctx[mine] ?? "").trim()] as const);
+  if (!wanted.length || wanted.some(([, v]) => !v)) return options;
+  const fits = (o: RefOption) => wanted.every(([theirs, v]) => o.match?.[theirs] === v);
+  const first = Object.values(match)[0];
+  return options.flatMap((o) => {
+    if (fits(o)) return [o];
+    if (o.slug !== selected) return [];
+    return [o.match ? { ...o, title: `${o.title} (not in this ${first})` } : o];
+  });
 }

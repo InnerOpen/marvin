@@ -6,14 +6,14 @@ import { type RefOption, tiered, refFieldsOf, refOptions, refScope, type RefVia 
 
 const MAX_OPTIONS = 500;
 
-async function entriesOf(entryType: string, fields: Record<string, string>, authToken: string, listenRole?: string | null): Promise<RefOption[]> {
+async function entriesOf(entryType: string, fields: Record<string, string>, authToken: string, listenRole?: string | null, matchKeys: string[] = []): Promise<RefOption[]> {
   const spec = Object.keys(fields).length ? { entry_type: entryType, fields } : { entry_type: entryType };
-  const found = await fetchApi<{ entries?: { slug?: string; title?: string; assets?: { role?: string; publicUrl?: string; mimeType?: string }[] }[] }>(
+  const found = await fetchApi<{ entries?: { slug?: string; title?: string; dataJson?: Record<string, unknown>; assets?: { role?: string; publicUrl?: string; mimeType?: string }[] }[] }>(
     "/api/platform/entries/query",
     { method: "POST", body: JSON.stringify({ spec, limit: MAX_OPTIONS }) },
     authToken,
   ).catch(() => ({ entries: [] }));
-  return refOptions(found.entries ?? [], listenRole);
+  return refOptions(found.entries ?? [], listenRole, matchKeys);
 }
 
 /** What a field's `ref_via` prefers for this entry: the values of `via.field` on the entries whose fields match this entry's. */
@@ -52,8 +52,9 @@ export async function refOptionsFor(
   const optionsOf = (f: (typeof fields)[number]) => {
     const typeSchema = types.find((t) => t.slug === f.ref)?.schemaJson as { fields?: any[] } | null | undefined;
     const narrow = { ...(ctx ? refScope(typeSchema, ctx) : {}), ...f.filter };
-    const id = `${f.ref}|${JSON.stringify(narrow)}|${f.listen ?? ""}`;
-    if (!asked.has(id)) asked.set(id, entriesOf(f.ref, narrow, authToken, f.listen));
+    const keys = Object.keys(f.match);
+    const id = `${f.ref}|${JSON.stringify(narrow)}|${f.listen ?? ""}|${keys.join(",")}`;
+    if (!asked.has(id)) asked.set(id, entriesOf(f.ref, narrow, authToken, f.listen, keys));
     return asked.get(id)!;
   };
   return Object.fromEntries(

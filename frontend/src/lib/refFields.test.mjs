@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent, tiered, refViasOf, refFilterOf, refListenOf } from "./refFields.ts";
+import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent, tiered, refViasOf, refFilterOf, refListenOf, refMatchOf, narrowOptions } from "./refFields.ts";
 
 const schema = {
   fields: [
@@ -22,9 +22,9 @@ test("only a text field's non-empty ref refers to a type", () => {
 
 test("the ref fields of a schema, with their types", () => {
   assert.deepEqual(refFieldsOf(schema), [
-    { key: "voice", ref: "voice", vias: [], filter: {}, listen: null },
-    { key: "narrator", ref: "voice", vias: [], filter: {}, listen: null },
-    { key: "actor", ref: "actor", vias: [], filter: {}, listen: null },
+    { key: "voice", ref: "voice", vias: [], filter: {}, listen: null, match: {} },
+    { key: "narrator", ref: "voice", vias: [], filter: {}, listen: null, match: {} },
+    { key: "actor", ref: "actor", vias: [], filter: {}, listen: null, match: {} },
   ]);
 });
 
@@ -80,7 +80,7 @@ test("ref_via: a well-formed one or a list of tiers counts, and refFieldsOf carr
   assert.deepEqual(refViasOf({}), []);
   assert.deepEqual(refViasOf({ ref_via: { entry_type: "cast-member", field: "voice", match: {} } }), []);
   assert.deepEqual(refViasOf({ ref_via: [{ entry_type: "cast-member", match: { story: "story" } }, via] }), [via]);
-  assert.deepEqual(refFieldsOf({ fields: [{ key: "voice", type: "text", ref: "voice", ref_via: via }] }), [{ key: "voice", ref: "voice", vias: [via], filter: {}, listen: null }]);
+  assert.deepEqual(refFieldsOf({ fields: [{ key: "voice", type: "text", ref: "voice", ref_via: via }] }), [{ key: "voice", ref: "voice", vias: [via], filter: {}, listen: null, match: {} }]);
 });
 
 test("tiered: each option under the first tier that names it, the rest last; nobody named leaves the list as it is", () => {
@@ -108,4 +108,38 @@ test("ref_filter and ref_listen: only well-formed ones count, and refOptions car
   // options come sorted by title: Harbour, Silent, Wind
   assert.deepEqual(refOptions(entries, "audio").map((o) => [o.slug, o.audio ?? null]), [["a", "https://cdn/x.mp3"], ["c", null], ["b", null]]);
   assert.equal(refOptions(entries)[0].audio, undefined); // without a role to play, nothing is carried
+});
+
+test("ref_match: only well-formed name pairs count, and refFieldsOf carries them", () => {
+  assert.deepEqual(refMatchOf({ ref_match: { story: "story", bad: 3, "": "x", also: "" } }), { story: "story" });
+  assert.deepEqual(refMatchOf({ ref_match: ["story"] }), {});
+  assert.deepEqual(refMatchOf({}), {});
+  assert.deepEqual(refFieldsOf({ fields: [{ key: "chapter", type: "text", ref: "chapter", ref_match: { story: "story" } }] })[0].match, { story: "story" });
+});
+
+test("refOptions carries the matched fields' values, only when it is asked to", () => {
+  const entries = [{ slug: "a", title: "A", dataJson: { story: "granny", n: 1 } }, { slug: "b", title: "B", dataJson: {} }];
+  assert.deepEqual(refOptions(entries, null, ["story"]).map((o) => o.match), [{ story: "granny" }, {}]);
+  assert.equal(refOptions(entries)[0].match, undefined);
+});
+
+test("narrowOptions: the entries of this entry's own story; nothing to match on leaves the list whole", () => {
+  const options = [
+    { slug: "g1", title: "Granny 1", match: { story: "granny" } },
+    { slug: "o1", title: "Onion 1", match: { story: "onion" } },
+    { slug: "g2", title: "Granny 2", match: { story: "granny" } },
+  ];
+  const match = { story: "story" };
+  assert.deepEqual(narrowOptions(options, match, { story: "granny" }, "").map((o) => o.slug), ["g1", "g2"]);
+  assert.equal(narrowOptions(options, match, { story: "" }, ""), options);
+  assert.equal(narrowOptions(options, match, {}, ""), options);
+  assert.equal(narrowOptions(options, {}, { story: "granny" }, ""), options);
+});
+
+test("narrowOptions keeps the one already chosen, marked when it belongs to another story, and a stale value as it is", () => {
+  const options = [{ slug: "g1", title: "Granny 1", match: { story: "granny" } }, { slug: "o1", title: "Onion 1", match: { story: "onion" } }];
+  const kept = narrowOptions(options, { story: "story" }, { story: "granny" }, "o1");
+  assert.deepEqual(kept.map((o) => [o.slug, o.title]), [["g1", "Granny 1"], ["o1", "Onion 1 (not in this story)"]]);
+  const stale = withCurrent(options, "gone");
+  assert.deepEqual(narrowOptions(stale, { story: "story" }, { story: "granny" }, "gone").map((o) => [o.slug, o.title]), [["g1", "Granny 1"], ["gone", "gone (not found)"]]);
 });
