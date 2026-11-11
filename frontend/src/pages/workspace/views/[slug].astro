@@ -868,6 +868,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece.unmeasured { border-right-style: dashed; border-right-width: 3px; }
   .tl-piece.untimed { border-style: dotted; background: var(--panel-2); padding: 0 4px; }
   .tl-piece.placed { border-radius: 999px; border-color: var(--muted); background: var(--panel-2); }
+  .tl-piece.placed.estimated, .tl-piece.placed.untimed { min-width: 92px; } /* an unrecorded sound is wide enough to read its name, hatched: it still needs filling in */
   .tl-piece.placed.recorded { border-color: var(--ink); }
   .tl-piece.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-bed { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 8%, var(--panel)); color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-decoration: none; }

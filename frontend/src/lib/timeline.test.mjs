@@ -672,3 +672,13 @@ test("a picture size gives the strip its height and a card the room one frame in
   assert.equal(cardMinPx(180, 16 / 9), 320); // a wide video needs the most
   assert.equal(minInnerWidth([{ seconds: 4 }, { seconds: 6 }], 10, 146), 365); // the strip floor follows the card floor
 });
+
+test("a placed sound with no take is drawn with an estimated width from its text but does not lengthen its beat", () => {
+  const spec = { kind: "timeline", entry_type: "story", spine: { entry_type: "beat", of: "story", order: "number", seconds: { hold: "hold_seconds", defaults: { hold: 4, lead: 0, gap: 0, tail: 0 } } }, lanes: [{ id: "sounds", title: "Sounds", entry_type: "sound", of: "story", placed: { field: "sounds", ref: "sound", at: "at" }, audio: "audio", seconds: "duration_seconds", estimate_from: "prompt" }] };
+  const row = (slug, dataJson) => ({ id: slug, slug, title: slug, dataJson });
+  const laid = layout(spec, { entry: row("s", {}), spine: [row("b1", { number: "1", story: "s", hold_seconds: 2, sounds: [{ sound: "splinter", at: 1 }] })], groups: [], lanes: { sounds: [row("splinter", { prompt: "The sound of wood splintering echoes from deep below and goes on" })] }, via: {}, bands: {} });
+  const piece = laid.chapters ? laid.chapters[0].items[0].lanes.sounds[0] : laid.items[0].lanes.sounds[0];
+  assert.equal(piece.estimated, true);
+  assert.ok(piece.seconds >= 1, "it has a width");
+  assert.equal(laid.items[0].seconds, 2, "the beat is still its hold: nothing plays, so the placeholder adds no time");
+});
