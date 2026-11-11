@@ -339,7 +339,7 @@ const sequence = (v: unknown): [number, string] | null => {
 
 const byOrder = (key: string | undefined) => (a: Row, b: Row) => {
   const [p, q] = [sequence(field(a, key)), sequence(field(b, key))];
-  if (p && q && (p[0] !== q[0] || p[1] !== q[1])) return p[0] !== q[0] ? p[0] - q[0] : p[1].localeCompare(q[1]); // 04, 04a, 05: as the render orders them
+  if (p && q && (p[0] !== q[0] || p[1] !== q[1])) return p[0] !== q[0] ? p[0] - q[0] : p[1].length - q[1].length || p[1].localeCompare(q[1]); // 04, 04a ... 04z, 04aa, 05: as the render orders them (letters by length, then alphabet)
   const [x, y] = [num(field(a, key)), num(field(b, key))];
   if (x !== null && y !== null && x !== y) return x - y;
   if (x === null && y !== null) return 1;

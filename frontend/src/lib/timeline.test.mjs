@@ -481,6 +481,11 @@ test("a beat inserted as 04a sits between 04 and 05, as the render orders them, 
   assert.deepEqual(laid.items.map((i) => i.slug), ["b2", "b4", "b4a", "b5", "b10"]);
 });
 
+test("beats inserted past 04z go on as 04aa, 04ab, which sit after 04z and before 05 (letters by length, then alphabet)", () => {
+  const laid = layout(spec, { spine: ["05", "04aa", "04b", "04z", "04", "04ab", "04a"].map((n) => row(`b${n}`, { story: "s", number: n, chapter: "c1" })), groups: chapters, lanes: { lines: [], sounds: [] } });
+  assert.deepEqual(laid.items.map((i) => i.slug), ["b04", "b04a", "b04b", "b04z", "b04aa", "b04ab", "b05"]);
+});
+
 test("overlay lane: a block is named by the asset's title; its file name is only the fallback for one with no title", () => {
   const titled = { ...rain, name: "Light rain on glass" };
   const [c] = coverLaid({ storyAssets: [titled] }).covers.overlay;
