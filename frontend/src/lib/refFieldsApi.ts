@@ -2,18 +2,26 @@
 
 import { fetchApi } from "./api/client";
 import { listEntryTypes } from "./api/entryTypes";
-import { type RefOption, tiered, refFieldsOf, refOptions, refScope, type RefVia } from "./refFields";
+import { type RefOption, tiered, refFieldsOf, refOptions, refScopeSplit, type RefVia } from "./refFields";
 
 const MAX_OPTIONS = 500;
 
-async function entriesOf(entryType: string, fields: Record<string, string>, authToken: string, listenRole?: string | null, matchKeys: string[] = []): Promise<RefOption[]> {
-  const spec = Object.keys(fields).length ? { entry_type: entryType, fields } : { entry_type: entryType };
-  const found = await fetchApi<{ entries?: { slug?: string; title?: string; dataJson?: Record<string, unknown>; assets?: { role?: string; publicUrl?: string; mimeType?: string }[] }[] }>(
-    "/api/platform/entries/query",
-    { method: "POST", body: JSON.stringify({ spec, limit: MAX_OPTIONS }) },
-    authToken,
-  ).catch(() => ({ entries: [] }));
-  return refOptions(found.entries ?? [], listenRole, matchKeys);
+type Found = { slug?: string; title?: string; dataJson?: Record<string, unknown>; assets?: { role?: string; publicUrl?: string; mimeType?: string }[] };
+
+/**
+ * The entries of a type, narrowed by `fields`; `open` are fields the type may leave empty (a sound's story): the entries that hold that value, and the
+ * ones with it empty, so what everyone shares is still offered.
+ */
+async function entriesOf(entryType: string, fields: Record<string, string>, authToken: string, listenRole?: string | null, matchKeys: string[] = [], open: Record<string, string> = {}): Promise<RefOption[]> {
+  const ask = async (spec: Record<string, unknown>) =>
+    (await fetchApi<{ entries?: Found[] }>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec, limit: MAX_OPTIONS }) }, authToken).catch(() => ({ entries: [] as Found[] }))).entries ?? [];
+  const base = (extra: Record<string, unknown>) => ({ entry_type: entryType, ...(Object.keys(fields).length ? { fields } : {}), ...extra });
+  const keys = Object.keys(open);
+  const found = keys.length
+    ? [...(await ask(base({ fields: { ...fields, ...open } }))), ...(await ask(base({ where: keys.map((field) => ({ field, op: "missing" })) })))]
+    : await ask(base({}));
+  const seen = new Set<string>();
+  return refOptions(found.filter((e) => (e.slug && !seen.has(e.slug) ? (seen.add(e.slug), true) : false)), listenRole, matchKeys);
 }
 
 /** What a field's `ref_via` prefers for this entry: the values of `via.field` on the entries whose fields match this entry's. */
@@ -51,10 +59,11 @@ export async function refOptionsFor(
   const asked = new Map<string, Promise<RefOption[]>>();
   const optionsOf = (f: (typeof fields)[number]) => {
     const typeSchema = types.find((t) => t.slug === f.ref)?.schemaJson as { fields?: any[] } | null | undefined;
-    const narrow = { ...(ctx ? refScope(typeSchema, ctx) : {}), ...f.filter };
+    const { fixed, open } = ctx ? refScopeSplit(typeSchema, ctx) : { fixed: {}, open: {} };
+    const narrow = { ...fixed, ...f.filter };
     const keys = Object.keys(f.match);
-    const id = `${f.ref}|${JSON.stringify(narrow)}|${f.listen ?? ""}|${keys.join(",")}`;
-    if (!asked.has(id)) asked.set(id, entriesOf(f.ref, narrow, authToken, f.listen, keys));
+    const id = `${f.ref}|${JSON.stringify(narrow)}|${JSON.stringify(open)}|${f.listen ?? ""}|${keys.join(",")}`;
+    if (!asked.has(id)) asked.set(id, entriesOf(f.ref, narrow, authToken, f.listen, keys, open));
     return asked.get(id)!;
   };
   return Object.fromEntries(
