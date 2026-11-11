@@ -177,12 +177,12 @@ export function previousStep(def: WizardDefinition, ctx: Ctx, currentId: string)
   return [...before].reverse().find((s) => isShown(s, ctx)) ?? null;
 }
 
-/** The first earlier step still waiting for an answer that this one depends on: a choice that is not optional, or an option. Steps past it
+/** The first earlier step still waiting for an answer that this one depends on: a choice or an option that is not optional. Steps past it
  * would run without the entry it picks (a story list with no world to narrow it), so they wait. */
 export function blocker(def: WizardDefinition, ctx: Ctx, stepId: string): Step | null {
   const index = def.steps.findIndex((s) => s.id === stepId);
   const before = index < 0 ? [] : def.steps.slice(0, index);
-  return before.find((s) => isShown(s, ctx) && ((s.kind === "choose" && !s.optional) || s.kind === "option") && !ctx[s.as]) ?? null;
+  return before.find((s) => isShown(s, ctx) && ((s.kind === "choose" || s.kind === "option") && !s.optional) && !ctx[s.as]) ?? null;
 }
 
 /** The step the address names (or the one blocking it), else the first one shown. */

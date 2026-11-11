@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent, tiered, refViasOf, refFilterOf, refListenOf, refMatchOf, narrowOptions } from "./refFields.ts";
+import { refFieldsOf, refOf, refOptions, refScope, refTypesOf, withCurrent, tiered, refViasOf, refFilterOf, refListenOf, refMatchOf, narrowOptions, refScopeSplit } from "./refFields.ts";
 
 const schema = {
   fields: [
@@ -142,4 +142,13 @@ test("narrowOptions keeps the one already chosen, marked when it belongs to anot
   assert.deepEqual(kept.map((o) => [o.slug, o.title]), [["g1", "Granny 1"], ["o1", "Onion 1 (not in this story)"]]);
   const stale = withCurrent(options, "gone");
   assert.deepEqual(narrowOptions(stale, { story: "story" }, { story: "granny" }, "gone").map((o) => [o.slug, o.title]), [["g1", "Granny 1"], ["gone", "gone (not found)"]]);
+});
+
+test("refScopeSplit: a required field always narrows, an optional one narrows to the entry's own or none (the shared library stays)", () => {
+  const sound = { fields: [{ key: "story", type: "text" }, { key: "kind", type: "select" }, { key: "prompt", type: "text", required: true }] };
+  assert.deepEqual(refScopeSplit(sound, { story: "granny", world: "w", prompt: "x" }), { fixed: { prompt: "x" }, open: { story: "granny" } });
+  assert.deepEqual(refScopeSplit(sound, { story: "" }), { fixed: {}, open: {} });
+  assert.deepEqual(refScopeSplit(null, { story: "g" }), { fixed: {}, open: {} });
+  const actor = { fields: [{ key: "world", type: "text", required: true }] };
+  assert.deepEqual(refScopeSplit(actor, { world: "w", story: "s" }), { fixed: { world: "w" }, open: {} });
 });

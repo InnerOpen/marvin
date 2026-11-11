@@ -30,6 +30,7 @@ export interface RefVia {
 interface FieldLike {
   key?: string;
   type?: string;
+  required?: boolean;
   ref?: unknown;
   ref_via?: unknown;
   ref_filter?: unknown;
@@ -137,6 +138,22 @@ export function withCurrent(options: RefOption[], value: unknown): RefOption[] {
 export function refScope(typeSchema: SchemaLike, ctx: Record<string, string>): Record<string, string> {
   const keys = new Set(fieldsOf(typeSchema).map((f) => f.key));
   return Object.fromEntries(Object.entries(ctx).filter(([k, v]) => v && keys.has(k)));
+}
+
+/**
+ * The same narrowing, split by whether the referenced type must have the field. A required one (an actor's world) always narrows. An optional one (a
+ * sound's story: a sound made for one story, or shared by all) narrows to "the story's own, or none at all", so the shared library is still offered.
+ */
+export function refScopeSplit(typeSchema: SchemaLike, ctx: Record<string, string>): { fixed: Record<string, string>; open: Record<string, string> } {
+  const fields = fieldsOf(typeSchema);
+  const fixed: Record<string, string> = {};
+  const open: Record<string, string> = {};
+  for (const [k, v] of Object.entries(ctx)) {
+    const f = fields.find((x) => x.key === k);
+    if (!v || !f) continue;
+    (f.required ? fixed : open)[k] = v;
+  }
+  return { fixed, open };
 }
 
 /**

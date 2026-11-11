@@ -135,7 +135,7 @@ if (authToken && def && step) {
       formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields, Object.keys(suppliedData(step, ctx)))));
       refs = await refsFor(formFields);
     } else {
-      listRows = (await findEntries(listSpec(step, ctx), authToken)).entries;
+      listRows = naturalByTitle((await findEntries(listSpec(step, ctx), authToken)).entries); // as people count: Beat 01, Beat 02, Beat 10 (not newest first)
       columns = simple(fieldsOf(type, askedKeys(type, step.columns, Object.keys(suppliedData(step, ctx))))).filter((f) => f.type !== "boolean");
       refs = await refsFor(columns);
     }
@@ -280,6 +280,12 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
               <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
             </form>
           )}
+          {step.kind === "option" && step.optional && (
+            <form method="post" class="actions">
+              <input type="hidden" name="action" value="skip" />
+              <button class="button secondary" type="submit">Skip this</button>
+            </form>
+          )}
 
           {step.kind === "choose" && (
             <div class="form">
@@ -400,11 +406,12 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                   ))}
                   {step.add !== false && (
                     <div class="row new">
-                      <label class="col row-head">
-                        <span>{listRows.length ? "Add another" : "Add one"} <span class="req" title="Required">*</span></span>
-                        <input class:list={["input", bad("new.title")]} name="new.title" placeholder="Name" />
-                      </label>
+                      <div class="row-head">＋ {listRows.length ? "Add another" : "Add the first"} {typeName.toLowerCase()}</div>
                       <div class="cols">
+                        <label class="col">
+                          <span>Name <span class="req" title="Required">*</span></span>
+                          <input class:list={["input", bad("new.title")]} name="new.title" />
+                        </label>
                         {columns.map((c) => (
                           <label class="col" title={c.label}>
                             <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
@@ -426,13 +433,13 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                           </label>
                         ))}
                       </div>
+                      <div class="actions"><button class="button secondary" type="submit" name="again" value="1">Add {typeName.toLowerCase()}</button></div>
                     </div>
                   )}
                 </div>
               )}
               <div class="actions">
                 <button class="button" type="submit">{submitLabel}</button>
-                {step.add !== false && <button class="button secondary" type="submit" name="again" value="1">Save and add another</button>}
               </div>
             </form>
           )}
@@ -815,10 +822,10 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
 
   .rows { display: grid; gap: 12px; }
   .row { border: 0; border-radius: var(--radius); padding: 14px 16px; background: var(--bg); display: grid; gap: 12px; }
-  .row.new { border-style: dashed; background: transparent; }
+  .row.new { border-left: 4px solid var(--color-primary); background: var(--panel-2); } /* the add form is a card of its own, not one more row */
   .row-head { font-weight: 600; }
-  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
-  .col { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  .cols { display: grid; grid-template-columns: 1fr; gap: 14px; max-width: 560px; } /* stacked, a field to a line: side by side they were squeezed to about 130px each */
+  .col { display: grid; gap: 5px; font-size: 13px; color: var(--muted); }
   .col span { font-weight: 500; }
   .col .input { font-size: 14px; font-weight: 400; color: var(--ink); }
   .none { margin: 0; }
