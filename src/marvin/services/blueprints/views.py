@@ -113,7 +113,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
     title = payload.get("title")
     if not isinstance(title, str) or not title.strip():
         return f"{label} needs a title"
-    if problem := _slug(payload, "entry_type", label):
+    if problem := _slug(payload, "entry_type", label) or _field(payload, "aspect", label):
         return problem
     spine = payload.get("spine")
     if not isinstance(spine, dict):

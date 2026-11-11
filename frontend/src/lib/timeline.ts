@@ -137,6 +137,8 @@ export interface TimelineSpec {
   title: string;
   description?: string;
   entry_type: string;
+  /** The entry's field holding the picture's shape, by its trailing WxH (a story's `format`: short-9x16, square-1x1, wide-16x9). */
+  aspect?: string;
   spine: SpineSpec;
   lanes?: LaneSpec[];
   actions?: ActionSpec[];
@@ -908,4 +910,14 @@ export function cues(laid: Layout, lanes: LaneSpec[]): Cue[] {
     if (end > at) out.push({ item: item.id, piece: null, lane: null, start: at, seconds: end - at, audio: null });
   }
   return out;
+}
+
+/**
+ * The picture's shape as width over height, from the trailing `WxH` of a value such as `short-9x16`, `square-1x1` or `wide-16x9`; null for anything
+ * else, which leaves the strip as it was. The strip draws each beat's picture in this shape, as the render will cut it.
+ */
+export function aspectOf(value: unknown): number | null {
+  const m = typeof value === "string" ? /(?:^|[^0-9])(\d{1,2})x(\d{1,2})\s*$/i.exec(value.trim()) : null;
+  const ratio = m ? Number(m[1]) / Number(m[2]) : NaN;
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : null;
 }

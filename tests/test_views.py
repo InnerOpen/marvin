@@ -393,3 +393,12 @@ def test_a_lane_only_opens_a_setup_its_own_package_brings():
     view["payload"]["lanes"][0]["open"] = {"wizard": "someone-elses"}
     with pytest.raises(PackageError, match="does not bring"):
         service.parse_manifest(manifest)
+
+
+def test_a_view_may_name_the_field_that_holds_the_shape_of_the_picture_and_it_must_be_a_field_key():
+    good = copy.deepcopy(TIMELINE)
+    good["aspect"] = "format"
+    assert payload_problem(good, "story-timeline") is None
+    for bad in ("bad key", 3, ""):
+        good["aspect"] = bad
+        assert "aspect must be a field key" in (payload_problem(good, "story-timeline") or "")

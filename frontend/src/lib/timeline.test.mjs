@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { aspectOf, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -653,4 +653,13 @@ test("overlay lane: a PNG or an animated GIF is an overlay too, named by its tit
   assert.equal(coverLaid({ storyAssets: [gif] }).covers.overlay[0].name, "typed.gif");
   const audio = { role: "overlay", publicUrl: "https://cdn/x.mp3", mimeType: "audio/mpeg" };
   assert.deepEqual(coverLaid({ storyAssets: [audio] }).covers.overlay, []); // a sound is no overlay
+});
+
+test("aspectOf: the shape is the trailing WxH of the format, width over height; anything else is no shape", () => {
+  assert.equal(aspectOf("short-9x16"), 9 / 16);
+  assert.equal(aspectOf("wide-16x9"), 16 / 9);
+  assert.equal(aspectOf("square-1x1"), 1);
+  assert.equal(aspectOf(" portrait-4x5 "), 4 / 5);
+  assert.equal(aspectOf("9x16"), 9 / 16);
+  for (const nothing of ["", "short", "short-9x", "x9x16y", null, undefined, 3, "short-0x16"]) assert.equal(aspectOf(nothing), null);
 });
