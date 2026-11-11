@@ -9,7 +9,7 @@ all of it is for owners and admins.
 
 import json
 
-from fastapi import APIRouter, Body, HTTPException, Response, status
+from fastapi import APIRouter, Body, HTTPException, Query, Response, status
 
 from marvin.core.root_logger import get_logger
 from marvin.routes._base import BaseUserController, controller
@@ -56,6 +56,43 @@ class PackagesController(BaseUserController):
         self._manage()
         try:
             result = service.install(self.session, self.group_id, self._manifest(body), actor_id=self.user.id, event_bus=self.event_bus)
+        except PackageError as e:
+            self.session.rollback()
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+        self.session.commit()
+        return result
+
+    @router.post("/update/preview", response_model=PackageResult)
+    def update_preview(
+        self,
+        body: dict = Body(..., description="The package file's JSON, a newer version of one already installed"),
+        replace_edits: bool = Query(False, description="Count a workflow or Playbook changed in this workspace as one to replace"),
+    ):
+        """What updating this package would do, item by item: what is missing would be made, what is here would be brought up to this file.
+        Changes nothing."""
+        self._manage()
+        try:
+            return service.update(
+                self.session, self.group_id, self._manifest(body), replace_edits=replace_edits, preview_only=True, actor_id=self.user.id
+            )
+        except PackageError as e:
+            self.session.rollback()
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+
+    @router.post("/update", response_model=PackageResult)
+    def update(
+        self,
+        body: dict = Body(..., description="The package file's JSON, a newer version of one already installed"),
+        replace_edits: bool = Query(False, description="Go ahead although a workflow or Playbook was changed in this workspace"),
+    ):
+        """Bring the installed package up to this file: create what is missing (disabled), replace the steps of the workflows and the text of the
+        Playbooks it installed (one changed here is left unless `replace_edits`), and add the fields and lookups its entry types lack.
+        Nothing is removed."""
+        self._manage()
+        try:
+            result = service.update(
+                self.session, self.group_id, self._manifest(body), replace_edits=replace_edits, actor_id=self.user.id, event_bus=self.event_bus
+            )
         except PackageError as e:
             self.session.rollback()
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e

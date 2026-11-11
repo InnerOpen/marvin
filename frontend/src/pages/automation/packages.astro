@@ -125,7 +125,7 @@ const holds = (p: PackageInfo) =>
       <section class="card" data-testid="add">
         <h3>Add a package</h3>
         <p class="muted">Choose a package file (<code>.marvin-package.json</code>). You see exactly what it would create before anything is installed.</p>
-        <label class="drop" id="pk-drop" for="pk-file">
+        <label class="drop" id="pk-drop" for="pk-file" data-installed={JSON.stringify(packages.map((p) => p.slug))}>
           <input type="file" id="pk-file" class="sr-only" accept=".json,application/json" />
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -143,6 +143,9 @@ const holds = (p: PackageInfo) =>
               <tbody id="pk-preview-rows"></tbody>
             </table>
           </div>
+          <label class="check" id="pk-replace-row" hidden>
+            <input type="checkbox" id="pk-replace" /> Replace the changes made here (a workflow or Playbook edited in this workspace is otherwise left as it is)
+          </label>
           <div class="actions">
             <button type="button" class="button" id="pk-install">Install</button>
             <button type="button" class="button secondary" id="pk-cancel">Cancel</button>
@@ -189,6 +192,8 @@ const holds = (p: PackageInfo) =>
     getPackageFile,
     installPackage,
     previewPackage,
+    previewPackageUpdate,
+    updatePackage,
     removePackage,
     type PackageManifest,
     type PackageResult,
@@ -256,7 +261,31 @@ const holds = (p: PackageInfo) =>
   let pending: PackageManifest | null = null;
   const addNote = $("pk-add-note");
   const rows = $("pk-preview-rows");
-  const WHAT: Record<string, string> = { create: "Will be created", created: "Created", exists: "Already here, left as it is", blocked: "Blocked" };
+  const WHAT: Record<string, string> = {
+    create: "Will be created",
+    created: "Created",
+    exists: "Already here, left as it is",
+    blocked: "Blocked",
+    update: "Will be updated",
+    updated: "Updated",
+    current: "Already up to date",
+    edited: "Changed here: left as it is",
+  };
+  // A package that is already installed is updated from the file, not installed again: what is missing is made, what is here is brought up to the file.
+  const installed: string[] = JSON.parse(($("pk-drop").dataset.installed as string) || "[]");
+  const replaceRow = $("pk-replace-row");
+  const replaceBox = $("pk-replace") as HTMLInputElement;
+  let updating = false;
+  async function preview() {
+    if (!pending) return;
+    updating = !!pending.slug && installed.includes(pending.slug);
+    const result = updating ? await previewPackageUpdate(pending, replaceBox.checked) : await previewPackage(pending);
+    showPreview(result, true);
+    ($("pk-install") as HTMLButtonElement).textContent = updating ? "Update" : "Install";
+    replaceRow.hidden = !(updating && (result.edited || replaceBox.checked));
+    ($("pk-install") as HTMLButtonElement).disabled = false;
+  }
+  replaceBox.addEventListener("change", () => void preview().catch((err) => message(addNote, failure(err), true)));
 
   function showPreview(result: PackageResult, preview: boolean) {
     $("pk-preview-title").textContent = `${result.name}: ${describeResult(result, preview)}`;
@@ -300,8 +329,8 @@ const holds = (p: PackageInfo) =>
     if (!file) return;
     try {
       pending = parseManifestText(await file.text());
-      showPreview(await previewPackage(pending), true);
-      ($("pk-install") as HTMLButtonElement).disabled = false;
+      replaceBox.checked = false;
+      await preview();
     } catch (err) {
       pending = null;
       message(addNote, failure(err), true);
@@ -318,9 +347,12 @@ const holds = (p: PackageInfo) =>
     const button = e.currentTarget as HTMLButtonElement;
     button.disabled = true;
     try {
-      const result = await installPackage(pending);
+      const result = updating ? await updatePackage(pending, replaceBox.checked) : await installPackage(pending);
       showPreview(result, false);
-      message(addNote, `Installed. ${describeResult(result, false)}. Workflows are switched off: turn them on from the package when you have read them.`);
+      message(
+        addNote,
+        `${updating ? "Updated" : "Installed"}. ${describeResult(result, false)}. ${updating ? "New workflows" : "Workflows"} are switched off: turn them on from the package when you have read them.`,
+      );
       setTimeout(() => location.reload(), 2500);
     } catch (err) {
       message(addNote, failure(err), true);
@@ -397,6 +429,8 @@ const holds = (p: PackageInfo) =>
   .drop-hint { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   #pk-preview { margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--line); }
+  #pk-replace-row { display: block; margin: 10px 0 0; font-size: 13px; color: var(--ink); }
+  #pk-replace-row[hidden] { display: none; }
   .preview-title { font-weight: 600; margin: 10px 0 6px; color: var(--ink); }
   .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
   .fields label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }

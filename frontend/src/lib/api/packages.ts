@@ -10,7 +10,8 @@
 
 import { fetchApi } from "./client";
 
-export type PackageItemStatus = "create" | "created" | "exists" | "blocked";
+/** `update`/`updated`/`current`/`edited` come from an update of an installed package (see `updatePackage`). */
+export type PackageItemStatus = "create" | "created" | "exists" | "blocked" | "update" | "updated" | "current" | "edited";
 
 export interface PackageItem {
   slug: string;
@@ -29,6 +30,10 @@ export interface PackageResult {
   created: number;
   existing: number;
   blocked: number;
+  /** An update: brought (or to be brought) up to the file's version; already at it; changed here and so left unless replaced. */
+  updated?: number;
+  current?: number;
+  edited?: number;
 }
 
 export interface PackageInfo {
@@ -71,6 +76,18 @@ export const previewPackage = (manifest: PackageManifest) =>
 
 export const installPackage = (manifest: PackageManifest) =>
   fetchApi<PackageResult>("/api/groups/packages/install", { method: "POST", body: JSON.stringify(manifest), headers: JSON_HEADERS });
+
+/** What updating an installed package from a newer file would do, per blueprint. Changes nothing. */
+export const previewPackageUpdate = (manifest: PackageManifest, replaceEdits = false) =>
+  fetchApi<PackageResult>(`/api/groups/packages/update/preview?replace_edits=${replaceEdits}`, { method: "POST", body: JSON.stringify(manifest), headers: JSON_HEADERS });
+
+/**
+ * Bring an installed package up to a newer file: what is missing is created (workflows off), the workflows and Playbooks it installed are
+ * replaced with the file's version (one changed in this workspace is left unless `replaceEdits`), and its entry types gain the fields,
+ * select options and lookups they lack. Nothing is removed.
+ */
+export const updatePackage = (manifest: PackageManifest, replaceEdits = false) =>
+  fetchApi<PackageResult>(`/api/groups/packages/update?replace_edits=${replaceEdits}`, { method: "POST", body: JSON.stringify(manifest), headers: JSON_HEADERS });
 
 /** Bundle chosen content of this workspace; the response is the package file's JSON. */
 export const exportPackage = (request: ExportRequest) =>

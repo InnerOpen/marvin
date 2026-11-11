@@ -36,3 +36,12 @@ describe("describeResult", () => {
     assert.equal(describeResult({ created: 0, existing: 0, blocked: 0 }, true), "nothing to do");
   });
 });
+
+describe("describeResult for an update", () => {
+  test("names what is updated, up to date and left because it was changed here", () => {
+    const r = { created: 1, existing: 0, blocked: 0, updated: 2, current: 4, edited: 1 };
+    assert.equal(describeResult(r, true), "1 will be created, 2 will be updated, 4 up to date, 1 changed here, left as they are");
+    assert.equal(describeResult(r, false), "1 created, 2 updated, 4 up to date, 1 changed here, left as they are");
+    assert.equal(describeResult({ created: 0, existing: 0, blocked: 0, current: 3 }, true), "3 up to date");
+  });
+});

@@ -677,8 +677,9 @@ def update_blueprint(
     state = blueprint_state(row.definition, row.source_definition_hash, definition)
     if state == "current":
         result.detail = "already up to date"
-        if not row.source_definition_hash:
-            row.source_definition_hash = definition_hash(definition)  # it matches the provider's, so it is unedited
+        if row.source_definition_hash != definition_hash(definition):
+            # it matches the provider's, so it is unedited: a hand-made change that ended up the same is not an edit
+            row.source_definition_hash = definition_hash(definition)
             session.flush()
         return result
     if state in REPLACES_EDITS and not replace_edits:
@@ -691,4 +692,68 @@ def update_blueprint(
     result.slug, result.name, result.updated = row.slug, row.name, True
     result.detail = "updated to the integration's current version"
     logger.info("Blueprint updated: workflow '%s' (%s)", row.slug, blueprint.source)
+    return result
+
+
+# --- an existing entry type, brought up to what a package declares now --------------------------------
+#
+# An entry type records no source package and the workspace may have customised its fields, so an update only ever *adds*: the declared fields the
+# type lacks, the options a declared select lacks, and the declared `children` lookups it lacks. A field that exists is never rewritten, a field the
+# package does not declare is kept, nothing is removed.
+
+
+def entry_type_additions(entry_type, blueprint: Blueprint) -> tuple[dict | None, list[str]]:
+    """(the schema with the additions, what was added in words); (None, []) when the type already has everything the blueprint declares."""
+    import copy
+
+    declared = (blueprint.payload or {}).get("schema_json") or {}
+    schema = copy.deepcopy(entry_type.schema_json or {})
+    fields = schema.setdefault("fields", [])
+    by_key = {f.get("key"): f for f in fields}
+    notes: list[str] = []
+    for field in declared.get("fields", []):
+        key = field.get("key")
+        if not key:
+            continue
+        if key not in by_key:
+            fields.append(copy.deepcopy(field))
+            by_key[key] = fields[-1]
+            notes.append(f"field {key}")
+        elif isinstance(field.get("options"), list) and isinstance(by_key[key].get("options"), list):
+            missing = [o for o in field["options"] if o not in by_key[key]["options"]]
+            if missing:
+                by_key[key]["options"] = [*by_key[key]["options"], *missing]
+                notes.append(f"{key}: option {', '.join(str(o.get('value') if isinstance(o, dict) else o) for o in missing)}")
+    declared_children = declared.get("children") or []
+    children = schema.setdefault("children", []) if declared_children else []
+    have = {(c.get("entry_type"), c.get("field")) for c in children if isinstance(c, dict)}
+    for child in declared_children:
+        if (child.get("entry_type"), child.get("field")) not in have:
+            children.append(copy.deepcopy(child))
+            notes.append(f"list {child.get('title') or child.get('entry_type')}")
+    return (schema, notes) if notes else (None, [])
+
+
+def update_entry_type(session, group_id, blueprint: Blueprint, row) -> BlueprintApplyResult:
+    """Add what the package declares and this type lacks (see above). Flushes, never commits; the schema is validated first."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
+
+    result = BlueprintApplyResult(slug=blueprint.slug, kind=blueprint.kind, created=False, name=row.name)
+    schema, notes = entry_type_additions(row, blueprint)
+    if schema is None:
+        result.detail = "already up to date"
+        return result
+    try:
+        EntryTypeSchemaDefinition.model_validate(schema)
+    except Exception as e:  # noqa: BLE001 — name the schema rule that failed, don't half-apply
+        result.detail = f"the additions don't fit entry type '{row.slug}': {e}"
+        return result
+    row.schema_json = schema
+    flag_modified(row, "schema_json")
+    session.flush()
+    result.updated = True
+    result.detail = "added " + "; ".join(notes)
+    logger.info("Blueprint updated: entry type '%s' (%s)", row.slug, "; ".join(notes))
     return result

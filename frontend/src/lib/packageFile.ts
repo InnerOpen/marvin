@@ -3,10 +3,16 @@
 
 import type { PackageManifest, PackageResult } from "./api/packages.ts";
 
-/** "3 will be created, 1 already here, 1 blocked" for a preview, or "created" for the result of an install. */
-export function describeResult(result: Pick<PackageResult, "created" | "existing" | "blocked">, preview: boolean): string {
+/** "3 will be created, 1 already here, 1 blocked" for a preview, or "created" for the result of an install; an update adds "2 will be updated, 4 up to date". */
+export function describeResult(
+  result: Pick<PackageResult, "created" | "existing" | "blocked"> & { updated?: number; current?: number; edited?: number },
+  preview: boolean,
+): string {
   const parts = [
     result.created ? `${result.created} ${preview ? "will be created" : "created"}` : "",
+    result.updated ? `${result.updated} ${preview ? "will be updated" : "updated"}` : "",
+    result.current ? `${result.current} up to date` : "",
+    result.edited ? `${result.edited} changed here, left as they are` : "",
     result.existing ? `${result.existing} already here` : "",
     result.blocked ? `${result.blocked} blocked` : "",
   ].filter(Boolean);

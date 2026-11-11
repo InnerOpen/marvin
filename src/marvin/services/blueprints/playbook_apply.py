@@ -171,7 +171,7 @@ def state_of(session, row, blueprint: Blueprint) -> str:
 
 
 def update_playbook(
-    session, group_id, blueprint: Blueprint, row, integration_id, actor_id, replace_edits: bool, event_bus=None
+    session, group_id, blueprint: Blueprint, row, integration_id, actor_id, replace_edits: bool, event_bus=None, package_slug: str | None = None
 ) -> BlueprintApplyResult:
     """Replace an applied Playbook's text and files with its integration's current version (committed). Its id and status are kept,
     so a published one is used by agents with the new text at once; the text goes through ``EntryService.update`` (the old version
@@ -198,12 +198,11 @@ def update_playbook(
     # The text first, with the review and provenance, so history holds the old version whatever happens to the files.
     review = review_package(package, _tool_names())
     previous = (row.metadata_json or {}).get("importReview") or {}
-    review["source"] = {
-        **(previous.get("source") or {}),
-        "kind": "integration",
-        "provider": blueprint.source,
-        "name": provider_name(blueprint.source),
-    }
+    review["source"] = (
+        {**(previous.get("source") or {}), "kind": "package", "name": package_slug}
+        if package_slug
+        else {**(previous.get("source") or {}), "kind": "integration", "provider": blueprint.source, "name": provider_name(blueprint.source)}
+    )
     data = {**(row.data_json or {}), **package.doc.to_entry_data()}
     entry_id = row.id
     metadata = {k: v for k, v in (row.metadata_json or {}).items() if k != "frontmatterExtra"}
@@ -219,7 +218,9 @@ def update_playbook(
     row = session.get(Entries, entry_id)
     metadata = dict(row.metadata_json or {})
     metadata["importReview"] = review
-    metadata[PROVENANCE_KEY] = _installed_by(blueprint, integration_id or mine.get("integrationId"), package, entry_id, session)
+    metadata[PROVENANCE_KEY] = _installed_by(
+        blueprint, integration_id or mine.get("integrationId"), package, entry_id, session, package_slug or mine.get("package")
+    )
     row.metadata_json = metadata
     flag_modified(row, "metadata_json")
     session.commit()
