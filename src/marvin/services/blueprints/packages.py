@@ -131,6 +131,12 @@ def workflow_summary(definition: dict | None) -> str:
 def _item(blueprint: Blueprint, result: BlueprintApplyResult, *, preview: bool) -> PackageItem:
     if result.created:
         status = "create" if preview else "created"
+    elif result.updated:
+        status = "update" if preview else "updated"
+    elif result.needs_confirmation:
+        status = "edited"
+    elif (result.detail or "") == "already up to date":
+        status = "current"
     elif "left as it is" in (result.detail or ""):
         status = "exists"
     else:
@@ -158,6 +164,9 @@ def _result(manifest: PackageManifest, results: list[BlueprintApplyResult], *, p
         created=sum(i.status in made for i in items),
         existing=sum(i.status == "exists" for i in items),
         blocked=sum(i.status == "blocked" for i in items),
+        updated=sum(i.status in ("update", "updated") for i in items),
+        current=sum(i.status == "current" for i in items),
+        edited=sum(i.status == "edited" for i in items),
     )
 
 
@@ -231,6 +240,82 @@ def install(session, group_id, manifest: PackageManifest, actor_id=None, event_b
     results += kept_results
     _keep(session, group_id, manifest, actor_id)
     logger.info("Package '%s' installed to %s: %s", manifest.slug, group_id, [(r.kind, r.slug, r.created) for r in results])
+    return _result(manifest, results, preview=False)
+
+
+def update(
+    session, group_id, manifest: PackageManifest, *, replace_edits: bool = False, preview_only: bool = False, actor_id=None, event_bus=None
+) -> PackageResult:
+    """Bring an installed package up to this file: what is missing is created (workflows disabled, as install does), and what is already here is
+    updated where that is safe, so a release reaches the workspace without hand-patching.
+
+    * a **workflow** this package installed has its steps replaced (its on/off state is kept); one changed in this workspace is reported as
+      `edited` and left unless `replace_edits`; one that already matches is re-stamped so it no longer reads as edited;
+    * an **entry type** only gains: the fields, select options and `children` lookups it lacks (see ``apply.update_entry_type``);
+    * a **Playbook** this package installed has its text and files replaced, keeping its id and status; a Playbook of that name that the package
+      did not install is left alone and said so;
+    * a guided setup and a view are replaced, as on install; everything else is as install leaves it.
+
+    Nothing is ever removed. A preview applies everything inside the transaction and rolls it back, except a Playbook (whose writers commit): that
+    one is only compared."""
+    from marvin.schemas.platform.blueprints import BlueprintApplyResult as Result
+
+    from .apply import _existing, update_blueprint, update_entry_type
+    from .playbook_apply import applied_row, state_of, update_playbook
+
+    kept_results = _kept_outcomes(session, group_id, manifest)
+    if clash := next((r for r in kept_results if not r.created), None):
+        raise PackageError(clash.detail or f"the {clash.kind} '{clash.slug}' cannot be installed")
+    playbooks = [b for b in manifest.blueprints if b.kind == "playbook"]
+    rest = [b for b in manifest.blueprints if b.kind not in KEPT_KINDS and b.kind != "playbook"]
+    results = apply_many(session, group_id, rest, actor_id=actor_id, event_bus=event_bus, package=manifest.slug)
+    by_slug = {(r.kind, r.slug): r for r in results}
+    for blueprint in rest:
+        if blueprint.kind not in ("workflow", "entry_type"):
+            continue
+        made = by_slug[(blueprint.kind, blueprint.slug)]
+        if made.created or "left as it is" not in (made.detail or ""):
+            continue  # new here (created) or refused (blocked): as install says
+        row = _existing(session, group_id, blueprint, blueprint.slug)
+        if row is None:
+            continue
+        if blueprint.kind == "workflow":
+            if getattr(row, "source_package", None) != manifest.slug:
+                made.detail = "a workflow with this slug is here and this package did not install it — left as it is"
+                continue
+            done = update_blueprint(session, group_id, blueprint, None, replace_edits, actor_id=actor_id, event_bus=event_bus)
+        else:
+            done = update_entry_type(session, group_id, blueprint, row)
+        results[results.index(made)] = done.model_copy(update={"name": done.name or made.name, "slug": blueprint.slug, "kind": blueprint.kind})
+    for blueprint in playbooks:
+        row = applied_row(session, group_id, blueprint)
+        if row is None:
+            results += (
+                [_playbook_outcome(session, group_id, blueprint)]
+                if preview_only
+                else apply_many(session, group_id, [blueprint], actor_id=actor_id, event_bus=event_bus, package=manifest.slug)
+            )
+        elif preview_only:  # a Playbook's update commits, so a preview only compares
+            state = state_of(session, row, blueprint)
+            found = Result(slug=blueprint.slug, kind="playbook", created=False, name=blueprint.name)
+            if state == "current":
+                found.detail = "already up to date"
+            elif state in ("update",):
+                found.updated = True
+            else:
+                found.needs_confirmation = not replace_edits
+                found.updated = replace_edits
+                found.detail = "This Playbook was changed in this workspace; updating replaces those changes."
+            results.append(found)
+        else:
+            results.append(update_playbook(session, group_id, blueprint, row, None, actor_id, replace_edits, event_bus, package_slug=manifest.slug))
+    results += kept_results
+    if preview_only:
+        outcome = _result(manifest, results, preview=True)
+        session.rollback()
+        return outcome
+    _keep(session, group_id, manifest, actor_id)
+    logger.info("Package '%s' updated in %s: %s", manifest.slug, group_id, [(r.kind, r.slug, r.created, r.updated) for r in results])
     return _result(manifest, results, preview=False)
 
 

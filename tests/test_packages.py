@@ -577,3 +577,181 @@ def test_removing_a_package_keeps_its_playbooks_and_clears_their_package_mark(db
     row = _playbook_entry(db_session, workspace.id)
     assert row is not None and "package" not in row.metadata_json["installedBy"]
     assert ungrouped >= 3  # two workflows and the playbook
+
+
+# --- updating an installed package from a newer file ----------------------------------------------------------------------------------------
+
+NEW_DEFINITION = {**WORKFLOW_DEFINITION, "actions": [{"kind": "entry", "op": "set_data", "data": {"status": "released"}}]}
+
+
+def _newer(**changes) -> dict:
+    """The kit, a version later: a workflow with new steps, the entry type with a new field, a new select option and a new lookup, a new workflow."""
+    data = _manifest(version="3", **changes)
+    beat = data["blueprints"][0]["payload"]["schema_json"]
+    beat["fields"] += [
+        {"key": "note", "label": "Note", "type": "text"},
+        {"key": "status", "label": "Status", "type": "select", "options": ["draft", "made"]},
+    ]
+    beat["children"] = [{"title": "Lines", "entry_type": "line", "field": "beat"}]
+    data["blueprints"][1]["payload"]["definition"] = NEW_DEFINITION
+    data["blueprints"].append(
+        {"kind": "workflow", "slug": "kit-new", "name": "Kit: new", "payload": {"name": "Kit: new", "definition": WORKFLOW_DEFINITION}}
+    )
+    return data
+
+
+def _installed(db_session, workspace, older=None):
+    service.install(db_session, workspace.id, service.parse_manifest(older or _manifest()), actor_id=workspace.user_id)
+    db_session.commit()
+
+
+def test_an_update_replaces_the_steps_keeps_the_switch_creates_what_is_new_disabled_and_changes_nothing_else(db_session, workspace):
+    _installed(db_session, workspace)
+    row = next(r for r in _workflows(db_session, workspace.id) if r.slug == "kit-mark-sold")
+    row.enabled = True
+    db_session.commit()
+
+    result = service.update(db_session, workspace.id, service.parse_manifest(_newer()), actor_id=workspace.user_id)
+    db_session.commit()
+
+    status = {(i.kind, i.slug): i.status for i in result.items}
+    assert status[("workflow", "kit-mark-sold")] == "updated" and status[("workflow", "kit-other")] == "current"
+    assert status[("workflow", "kit-new")] == "created" and status[("entry_type", "beat")] == "updated"
+    assert (result.updated, result.current, result.edited) == (2, 1, 0)
+    rows = {r.slug: r for r in _workflows(db_session, workspace.id)}
+    assert rows["kit-mark-sold"].definition == NEW_DEFINITION and rows["kit-mark-sold"].enabled is True  # replaced, and still on
+    assert rows["kit-new"].enabled is False and rows["kit-new"].source_package == "story-kit"
+    assert db_session.query(WorkspacePackageModel).filter_by(group_id=workspace.id).one().version == "3"
+
+
+def test_an_update_is_a_preview_first_and_the_preview_leaves_no_trace(db_session, workspace):
+    _installed(db_session, workspace)
+
+    result = service.update(db_session, workspace.id, service.parse_manifest(_newer()), preview_only=True, actor_id=workspace.user_id)
+
+    assert {(i.slug, i.status) for i in result.items if i.kind == "workflow"} == {
+        ("kit-mark-sold", "update"),
+        ("kit-other", "current"),
+        ("kit-new", "create"),
+    }
+    rows = {r.slug: r for r in _workflows(db_session, workspace.id)}
+    assert set(rows) == {"kit-mark-sold", "kit-other"} and rows["kit-mark-sold"].definition == WORKFLOW_DEFINITION
+    assert db_session.query(WorkspacePackageModel).filter_by(group_id=workspace.id).one().version == "2"
+
+
+def test_a_workflow_changed_in_the_workspace_is_left_unless_the_update_says_to_replace_changes(db_session, workspace):
+    _installed(db_session, workspace)
+    row = next(r for r in _workflows(db_session, workspace.id) if r.slug == "kit-mark-sold")
+    row.definition = {**WORKFLOW_DEFINITION, "actions": [{"kind": "entry", "op": "set_data", "data": {"status": "mine"}}]}
+    db_session.commit()
+    newer = service.parse_manifest(_newer())
+
+    held = service.update(db_session, workspace.id, newer, actor_id=workspace.user_id)
+    db_session.commit()
+    assert {i.slug: i.status for i in held.items}["kit-mark-sold"] == "edited" and held.edited == 1
+    assert next(r for r in _workflows(db_session, workspace.id) if r.slug == "kit-mark-sold").definition["actions"][0]["data"] == {"status": "mine"}
+
+    forced = service.update(db_session, workspace.id, newer, replace_edits=True, actor_id=workspace.user_id)
+    db_session.commit()
+    assert {i.slug: i.status for i in forced.items}["kit-mark-sold"] == "updated"
+    assert next(r for r in _workflows(db_session, workspace.id) if r.slug == "kit-mark-sold").definition == NEW_DEFINITION
+
+
+def test_a_workflow_that_was_patched_by_hand_to_the_same_steps_is_not_an_edit_afterwards(db_session, workspace):
+    _installed(db_session, workspace)
+    row = next(r for r in _workflows(db_session, workspace.id) if r.slug == "kit-mark-sold")
+    row.definition = NEW_DEFINITION  # a live patch that happens to be what the next version says
+    db_session.commit()
+    assert row.edited_since_install is True
+
+    service.update(db_session, workspace.id, service.parse_manifest(_newer()), actor_id=workspace.user_id)
+    db_session.commit()
+
+    row = next(r for r in _workflows(db_session, workspace.id) if r.slug == "kit-mark-sold")
+    assert row.definition == NEW_DEFINITION and row.edited_since_install is False  # re-stamped: the next release will not ask to replace it
+
+
+def test_an_update_never_touches_a_workflow_another_package_or_a_person_made(db_session, workspace):
+    _installed(db_session, workspace)
+    row = next(r for r in _workflows(db_session, workspace.id) if r.slug == "kit-mark-sold")
+    row.source_package = "someone-elses"
+    db_session.commit()
+
+    result = service.update(db_session, workspace.id, service.parse_manifest(_newer()), replace_edits=True, actor_id=workspace.user_id)
+    db_session.commit()
+
+    item = next(i for i in result.items if i.slug == "kit-mark-sold")
+    assert item.status == "exists" and "did not install it" in item.detail
+    assert next(r for r in _workflows(db_session, workspace.id) if r.slug == "kit-mark-sold").definition == WORKFLOW_DEFINITION
+
+
+def test_an_entry_type_only_gains_fields_options_and_lookups_and_keeps_what_the_workspace_changed(db_session, workspace):
+    _installed(db_session, workspace)
+    beat = db_session.query(EntryTypes).filter_by(group_id=workspace.id, slug="beat").one()
+    beat.schema_json = {
+        "fields": [
+            {"key": "text", "label": "My own label", "type": "text"},
+            {"key": "mine", "label": "Mine", "type": "text"},
+            {"key": "status", "label": "Status", "type": "select", "options": ["draft"]},
+        ],
+    }
+    db_session.commit()
+
+    result = service.update(db_session, workspace.id, service.parse_manifest(_newer()), actor_id=workspace.user_id)
+    db_session.commit()
+
+    db_session.expire_all()
+    beat = db_session.query(EntryTypes).filter_by(group_id=workspace.id, slug="beat").one()
+    fields = {f["key"]: f for f in beat.schema_json["fields"]}
+    assert fields["text"]["label"] == "My own label" and "mine" in fields  # an existing field and an extra one are kept as they are
+    assert "note" in fields and fields["status"]["options"] == ["draft", "made"]  # a missing field and a missing option are added
+    assert beat.schema_json["children"] == [{"title": "Lines", "entry_type": "line", "field": "beat"}]
+    detail = next(i for i in result.items if i.kind == "entry_type").detail
+    assert "field note" in detail and "status: option made" in detail and "list Lines" in detail
+    again = service.update(db_session, workspace.id, service.parse_manifest(_newer()), actor_id=workspace.user_id)
+    assert next(i for i in again.items if i.kind == "entry_type").status == "current"  # and a second update has nothing to add
+
+
+def test_an_update_of_a_playbook_the_package_installed_replaces_its_text_and_keeps_its_id(db_session, workspace_with_playbooks):
+    workspace = workspace_with_playbooks
+    service.install(db_session, workspace.id, service.parse_manifest(_with_playbook()), actor_id=workspace.user_id)
+    db_session.commit()
+    before = _playbook_entry(db_session, workspace.id)
+    first_id = before.id
+    newer = _with_playbook(skill_md=_skill() + "\nNewer text.\n")
+
+    previewed = service.update(db_session, workspace.id, service.parse_manifest(newer), preview_only=True, actor_id=workspace.user_id)
+    assert next(i for i in previewed.items if i.kind == "playbook").status == "update"
+    assert "Newer text" not in json.dumps(_playbook_entry(db_session, workspace.id).data_json)  # a preview only compares
+
+    done = service.update(db_session, workspace.id, service.parse_manifest(newer), actor_id=workspace.user_id)
+    db_session.commit()
+    row = _playbook_entry(db_session, workspace.id)
+    assert next(i for i in done.items if i.kind == "playbook").status == "updated"
+    assert row.id == first_id and row.metadata_json["installedBy"]["package"] == "story-kit"
+    assert row.metadata_json["importReview"]["source"] == {"kind": "package", "name": "story-kit"}
+    again = service.update(db_session, workspace.id, service.parse_manifest(newer), actor_id=workspace.user_id)
+    assert next(i for i in again.items if i.kind == "playbook").status == "current"
+
+
+def test_a_playbook_the_package_did_not_install_is_left_alone_by_an_update(db_session, workspace_with_playbooks):
+    workspace = workspace_with_playbooks
+    service.install(db_session, workspace.id, service.parse_manifest(_with_playbook()), actor_id=workspace.user_id)
+    db_session.commit()
+    mine = _playbook_entry(db_session, workspace.id)
+    mine.metadata_json = {k: v for k, v in mine.metadata_json.items() if k != "installedBy"}  # imported by hand, not by the package
+    db_session.commit()
+
+    result = service.update(db_session, workspace.id, service.parse_manifest(_with_playbook()), preview_only=True, actor_id=workspace.user_id)
+
+    assert next(i for i in result.items if i.kind == "playbook").status == "blocked"
+
+
+def test_the_update_routes_exist_and_need_a_login(client):
+    from marvin.app import app
+
+    paths = {(tuple(sorted(r.methods - {"HEAD", "OPTIONS"})), r.path) for r in api_routes(app) if "/groups/packages" in r.path}
+    assert (("POST",), "/api/groups/packages/update") in paths
+    assert (("POST",), "/api/groups/packages/update/preview") in paths
+    assert client.post("/api/groups/packages/update", json=_manifest()).status_code in (401, 403)
+    assert client.post("/api/groups/packages/update/preview", json=_manifest()).status_code in (401, 403)

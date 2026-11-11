@@ -142,9 +142,11 @@ class PackageItem(_MarvinModel):
     slug: str
     kind: str
     name: str = ""
-    status: Literal["create", "created", "exists", "blocked"]
+    status: Literal["create", "created", "exists", "blocked", "update", "updated", "current", "edited"]
     """`create`: a preview, it would be made. `created`: it was. `exists`: already here, left exactly as it is.
-    `blocked`: it could not be made (see `detail`)."""
+    `blocked`: it could not be made (see `detail`). An update adds: `update` (a preview) / `updated`: what is here was brought up to
+    the package's version; `current`: it already is; `edited`: it was changed in this workspace, so it was left unless the update said to replace
+    such changes (`detail` says what the update would replace)."""
     detail: str = ""
     summary: str = ""
     """For a workflow: when it runs and what it does, in a line, so the person installing can read what they are switching on."""
@@ -157,6 +159,11 @@ class PackageResult(_MarvinModel):
     created: int = 0
     existing: int = 0
     blocked: int = 0
+    updated: int = 0
+    """An update: how many were (or would be) brought up to the package's version."""
+    current: int = 0
+    edited: int = 0
+    """An update: how many were left because they were changed in this workspace (a repeat with `replace_edits` replaces them)."""
 
 
 class PackageRead(_MarvinModel):
