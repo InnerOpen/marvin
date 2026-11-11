@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
+import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -39,11 +39,13 @@ const MAX_ROWS = 500;
 let entry: Row | null = null;
 let candidates: Row[] = [];
 let laid: Layout | null = null;
+let shape: number | null = null; // the picture's width over height (the entry's format), so a Short is drawn tall and a wide video wide
 let itemRun: { workflow: string; base: Record<string, unknown>; item: string; label: string } | null = null;
 let actions: { label: string; href: string; run?: { workflow: string; inputs: Record<string, unknown> } }[] = [];
 const laneOpens: Record<string, (pieceSlug: string) => string> = {}; // lane id -> where a piece of it opens (a guided setup), when the lane says so
 if (spec && authToken) {
   entry = await entryOfType(spec.entry_type, entryRef, authToken);
+  shape = spec.aspect && entry ? aspectOf((entry.dataJson as Record<string, unknown> | undefined)?.[spec.aspect]) : null;
   if (!entry) {
     candidates = (await findEntries({ entry_type: spec.entry_type }, authToken, 50)).entries;
   } else {
@@ -320,7 +322,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   </div>
                 ))}
 
-                <div class="tl-strip" role="list" aria-label={spec.spine.entry_type}>
+                <div class="tl-strip" role="list" aria-label={spec.spine.entry_type} style={shape ? `--tl-shape:${shape}` : undefined}>
                   {track.items.map((item) => (
                     <div
                       class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated }]}
@@ -331,7 +333,12 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       title={`${item.title}${item.text ? ` — ${item.text}` : ""}\n${timecode(item.start)} → ${timecode(item.start + item.seconds)} (${item.seconds.toFixed(1)} s${item.estimated ? ", estimated" : ""})`}
                     >
                       <button type="button" class="tl-seek" data-seek={item.start} aria-label={`Go to ${item.title}`}>
-                        {item.picture ? <img src={item.picture} alt="" loading="lazy" /> : <span class="tl-text">{item.text || item.title}</span>}
+                        {item.picture && shape ? (
+                          <>
+                            <img class="tl-frame" src={item.picture} alt="" loading="lazy" />
+                            <span class="tl-text tl-beside">{item.text || item.title}</span>
+                          </>
+                        ) : item.picture ? <img src={item.picture} alt="" loading="lazy" /> : <span class="tl-text">{item.text || item.title}</span>}
                       </button>
                       <span class="tl-badge">
                         {item.number !== null && <span class="tl-n">{item.number}</span>}
@@ -781,6 +788,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-item.estimated .tl-seek { border-style: dashed; }
   .tl-item.is-now .tl-seek { outline: 2px solid var(--accent); outline-offset: -2px; }
   .tl-seek img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  /* the story's own shape (a view's `aspect`): the picture in the shape the render will cut, as a frame at the start of the beat, its words beside it */
+  .tl-seek:has(.tl-frame) { display: flex; align-items: stretch; text-align: left; }
+  .tl-seek .tl-frame { flex: none; width: auto; height: 100%; aspect-ratio: var(--tl-shape); border-right: 1px solid var(--line); }
+  .tl-seek .tl-beside { flex: 1 1 auto; min-width: 0; padding: 22px 6px 6px; }
   .tl-text { display: block; padding: 26px 8px 8px; font-size: 12px; line-height: 1.35; max-height: 100%; overflow: hidden; }
   .tl-badge { position: absolute; top: 6px; left: 6px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--panel) 85%, transparent); font-size: 11px; font-weight: 600; pointer-events: none; }
   .tl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
