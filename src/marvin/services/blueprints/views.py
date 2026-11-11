@@ -60,6 +60,9 @@ A timeline definition::
   silence) and shows as steps in the block. ``cover`` is a video laid over each item's picture: ``field`` is the asset field, ``blend`` and
   ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with ``entry_type``) names, then the view's entry itself, and a
   blend of ``none`` at one of them switches the overlay off from there up.
+- ``spine.review`` ({ready, keep, redo}) puts Keep and Redo buttons on each item whose ``spine.status`` is one of ``ready`` (a still that was
+  made and waits to be looked at): Keep writes the status ``keep``, Redo the status ``redo`` into the item's status field, and the page shows
+  the new status at once. What the package does with those statuses (a redo made again) is its own workflows' business.
 - ``spine.bands`` adds bands over the strip, each wrapping the consecutive items that share a value in its ``field`` (the beats of one scene),
   titled by the ``entry_type`` entry that value names; at most two. They draw only: nothing is reordered.
 - ``spine.cards`` adds a title card (``intro``) and an end card (``outro``): each reads its ``title`` field (the card exists when it has
@@ -121,6 +124,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
     if (
         problem := _check_spine(spine, f"{label} spine")
         or _check_item_run(spine.get("run"), f"{label} spine")
+        or _check_review(spine, f"{label} spine")
         or _check_bands(spine.get("bands"), f"{label} spine")
         or _check_cards(spine.get("cards"), f"{label} spine")
         or _check_scene_break(spine.get("scene_break"), f"{label} spine")
@@ -217,6 +221,25 @@ def _check_item_run(run: Any, label: str) -> str | None:
     if run.get("label") is not None and (not isinstance(run["label"], str) or not run["label"].strip() or len(run["label"]) > 40):
         return f"{label}: run.label is a short text"
     return _check_run({"entry": run["entry"], "inputs": run.get("inputs")}, ["workflow"], "run", label)
+
+
+def _check_review(spine: dict, label: str) -> str | None:
+    """`spine.review`: Keep and Redo buttons on the items whose status says they are waiting to be looked at (a still that was made)."""
+    review = spine.get("review")
+    if review is None:
+        return None
+    shape = f"{label}: review is {{ready: [statuses], keep: status, redo: status}}"
+    if not isinstance(review, dict):
+        return shape
+    if not isinstance(spine.get("status"), str):
+        return f"{label}: review writes the item's status, so the spine needs `status`, the field that holds it"
+    ready = review.get("ready")
+    if not isinstance(ready, list) or not 1 <= len(ready) <= 6 or any(not isinstance(v, str) or not _ID.match(v) for v in ready):
+        return f"{label}: review.ready is one to six statuses (the ones that show the buttons), e.g. [\"made\"]"
+    for key in ("keep", "redo"):
+        if not isinstance(review.get(key), str) or not _ID.match(review[key]):
+            return f"{label}: review.{key} is the status the {key} button writes"
+    return None
 
 
 def _check_spine(spine: dict, label: str) -> str | None:
