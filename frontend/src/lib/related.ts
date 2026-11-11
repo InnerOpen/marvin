@@ -13,9 +13,9 @@ export interface RelatedSpec {
 
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const FIELD = /^[A-Za-z][A-Za-z0-9_]{0,39}$/;
-export const MAX_RELATED = 6;
+export const MAX_RELATED = 10;
 
-/** The well-formed `children` of a schema, in order (at most six): each a title, the child entry type and the field holding the parent's slug. */
+/** The well-formed `children` of a schema, in order (at most ten): each a title, the child entry type and the field holding the parent's slug. */
 export function childrenOf(schema: { children?: unknown } | null | undefined): RelatedSpec[] {
   const raw = Array.isArray(schema?.children) ? schema!.children : [];
   return raw
