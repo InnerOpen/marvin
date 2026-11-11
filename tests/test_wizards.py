@@ -427,7 +427,9 @@ def test_a_gallery_add_form_may_open_prefill_take_a_file_and_offer_buttons():
 
 
 def test_an_add_forms_file_box_and_name_box_may_say_what_they_mean():
-    wizard = _add_wizard(file={"field": "audio", "accept": "audio/*", "label": "Screen test", "help": "The actor dressed as the character.", "hint": "One picture."})
+    wizard = _add_wizard(
+        file={"field": "audio", "accept": "audio/*", "label": "Screen test", "help": "The actor dressed as the character.", "hint": "One picture."}
+    )
     wizard["steps"][1]["name"] = {"from": "line", "noun": "casting", "placeholder": "Leave empty to name it after the role"}
     assert payload_problem(wizard, "takes") is None
 

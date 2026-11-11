@@ -259,7 +259,8 @@ def _check_upload_spec(s: _Step, upload: Any, what: str) -> str | None:
         return f"{s.label}: {what}.accept is a file input's accept, like audio/* or image/png,.webp"
     if upload.get("seconds") is not None and not _is_field(upload["seconds"]):
         return f"{s.label}: {what}.seconds is the number field that takes the sound's length, measured in the browser"
-    for word, longest in (("label", 60), ("help", 300), ("hint", 100)):  # what a gallery add form's own file box says (a take's wording is the default)
+    # What a gallery add form's own file box says (a take's wording is the default).
+    for word, longest in (("label", 60), ("help", 300), ("hint", 100)):
         if upload.get(word) is not None and not (isinstance(upload[word], str) and upload[word].strip() and len(upload[word]) <= longest):
             return f"{s.label}: {what}.{word} is a short text of at most {longest} characters"
     return None
@@ -347,7 +348,8 @@ def _check_run(s: _Step) -> str | None:
 
 def _check_add_extras(s: _Step, add: Any) -> str | None:
     """What a gallery's ``add`` form may carry beyond fields and data: ``open`` (shown open), ``title``, ``prefill`` ({field: "key.field"}: start
-    from the chosen entry's own value, a take from its line's words), ``file`` (a Record/Upload box in the form, as ``upload``; its ``label``, ``help`` and ``hint`` say what the file is, a take by default) and ``buttons``
+    from the chosen entry's own value, a take from its line's words), ``file`` (a Record/Upload box in the form, as ``upload``;
+    its ``label``, ``help`` and ``hint`` say what the file is, a take by default) and ``buttons``
     (up to 3 ways to save, each ``{label, data?, file?}``: its data is added to the entry, ``file`` is "required" or "none")."""
     if not isinstance(add, dict):
         return None
@@ -411,7 +413,9 @@ def _check_gallery_extras(s: _Step) -> str | None:
     if (name := step.get("name")) is not None:
         if not isinstance(name, dict) or name.get("from") not in s.entries or not isinstance(name.get("noun"), str) or not name["noun"].strip():
             return f"{s.label}: name is {{from, noun}}: from is a key an earlier choose step set, noun the word that follows its title (take)"
-        if name.get("placeholder") is not None and not (isinstance(name["placeholder"], str) and name["placeholder"].strip() and len(name["placeholder"]) <= 80):
+        if name.get("placeholder") is not None and not (
+            isinstance(name["placeholder"], str) and name["placeholder"].strip() and len(name["placeholder"]) <= 80
+        ):
             return f"{s.label}: name.placeholder is the short hint shown in the name box (at most 80 characters)"
     if (hi := step.get("highlight")) is not None and not (
         isinstance(hi, dict) and _is_field(hi.get("field")) and isinstance(hi.get("value"), str) and isinstance(hi.get("label"), str)
