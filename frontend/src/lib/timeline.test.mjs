@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aspectOf, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { aspectOf, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -662,4 +662,13 @@ test("aspectOf: the shape is the trailing WxH of the format, width over height; 
   assert.equal(aspectOf(" portrait-4x5 "), 4 / 5);
   assert.equal(aspectOf("9x16"), 9 / 16);
   for (const nothing of ["", "short", "short-9x", "x9x16y", null, undefined, 3, "short-0x16"]) assert.equal(aspectOf(nothing), null);
+});
+
+test("a picture size gives the strip its height and a card the room one frame in the story's shape needs", () => {
+  assert.deepEqual(PICTURE_SIZES, { s: 120, m: 180, l: 260 });
+  assert.equal(cardMinPx(120, null), 72); // no shape named: the usual minimum
+  assert.equal(cardMinPx(120, 9 / 16), 72); // a tall frame of 68 px still fits the minimum
+  assert.equal(cardMinPx(260, 9 / 16), 146); // larger, the frame needs more
+  assert.equal(cardMinPx(180, 16 / 9), 320); // a wide video needs the most
+  assert.equal(minInnerWidth([{ seconds: 4 }, { seconds: 6 }], 10, 146), 365); // the strip floor follows the card floor
 });

@@ -747,10 +747,16 @@ export function scale(items: { seconds: number }[], total: number, width: number
 }
 
 /** The narrowest the strip may be (px) so the shortest item still gets its minimum card; wider than this it fills whatever room there is. */
-export function minInnerWidth(items: { seconds: number }[], total: number): number {
+export function minInnerWidth(items: { seconds: number }[], total: number, minPx: number = MIN_ITEM_PX): number {
   const shortest = Math.min(...items.map((i) => i.seconds).filter((s) => s > 0), Infinity);
-  return shortest === Infinity || total <= 0 ? 0 : Math.ceil((MIN_ITEM_PX / shortest) * total);
+  return shortest === Infinity || total <= 0 ? 0 : Math.ceil((minPx / shortest) * total);
 }
+
+/** The heights (px) a person can give the strip's pictures: the picture takes the height and, when the story names its shape, the width that shape needs. */
+export const PICTURE_SIZES: Record<string, number> = { s: 120, m: 180, l: 260 };
+
+/** The narrowest a beat's card may be at a picture height: the room one frame in the story's shape needs (a tall Short is narrow, a wide video is wide), never under the usual minimum. */
+export const cardMinPx = (height: number, shape: number | null): number => Math.max(MIN_ITEM_PX, shape ? Math.round(height * shape) : 0);
 
 /** A position or length in seconds as a CSS percentage of the whole timeline (the strip is laid out in percent, so it fills its container). */
 export const percent = (seconds: number, total: number): string => `${total > 0 ? Number(((seconds / total) * 100).toFixed(4)) : 0}%`;

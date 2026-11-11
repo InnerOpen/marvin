@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
+import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -227,7 +227,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   )}
 
   {spec && entry && laid && (
-    <div class="tl" data-total={total}>
+    <div class="tl" data-total={total} data-sizes={JSON.stringify(PICTURE_SIZES)} data-shape={shape ?? undefined}>
       <header class="tl-head">
         <div class="tl-title">
           <h2>{entry.title}</h2>
@@ -242,6 +242,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           <span class="tl-zoom" role="group" aria-label="Zoom" title="How wide the timeline is: Fit is the page, 2× is two pages. Also + and −.">
             {ZOOM_LEVELS.map((z) => (
               <button type="button" data-zoom={z} aria-pressed={z === 1 ? "true" : "false"}>{z === 1 ? "Fit" : `${z}×`}</button>
+            ))}
+          </span>
+          <span class="tl-zoom" role="group" aria-label="Picture size" title="How big the pictures are drawn: small, medium or large. The frame keeps the story's shape.">
+            {Object.keys(PICTURE_SIZES).map((k) => (
+              <button type="button" data-size={k} aria-pressed={k === "s" ? "true" : "false"}>{k.toUpperCase()}</button>
             ))}
           </span>
           {stackable && (
@@ -283,7 +288,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
               </h3>
             )}
             <div class="tl-scroll" data-scroll tabindex="0" aria-label="Timeline: scroll sideways">
-              <div class="tl-inner" data-zoom="1" data-share={share(track)} style={`width:${(share(track) * 100).toFixed(3)}%;min-width:${minInnerWidth(track.items, track.seconds)}px`}>
+              <div class="tl-inner" data-zoom="1" data-share={share(track)} data-total={track.seconds} data-shortest={Math.min(...track.items.map((i) => i.seconds).filter((x) => x > 0), Infinity)} style={`width:${(share(track) * 100).toFixed(3)}%;min-width:${minInnerWidth(track.items, track.seconds)}px`}>
                 {spec.spine.group && !stacked && (
                   <div class="tl-groups" role="list">
                     {track.groups.map((g) => {
@@ -574,6 +579,35 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     } catch {
       /* same */
     }
+    // Picture size: the strip's cards take this height (the frame follows, in the story's shape) and the strip never gets narrower than the shape needs.
+    const sizeButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-size]")];
+    const sizeKey = `tl-size:${location.pathname}`;
+    const heights: Record<string, number> = JSON.parse(root.dataset.sizes || "{}");
+    const shapeNow = Number(root.dataset.shape) || null;
+    const setSize = (key: string) => {
+      const h = heights[key];
+      if (!h) return;
+      root.style.setProperty("--tl-h", `${h}px`);
+      const floor = Math.max(72, shapeNow ? Math.round(h * shapeNow) : 0);
+      for (const { inner } of tracks) {
+        const shortest = Number(inner?.dataset.shortest);
+        const total = Number(inner?.dataset.total);
+        if (inner && Number.isFinite(shortest) && shortest > 0 && total > 0) inner.style.minWidth = `${Math.ceil((floor / shortest) * total)}px`;
+      }
+      sizeButtons.forEach((b) => b.setAttribute("aria-pressed", b.dataset.size === key ? "true" : "false"));
+      try {
+        localStorage.setItem(sizeKey, key);
+      } catch {
+        /* a private window forgets the size, nothing more */
+      }
+    };
+    sizeButtons.forEach((b) => b.addEventListener("click", () => setSize(b.dataset.size || "s")));
+    try {
+      const kept = localStorage.getItem(sizeKey);
+      if (kept && kept !== "s") setSize(kept);
+    } catch {
+      /* same */
+    }
     let at = 0; // seconds into the timeline
     let playing = false;
     let frame = 0;
@@ -784,8 +818,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-group.is-link > span::after { content: " ↗"; color: var(--muted); font-size: 12px; font-weight: 400; }
   .tl-group + .tl-group { border-left: 1px solid var(--line); }
 
-  .tl-strip { position: relative; height: 128px; }
-  .tl-item { position: absolute; top: 0; height: 120px; box-sizing: border-box; padding-right: 3px; }
+  .tl-strip { position: relative; height: calc(var(--tl-h, 120px) + 8px); }
+  .tl-item { position: absolute; top: 0; height: var(--tl-h, 120px); box-sizing: border-box; padding-right: 3px; }
   .tl-seek { display: block; width: 100%; height: 100%; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); overflow: hidden; cursor: pointer; text-align: left; color: var(--muted); }
   .tl-item.estimated .tl-seek { border-style: dashed; }
   .tl-item.is-now .tl-seek { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -795,7 +829,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-seek .tl-frame { flex: none; width: auto; height: 100%; aspect-ratio: var(--tl-shape); border-right: 1px solid var(--line); }
   /* a beat with no picture yet: a shaded frame in the same shape holding the beat's words, so the shape shows before anything is made (the draft render draws a plain card too). Only the theme's colours
      (panel, accent, muted text) are used: the theme switcher sets them from the API's theme for both light and dark */
-  .tl-seek .tl-blank { display: block; box-sizing: border-box; padding: 24px 5px 5px; overflow: hidden; font-size: 10px; line-height: 1.3; font-weight: 400; overflow-wrap: anywhere; color: var(--muted); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, transparent) 0 6px, transparent 6px 12px), var(--panel-2); }
+  .tl-seek .tl-blank { display: block; box-sizing: border-box; padding: 24px 5px 5px; overflow: hidden; font-size: calc(7px + var(--tl-h, 120px) / 40); line-height: 1.3; font-weight: 400; overflow-wrap: anywhere; color: var(--muted); background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, transparent) 0 6px, transparent 6px 12px), var(--panel-2); }
   .tl-seek .tl-beside { flex: 1 1 auto; min-width: 0; padding: 22px 6px 6px; }
   .tl-text { display: block; padding: 26px 8px 8px; font-size: 12px; line-height: 1.35; max-height: 100%; overflow: hidden; }
   .tl-badge { position: absolute; top: 6px; left: 6px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--panel) 85%, transparent); font-size: 11px; font-weight: 600; pointer-events: none; }
@@ -866,7 +900,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     .tl-actions .tl-zoom a, .tl-actions .tl-zoom button { flex: 1 1 auto; text-align: center; padding: 6px 4px; font-size: 12px; }
     .tl-links .button { flex: 1 1 45%; text-align: center; font-size: 13px; padding: 6px 8px; }
     .tl { padding-bottom: 150px; }
-    .tl-strip { height: 104px; }
-    .tl-item { height: 96px; }
+    .tl-strip { height: calc(var(--tl-h, 96px) + 8px); }
+    .tl-item { height: var(--tl-h, 96px); }
   }
 </style>
