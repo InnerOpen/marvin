@@ -235,7 +235,7 @@ def _check_review(spine: dict, label: str) -> str | None:
         return f"{label}: review writes the item's status, so the spine needs `status`, the field that holds it"
     ready = review.get("ready")
     if not isinstance(ready, list) or not 1 <= len(ready) <= 6 or any(not isinstance(v, str) or not _ID.match(v) for v in ready):
-        return f"{label}: review.ready is one to six statuses (the ones that show the buttons), e.g. [\"made\"]"
+        return f'{label}: review.ready is one to six statuses (the ones that show the buttons), e.g. ["made"]'
     for key in ("keep", "redo"):
         if not isinstance(review.get(key), str) or not _ID.match(review[key]):
             return f"{label}: review.{key} is the status the {key} button writes"
