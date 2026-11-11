@@ -391,6 +391,7 @@ def test_a_gallery_may_list_takes_name_them_after_a_line_and_measure_an_upload()
         ({"card_actions": [{"label": "x", "set": {"status": "x"}, "when": {"field": "status", "op": "gt", "value": "a"}}]}, "when is"),
         ({"name": {"from": "nope", "noun": "take"}}, "name is"),
         ({"name": {"from": "line", "noun": " "}}, "name is"),
+        ({"name": {"from": "line", "noun": "take", "placeholder": " "}}, "name.placeholder"),
         ({"highlight": {"field": "status"}}, "highlight"),
         ({"added": " "}, "added"),
         ({"upload": {"field": "audio", "seconds": "bad key"}}, "seconds"),
@@ -425,6 +426,12 @@ def test_a_gallery_add_form_may_open_prefill_take_a_file_and_offer_buttons():
     assert payload_problem(_add_wizard(), "takes") is None
 
 
+def test_an_add_forms_file_box_and_name_box_may_say_what_they_mean():
+    wizard = _add_wizard(file={"field": "audio", "accept": "audio/*", "label": "Screen test", "help": "The actor dressed as the character.", "hint": "One picture."})
+    wizard["steps"][1]["name"] = {"from": "line", "noun": "casting", "placeholder": "Leave empty to name it after the role"}
+    assert payload_problem(wizard, "takes") is None
+
+
 @pytest.mark.parametrize(
     ("change", "words"),
     [
@@ -435,6 +442,9 @@ def test_a_gallery_add_form_may_open_prefill_take_a_file_and_offer_buttons():
         ({"prefill": {"spoken": "line.text|nope.text"}}, "add.prefill"),
         ({"prefill": {"bad key": "line.text"}}, "add.prefill"),
         ({"file": {"accept": "audio/*"}}, "add.file"),
+        ({"file": {"field": "audio", "label": " "}}, "add.file.label"),
+        ({"file": {"field": "audio", "help": "x" * 301}}, "add.file.help"),
+        ({"file": {"field": "audio", "hint": 3}}, "add.file.hint"),
         ({"buttons": []}, "add.buttons"),
         ({"buttons": [{"label": ""}]}, "needs a label"),
         ({"buttons": [{"label": "x", "data": {"a": [1]}}]}, "data maps"),

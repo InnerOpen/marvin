@@ -524,14 +524,14 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                         {step.add.file?.seconds && <input type="hidden" name="upload_seconds" value="" />}
                         <div class="form-group">
                           <label for="add_title">Name {!step.name && <span class="req" title="Required">*</span>}</label>
-                          <input class:list={["input", bad("add_title")]} id="add_title" name="add_title" required={!step.name} placeholder={step.name ? "Leave empty to name it after the line" : undefined} />
+                          <input class:list={["input", bad("add_title")]} id="add_title" name="add_title" required={!step.name} placeholder={step.name ? (step.name.placeholder ?? "Leave empty to name it after the line") : undefined} />
                         </div>
                         <SchemaForm schema={{ fields: addFields }} values={addValues} refs={refs} />
                         {step.add.file && (
                           <div class="form-group">
-                            <label>Your own take</label>
-                            <p class="muted">Record or upload one, then use the first button. Leave it empty to have ElevenLabs make it from the words above.</p>
-                            <FileDrop accept={addAccept ?? undefined} hint="Record or upload one take." nameFrom="add_title" required={false} />
+                            <label>{step.add.file.label ?? "Your own take"}</label>
+                            <p class="muted">{step.add.file.help ?? "Record or upload one, then use the first button. Leave it empty to have ElevenLabs make it from the words above."}</p>
+                            <FileDrop accept={addAccept ?? undefined} hint={step.add.file.hint ?? "Record or upload one take."} nameFrom="add_title" required={false} />
                           </div>
                         )}
                         <div class="actions">
