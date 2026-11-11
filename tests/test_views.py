@@ -33,6 +33,7 @@ TIMELINE = {
         "scene_break": {"field": "scene", "seconds": "scene_break_seconds"},
         "bands": [{"entry_type": "scene", "field": "scene", "title": "Scene"}],
         "run": {"workflow": "kit-mark-sold", "entry": "story", "item": "beats", "field": "number", "label": "Draft", "inputs": {"quality": "draft"}},
+        "review": {"ready": ["made"], "keep": "approved", "redo": "redo"},
         "entry_type": "beat",
         "of": "story",
         "order": "number",
@@ -402,3 +403,26 @@ def test_a_view_may_name_the_field_that_holds_the_shape_of_the_picture_and_it_mu
     for bad in ("bad key", 3, ""):
         good["aspect"] = bad
         assert "aspect must be a field key" in (payload_problem(good, "story-timeline") or "")
+
+
+@pytest.mark.parametrize(
+    "review, words",
+    [
+        ("keep", "review is {ready"),
+        ({"ready": [], "keep": "approved", "redo": "redo"}, "one to six statuses"),
+        ({"ready": ["Made"], "keep": "approved", "redo": "redo"}, "one to six statuses"),
+        ({"ready": ["a", "b", "c", "d", "e", "f", "g"], "keep": "approved", "redo": "redo"}, "one to six statuses"),
+        ({"ready": ["made"], "redo": "redo"}, "review.keep"),
+        ({"ready": ["made"], "keep": "approved", "redo": 3}, "review.redo"),
+    ],
+)
+def test_a_wrong_review_says_what_is_wrong(review, words):
+    payload = copy.deepcopy(TIMELINE)
+    payload["spine"]["review"] = review
+    assert words in (payload_problem(payload, "story-timeline") or "")
+
+
+def test_a_review_needs_the_field_that_holds_the_status():
+    payload = copy.deepcopy(TIMELINE)
+    del payload["spine"]["status"]
+    assert "spine needs `status`" in payload_problem(payload, "story-timeline")

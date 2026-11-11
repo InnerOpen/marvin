@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
+import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, canReview } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -361,6 +361,12 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           data-run-slug={entry.slug}
                           title={`Make a quick draft video of just this ${spec.spine.entry_type.replace(/-/g, " ")}: its picture, overlay, moves, sound and captions`}
                         >▶ {itemRun.label}</button>
+                      )}
+                      {spec.spine.review && !item.card && canReview(item.status, spec.spine.review) && (
+                        <span class="tl-review" role="group" aria-label={`Keep or redo ${item.title}`}>
+                          <button type="button" class="tl-keep" data-review={JSON.stringify({ id: item.id, field: spec.spine.status, value: spec.spine.review.keep })} title={`Keep this ${spec.spine.entry_type.replace(/-/g, " ")}: its status becomes ${spec.spine.review.keep}`}>Keep</button>
+                          <button type="button" class="tl-redo" data-review={JSON.stringify({ id: item.id, field: spec.spine.status, value: spec.spine.review.redo })} title={`Make this ${spec.spine.entry_type.replace(/-/g, " ")} again: its status becomes ${spec.spine.review.redo}`}>Redo</button>
+                        </span>
                       )}
                       <span class="tl-len">{item.seconds.toFixed(1)}s</span>
                     </div>
@@ -746,6 +752,40 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       }),
     );
 
+    // Keep / Redo on a card: write the view's keep or redo status into the entry's status field, then show it. The entry is read first and sent back
+    // whole, because saving an entry replaces its fields.
+    root.querySelectorAll<HTMLButtonElement>("[data-review]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const { id, field, value } = JSON.parse(button.dataset.review || "{}") as { id: string; field: string; value: string };
+        const group = button.closest<HTMLElement>(".tl-review");
+        const card = button.closest<HTMLElement>(".tl-item");
+        group?.querySelectorAll("button").forEach((b) => ((b as HTMLButtonElement).disabled = true));
+        try {
+          const entry = await fetchApi<{ title: string; slug: string; dataJson?: Record<string, unknown> }>(`/api/platform/entries/${encodeURIComponent(id)}`);
+          await fetchApi(`/api/platform/entries/${encodeURIComponent(id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ title: entry.title, slug: entry.slug, dataJson: { ...(entry.dataJson ?? {}), [field]: value } }),
+          });
+          const dot = card?.querySelector<HTMLElement>(".tl-dot");
+          if (dot) {
+            dot.dataset.status = value;
+            dot.title = value;
+          }
+          group?.remove();
+          if (runStatus && runText) {
+            runStatus.hidden = false;
+            runText.textContent = `${entry.title}: ${value}`;
+          }
+        } catch (e) {
+          group?.querySelectorAll("button").forEach((b) => ((b as HTMLButtonElement).disabled = false));
+          if (runStatus && runText) {
+            runStatus.hidden = false;
+            runText.textContent = `Could not save: ${e instanceof Error ? e.message : "the entry did not change"}`;
+          }
+        }
+      }),
+    );
+
     playBtn?.addEventListener("click", toggle);
     root.querySelectorAll<HTMLButtonElement>("[data-seek]").forEach((b) =>
       b.addEventListener("click", () => {
@@ -842,6 +882,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-item:hover .tl-draft, .tl-item:focus-within .tl-draft { opacity: 1; }
   .tl-draft:disabled { cursor: progress; opacity: 0.5; }
   @media (hover: none) { .tl-open, .tl-draft { opacity: 1; } }
+  /* Keep / Redo on a card that waits to be looked at: always visible (it is the point of looking), small, along the bottom-left of the card */
+  .tl-review { position: absolute; left: 6px; bottom: 6px; display: inline-flex; gap: 4px; z-index: 2; }
+  .tl-review button { font: inherit; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); cursor: pointer; }
+  .tl-review .tl-keep { border-color: #2f9e44; }
+  .tl-review button:disabled { cursor: progress; opacity: 0.5; }
   .tl-len { position: absolute; right: 9px; bottom: 6px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink); background: color-mix(in srgb, var(--panel) 85%, transparent); padding: 0 5px; border-radius: 4px; pointer-events: none; }
 
   .tl-ruler { position: relative; height: 22px; margin: 4px 0 6px; border-top: 1px solid var(--line); }

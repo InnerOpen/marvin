@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aspectOf, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { aspectOf, canReview, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -686,4 +686,13 @@ test("a placed sound with no take is drawn with an estimated width from its text
   assert.equal(piece.estimated, true);
   assert.ok(piece.seconds >= 1, "it has a width");
   assert.equal(laid.items[0].seconds, 2, "the beat is still its hold: nothing plays, so the placeholder adds no time");
+});
+
+test("review: Keep and Redo show only on an item whose status is one of the waiting ones", () => {
+  const review = { ready: ["made"], keep: "approved", redo: "redo" };
+  assert.equal(canReview("made", review), true);
+  assert.equal(canReview("approved", review), false);
+  assert.equal(canReview("", review), false);
+  assert.equal(canReview("made", undefined), false);
+  assert.equal(canReview("made", null), false);
 });

@@ -38,6 +38,8 @@ export interface SpineSpec {
   /** A button on each item that runs a workflow for just that item (a quick draft of one beat): `entry` is the workflow input that gets the
    * entry's slug, `item` the input that gets this item's `field` value, `inputs` fixed values. */
   run?: { workflow: string; entry: string; item: string; field: string; label?: string; inputs?: Record<string, string | number | boolean> };
+  /** Keep and Redo buttons on the items whose status is one of `ready`: they write `keep` or `redo` into the item's status field. */
+  review?: { ready: string[]; keep: string; redo: string };
 }
 
 export interface CardSpec {
@@ -928,4 +930,9 @@ export function aspectOf(value: unknown): number | null {
   const m = typeof value === "string" ? /(?:^|[^0-9])(\d{1,2})x(\d{1,2})\s*$/i.exec(value.trim()) : null;
   const ratio = m ? Number(m[1]) / Number(m[2]) : NaN;
   return Number.isFinite(ratio) && ratio > 0 ? ratio : null;
+}
+
+/** Whether an item shows the Keep and Redo buttons: its status is one of the ones the view says are waiting to be looked at. */
+export function canReview(status: string, review: { ready: string[] } | undefined | null): boolean {
+  return !!review && !!status && review.ready.includes(status);
 }
