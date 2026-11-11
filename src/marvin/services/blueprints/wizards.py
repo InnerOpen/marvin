@@ -8,6 +8,7 @@ definition; nothing in it is code, it names entry types and fields by slug and r
 Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
 
 - ``option``: pick one of a few labelled values (``options: [{value, label}]``); sets the context key ``as``. Only there to branch on.
+  ``optional`` lets the person skip it: nothing is set, the steps after it are not held back, and the ones that ``when`` an answer stay hidden.
 - ``choose``: pick an entry of ``entry_type`` (or create one), sets the context key ``as`` to its slug. ``scope`` ({field: "${key}"})
   narrows the list to entries whose field holds an earlier choice; ``create`` ({fields: [...], data: {field: "${key}" | literal}}) lets
   the person make a new one, arriving with ``data`` filled in; ``optional`` lets them skip it. ``create.upload`` ({field, accept?}) makes
@@ -248,6 +249,8 @@ def _check_option(s: _Step) -> str | None:
         return f"{s.label} needs at least two options, each with a value and a label"
     if len({o["value"] for o in options}) != len(options):
         return f"{s.label} has two options with the same value"
+    if s.step.get("optional") is not None and not isinstance(s.step["optional"], bool):
+        return f"{s.label}: optional is true or false (true lets the person skip the question, and what depends on an answer stays hidden)"
     return s.sets_context()
 
 

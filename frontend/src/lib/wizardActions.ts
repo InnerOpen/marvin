@@ -198,6 +198,10 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
 /** Do what the posted step asks. Throws an Error whose message the page shows. */
 export async function runStep(def: WizardDefinition, step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
   if (step.kind === "option") {
+    if (step.optional && text(form, "action") === "skip") {
+      const { [step.as]: _dropped, ...rest } = withoutLater(def, ctx, step.id); // skipped: nothing is chosen, so what a choice here made shown stays hidden
+      return { ctx: rest, stay: false };
+    }
     const value = text(form, "value");
     if (!step.options.some((o: { value: string }) => o.value === value)) throw new Error("Pick one of the choices.");
     return { ctx: { ...ctx, [step.as]: value }, stay: false };

@@ -259,3 +259,10 @@ test("a card action shows on the cards its when allows", () => {
   assert.equal(cardActionShown(retry, { status: "recorded" }), false);
   assert.equal(cardActionShown({ label: "x", set: { a: 1 } }, null), true);
 });
+
+test("an optional option never blocks the steps after it, and a plain one still does", () => {
+  const pick = (optional) => ({ steps: [{ id: "how", kind: "option", title: "How", as: "input", options: [{ value: "a", label: "A" }, { value: "b", label: "B" }], ...(optional ? { optional: true } : {}) }, { id: "next", kind: "list", title: "Next", entry_type: "beat" }] });
+  assert.equal(blocker(pick(true), {}, "next"), null);
+  assert.equal(blocker(pick(false), {}, "next")?.id, "how");
+  assert.equal(blocker(pick(false), { input: "a" }, "next"), null);
+});

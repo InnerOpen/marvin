@@ -487,3 +487,12 @@ def test_a_choose_step_may_sort_naturally():
 def test_a_gallery_card_may_carry_actions_that_set_fields_and_sorts_naturally():
     good = [{"label": "Use this one", "set": {"status": "in_use"}, "when": {"field": "status", "op": "neq", "value": "in_use"}}]
     assert payload_problem(_takes_wizard(card_actions=good, sort="natural"), "takes") is None
+
+
+def test_an_option_step_may_be_optional_and_says_so_with_true_or_false():
+    payload = copy.deepcopy(WIZARD)
+    option = next(s for s in payload["steps"] if s["kind"] == "option")
+    option["optional"] = True
+    assert payload_problem(payload, "narrate") is None
+    option["optional"] = "yes"
+    assert "optional is true or false" in (payload_problem(payload, "narrate") or "")
