@@ -456,7 +456,9 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
           const at = Math.max(0, num((ref as Record<string, unknown>)[lane.placed!.at]) ?? 0);
           const length = pieceSeconds(target, lane);
           pieces.push(pieceOf(target, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + at, at));
-          reach = Math.max(reach, at + (length?.seconds ?? 0));
+          // A sound with no take yet has a width to show it needs filling in (its text, as a line has), but nothing plays, so it never lengthens its item.
+          const plays = !!length && (!length.estimated || !!assetUrl(target, lane.audio, "audio/"));
+          reach = Math.max(reach, at + (plays ? length!.seconds : 0));
         }
         item.lanes[lane.id] = pieces;
       }
