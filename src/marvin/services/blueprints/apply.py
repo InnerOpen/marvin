@@ -698,8 +698,9 @@ def update_blueprint(
 # --- an existing entry type, brought up to what a package declares now --------------------------------
 #
 # An entry type records no source package and the workspace may have customised its fields, so an update only ever *adds*: the declared fields the
-# type lacks, the options a declared select lacks, and the declared `children` lookups it lacks. A field that exists is never rewritten, a field the
-# package does not declare is kept, nothing is removed.
+# type lacks, the settings a declared field has that the existing one lacks (a slider, a step), the options a declared select lacks, and the declared
+# `children` lookups it lacks. A setting an existing field already has is never changed, a field the package does not declare is kept, and nothing
+# is removed.
 
 
 def entry_type_additions(entry_type, blueprint: Blueprint) -> tuple[dict | None, list[str]]:
@@ -719,11 +720,19 @@ def entry_type_additions(entry_type, blueprint: Blueprint) -> tuple[dict | None,
             fields.append(copy.deepcopy(field))
             by_key[key] = fields[-1]
             notes.append(f"field {key}")
-        elif isinstance(field.get("options"), list) and isinstance(by_key[key].get("options"), list):
-            missing = [o for o in field["options"] if o not in by_key[key]["options"]]
-            if missing:
-                by_key[key]["options"] = [*by_key[key]["options"], *missing]
-                notes.append(f"{key}: option {', '.join(str(o.get('value') if isinstance(o, dict) else o) for o in missing)}")
+        else:
+            have_field = by_key[key]
+            if isinstance(field.get("options"), list) and isinstance(have_field.get("options"), list):
+                missing = [o for o in field["options"] if o not in have_field["options"]]
+                if missing:
+                    have_field["options"] = [*have_field["options"], *missing]
+                    notes.append(f"{key}: option {', '.join(str(o.get('value') if isinstance(o, dict) else o) for o in missing)}")
+            # A setting the declared field has and this one lacks (a slider, a step, help text) is added; one this field already has is never changed.
+            lacking = [k for k in field if k not in have_field and k != "options"]
+            for k in lacking:
+                have_field[k] = copy.deepcopy(field[k])
+            if lacking:
+                notes.append(f"{key}: {', '.join(lacking)}")
     declared_children = declared.get("children") or []
     children = schema.setdefault("children", []) if declared_children else []
     have = {(c.get("entry_type"), c.get("field")) for c in children if isinstance(c, dict)}
