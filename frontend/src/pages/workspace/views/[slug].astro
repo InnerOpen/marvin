@@ -238,7 +238,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   )}
 
   {spec && entry && laid && (
-    <div class="tl" data-total={total} data-sizes={JSON.stringify(PICTURE_SIZES)} data-shape={shape ?? undefined}>
+    <div class="tl" data-noun={spec.spine.entry_type.replace(/-/g, " ")} data-total={total} data-sizes={JSON.stringify(PICTURE_SIZES)} data-shape={shape ?? undefined}>
       <header class="tl-head">
         <div class="tl-title">
           <h2>{entry.title}</h2>
@@ -255,6 +255,21 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
             <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>
             <button type="button" class="button secondary" data-jump="next" aria-label="Next beat" title="Next beat (→)" disabled={laid.items.length === 0}>&gt;&gt;</button>
             <button type="button" class="button secondary" data-jump="end" aria-label="On to the end" title="On to the end (End)" disabled={laid.items.length === 0}>&gt;|</button>
+          </span>
+          <span class="tl-clock" role="group" aria-label="Playhead position">
+            <input
+              type="text"
+              class="tl-clock-input"
+              data-clock
+              value="0:00:00.000"
+              inputmode="decimal"
+              spellcheck="false"
+              autocomplete="off"
+              aria-label="Playhead time, hours:minutes:seconds.thousandths"
+              title="Where the playhead is: h:mm:ss.mmm. Type a time (1:23.5, 0:01:23.456 or 83.5) and press Enter to go there. , and . nudge it by a tenth of a second (Shift: a whole second)."
+              disabled={laid.items.length === 0}
+            />
+            <span class="tl-clock-beat" data-clock-beat title={`How far into the ${spec.spine.entry_type.replace(/-/g, " ")} the playhead is: the "at" a sound placed in it needs`}></span>
           </span>
           <span class="tl-zoom" role="group" aria-label="Zoom" title="How wide the timeline is: Fit is the page, 2× is two pages. Also + and −.">
             {ZOOM_LEVELS.map((z) => (
@@ -350,6 +365,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated }]}
                       role="listitem"
                       data-item={item.id}
+                      data-name={item.number !== null ? String(item.number) : item.title}
                       data-start={item.start}
                       style={`left:${pctIn(track, item.start)};width:${pctIn(track, track.start + item.seconds)}`}
                       title={`${item.title}${item.text ? ` — ${item.text}` : ""}\n${timecode(item.start)} → ${timecode(item.start + item.seconds)} (${item.seconds.toFixed(1)} s${item.estimated ? ", estimated" : ""})`}
@@ -476,7 +492,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   );
                 })}
 
-                <div class="tl-playhead" data-playhead hidden><i /></div>
+                <div class="tl-playhead" data-playhead hidden><i /><b class="tl-grip" data-grip title="Drag to move the playhead" aria-hidden="true" /></div>
               </div>
             </div>
           </section>
@@ -493,7 +509,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   // The player: walks the cues (each a stretch of time, with a take to play or silence to wait), moves the playhead and lights the item and
   // piece under it. Nothing is stitched: a story plays from its takes as they are, and improves as takes land.
   interface Cue { item: string; piece: string | null; lane: string | null; start: number; seconds: number; audio: string | null }
-  import { gainAt, jumpTo, type Jump, type Overlay } from "@/lib/timeline";
+  import { clockText, gainAt, jumpTo, parseClock, placeIn, type Jump, type Overlay } from "@/lib/timeline";
   import { fetchApi } from "@/lib/api/client";
   import { jobFor, runState, type JobRow } from "@/lib/timelineRun";
   const root = document.querySelector<HTMLElement>(".tl");
@@ -653,8 +669,21 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       root.querySelector(`[data-item="${cue.item}"]`)?.classList.add("is-now");
       if (cue.piece) root.querySelector(`[data-piece="${cue.piece}"]`)?.classList.add("is-now");
     };
+    // Where each item starts and what it is called (a beat's number): for the clock's "how far into this beat" and for jumping between them.
+    const itemMarks = Array.from(root.querySelectorAll<HTMLElement>("[data-item][data-start]"), (item) => ({ start: Number(item.dataset.start), name: item.dataset.name || "" }));
+    const itemStarts = itemMarks.map((m) => m.start);
+    const noun = root.dataset.noun || "item";
+    const clockInput = root.querySelector<HTMLInputElement>("[data-clock]");
+    const clockBeat = root.querySelector<HTMLElement>("[data-clock-beat]");
+    const showClock = (t: number) => {
+      if (clockInput && document.activeElement !== clockInput) clockInput.value = clockText(t); // not while it is being typed in
+      if (!clockBeat) return;
+      const here = placeIn(itemStarts, t);
+      clockBeat.textContent = here ? `${noun} ${itemMarks[here.index].name} +${here.offset.toFixed(3)} s` : "";
+    };
     const show = (t: number) => {
       at = Math.max(0, Math.min(total, t));
+      showClock(at);
       const here = trackAt(at);
       for (const k of tracks) {
         if (!k.head) continue;
@@ -820,7 +849,6 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       }),
     );
     // |< << >> >|: the start, the previous beat, the next beat, the end. Playing carries on from where it lands (but not past the end).
-    const itemStarts = Array.from(root.querySelectorAll<HTMLElement>("[data-item][data-start]"), (item) => Number(item.dataset.start));
     const jump = (action: Jump) => {
       const was = playing;
       stop();
@@ -828,6 +856,67 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       if (was && action !== "end") play();
     };
     root.querySelectorAll<HTMLButtonElement>("[data-jump]").forEach((b) => b.addEventListener("click", () => jump(b.dataset.jump as Jump)));
+    // Go to a time (typed, or a nudge), carrying on playing if it was.
+    const goTo = (t: number) => {
+      const was = playing;
+      stop();
+      show(t);
+      if (was && at < total) play();
+    };
+    clockInput?.addEventListener("focus", () => clockInput.select());
+    clockInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        clockInput.value = clockText(at);
+        clockInput.blur();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const t = parseClock(clockInput.value);
+        clockInput.classList.toggle("bad", t === null);
+        if (t === null) return;
+        clockInput.blur();
+        goTo(Math.min(t, total));
+      }
+    });
+    clockInput?.addEventListener("input", () => clockInput.classList.remove("bad"));
+    clockInput?.addEventListener("blur", () => {
+      clockInput.classList.remove("bad");
+      showClock(at);
+    });
+    // The playhead can be dragged: its grip follows the pointer along the strip (the strip scrolls when the grip nears an edge), playback pauses while it is held and carries on from where it is let go.
+    root.querySelectorAll<HTMLElement>("[data-grip]").forEach((grip) => {
+      const head = grip.closest<HTMLElement>("[data-playhead]");
+      const track = tracks.find((k) => k.head === head);
+      if (!head || !track) return;
+      let held: { was: boolean } | null = null;
+      grip.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        grip.setPointerCapture(e.pointerId);
+        held = { was: playing };
+        stop();
+        head.classList.add("is-dragging");
+      });
+      grip.addEventListener("pointermove", (e) => {
+        if (!held) return;
+        const box = (head.offsetParent as HTMLElement | null)?.getBoundingClientRect();
+        if (!box || box.width <= 0) return;
+        if (track.scroll) {
+          const edge = track.scroll.getBoundingClientRect();
+          if (e.clientX < edge.left + 40) track.scroll.scrollLeft -= 24;
+          else if (e.clientX > edge.right - 40) track.scroll.scrollLeft += 24;
+        }
+        const fraction = Math.max(0, Math.min(1, (e.clientX - box.left) / box.width));
+        show(track.start + fraction * track.seconds);
+      });
+      const let_go = () => {
+        if (!held) return;
+        const { was } = held;
+        held = null;
+        head.classList.remove("is-dragging");
+        if (was && at < total) play();
+      };
+      grip.addEventListener("pointerup", let_go);
+      grip.addEventListener("pointercancel", let_go);
+    });
     applyMutes();
     document.addEventListener("keydown", (e) => {
       const target = e.target as HTMLElement | null;
@@ -841,6 +930,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           e.preventDefault();
           return jump(key[e.key]);
         }
+      }
+      if ((e.key === "," || e.key === "." || e.key === "<" || e.key === ">") && !e.metaKey && !e.ctrlKey && !e.altKey && !target?.closest("a, select")) {
+        e.preventDefault(); // , and . move the playhead a tenth of a second, a whole second with Shift, to place something exactly
+        return goTo(at + (e.key === "," || e.key === "<" ? -1 : 1) * (e.shiftKey ? 1 : 0.1));
       }
       if (e.code !== "Space" || target?.closest("button, a")) return;
       e.preventDefault();
@@ -981,6 +1074,14 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece:hover { z-index: 1; min-width: max-content; }
 
   .tl-playhead { position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none; z-index: 3; }
+  /* The grip: a wide target on the playhead's flag, to drag it along the strip. */
+  .tl-grip { position: absolute; top: -6px; left: -10px; width: 20px; height: 24px; cursor: ew-resize; pointer-events: auto; touch-action: none; }
+  .tl-playhead.is-dragging .tl-grip { cursor: grabbing; }
+  .tl-clock { display: inline-flex; align-items: center; gap: 8px; }
+  .tl-clock-input { width: 9.5em; padding: 0.35rem 0.5rem; font: 600 0.9375rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; text-align: center; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  .tl-clock-input:focus { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+  .tl-clock-input.bad { border-color: var(--color-error); }
+  .tl-clock-beat { min-width: 9em; font-size: 0.8125rem; font-variant-numeric: tabular-nums; color: var(--muted); }
   .tl-playhead i { position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: #e03131; }
   .tl-playhead::before { content: ""; position: absolute; top: -2px; left: -6px; border: 6px solid transparent; border-top: 8px solid #e03131; border-bottom: 0; }
 

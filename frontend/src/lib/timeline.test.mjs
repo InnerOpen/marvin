@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aspectOf, canReview, jumpTo, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { aspectOf, canReview, clockText, jumpTo, parseClock, placeIn, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -762,5 +762,38 @@ test("transport: << restarts the item you are in, and from near its start goes t
   assert.equal(jumpTo(starts, 20, 19, "back"), 13, "in the last item: its start");
   assert.equal(jumpTo([], 20, 7, "back"), 0);
   assert.equal(jumpTo([4, 4, 9.5], 20, 2, "back"), 0, "before the first start: the very start; duplicates are one");
+});
+
+test("the playhead clock reads hours, minutes, seconds and thousandths", () => {
+  assert.equal(clockText(0), "0:00:00.000");
+  assert.equal(clockText(83.456), "0:01:23.456");
+  assert.equal(clockText(3723.5), "1:02:03.500");
+  assert.equal(clockText(59.9996), "0:01:00.000", "rounding carries into the next second");
+  assert.equal(clockText(-4), "0:00:00.000");
+  assert.equal(clockText(Number.NaN), "0:00:00.000");
+});
+
+test("a time typed into the clock: seconds, m:s, h:m:s, or h:m:s:thousandths; anything else is refused", () => {
+  assert.equal(parseClock("83.5"), 83.5);
+  assert.equal(parseClock("1:23.5"), 83.5);
+  assert.equal(parseClock("0:01:23.456"), 83.456);
+  assert.equal(parseClock(" 1:02:03 "), 3723);
+  assert.equal(parseClock("0:01:23:456"), 83.456);
+  assert.equal(parseClock("1,5"), 1.5, "a comma is a decimal point");
+  for (const bad of ["", "abc", "1:xx", "-3", "1:2:3:4:5", "0:01:23.4:456", "::"]) assert.equal(parseClock(bad), null, bad);
+});
+
+test("the clock round-trips: what it shows can be typed back", () => {
+  for (const t of [0, 0.001, 12.34, 83.456, 3723.5]) assert.equal(parseClock(clockText(t)), t);
+});
+
+test("the playhead is in the item that started last, and the offset is how far into it", () => {
+  const starts = [0, 4, 9.5, 13];
+  assert.deepEqual(placeIn(starts, 0), { index: 0, offset: 0 });
+  assert.deepEqual(placeIn(starts, 6.25), { index: 1, offset: 2.25 });
+  assert.deepEqual(placeIn(starts, 9.5), { index: 2, offset: 0 }, "exactly at a start: that item, offset 0");
+  assert.deepEqual(placeIn(starts, 99), { index: 3, offset: 86 });
+  assert.equal(placeIn([], 3), null);
+  assert.equal(placeIn([5], 3), null, "before the first item");
 });
 
