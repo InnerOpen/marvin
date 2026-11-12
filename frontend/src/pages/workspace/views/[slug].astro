@@ -1086,14 +1086,15 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-bed { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 8%, var(--panel)); color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-decoration: none; }
   .tl-bed.has-levels { height: 40px; align-items: flex-start; padding-top: 4px; }
-  .tl-bed small { color: var(--muted); font-size: 11px; }
-  .tl-bed > span, .tl-bed > small { position: relative; z-index: 1; }
+  .tl-bed small { color: color-mix(in srgb, var(--ink) 85%, transparent); font-size: 11px; }
+  .tl-bed > span, .tl-bed > small { position: relative; z-index: 1; text-shadow: 0 0 3px rgb(0 0 0 / 0.5); } /* readable over the stronger level fill */
   /* A bed's level over time: bars rising from the foot of the block, a silent stretch hatched. */
-  .tl-step { position: absolute; bottom: 0; background: color-mix(in srgb, var(--accent) 22%, transparent); border-left: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); box-sizing: border-box; }
+  /* The level is the strong part of the bed: a solid fill with a bright edge at the level (it was a faint tint, hard to tell from the grey block). */
+  .tl-step { position: absolute; bottom: 0; background: color-mix(in srgb, var(--accent) 55%, transparent); border-left: 1px solid color-mix(in srgb, var(--accent) 85%, transparent); box-shadow: inset 0 2px 0 var(--accent); box-sizing: border-box; }
   /* Who set a stretch of the story's bed: the story's own plain, a scene's and a beat's stronger; indoors (muffled) hatched. */
-  .tl-step.by-scene { background: color-mix(in srgb, var(--accent) 38%, transparent); }
-  .tl-step.by-beat { background: color-mix(in srgb, var(--accent) 60%, transparent); }
-  .tl-step.muffled { background-image: repeating-linear-gradient(45deg, transparent 0 4px, color-mix(in srgb, var(--ink) 28%, transparent) 4px 5px); }
+  .tl-step.by-scene { background: color-mix(in srgb, var(--accent) 78%, transparent); }
+  .tl-step.by-beat { background: var(--accent); }
+  .tl-step.muffled { background-image: repeating-linear-gradient(45deg, transparent 0 4px, color-mix(in srgb, var(--ink) 38%, transparent) 4px 6px); }
   .tl-step-tag { position: absolute; left: 3px; bottom: 2px; max-width: calc(100% - 6px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; color: var(--ink); text-shadow: 0 0 3px var(--panel); pointer-events: none; }
   .tl-step.off { height: 100% !important; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink) 14%, transparent) 0 4px, transparent 4px 8px); }
   /* A fade: the part of the block that is not loud yet (or no longer) is cut away in a triangle, so the block's edge slopes. */
@@ -1123,7 +1124,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     /* Inset from the sides so the app's floating buttons (chat, theme) in the bottom corners stay clear of it. */
     .tl-run { bottom: 84px; } /* above the fixed Play bar */
     .tl-actions { position: fixed; left: 72px; right: 72px; bottom: 0; z-index: 20; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; gap: 6px; box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08); }
-    .tl-actions .tl-play { flex: 1 1 100%; justify-content: center; }
+    /* The five transport buttons are one centered row at their own width (Play no longer takes the whole row and its label no longer wraps); the
+       jump buttons are narrow enough that the row fits a 360px phone's 197px bar. */
+    .tl-actions .tl-nav { flex: 1 1 100%; justify-content: center; gap: 1px; }
+    .tl-nav [data-jump] { min-width: 2em; padding-inline: 0.3em; }
+    .tl-actions .tl-play { flex: 0 0 auto; white-space: nowrap; padding-inline: 0.6em; }
     .tl-actions .tl-zoom { flex: 1 1 100%; justify-content: center; }
     /* The clock takes what is left of its row beside the open/fold button (so the button is not pushed to a line of its own); the "beat +seconds"
        note goes on a line under the clock. */
