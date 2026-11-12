@@ -936,3 +936,29 @@ export function aspectOf(value: unknown): number | null {
 export function canReview(status: string, review: { ready: string[] } | undefined | null): boolean {
   return !!review && !!status && review.ready.includes(status);
 }
+
+/** What the transport buttons do: `start` (|<), `back` (<<), `next` (>>) and `end` (>|). */
+export type Jump = "start" | "back" | "next" | "end";
+
+/** Further into an item than this, "back" goes to the item's own start first, as a player's previous button does; within it, to the one before. */
+const RESTART_AFTER = 1;
+/** A start this close to where the playhead is counts as being at it. */
+const SAME_PLACE = 0.05;
+
+/**
+ * Where the playhead goes: `start` the very beginning, `end` the very end, `next` the start of the next item (the end when there is none),
+ * and `back` the start of the item being played, or of the one before when the playhead is within a second of its start.
+ * `starts` are the items' start times in seconds.
+ */
+export function jumpTo(starts: readonly number[], total: number, now: number, action: Jump): number {
+  const sorted = [...new Set(starts)].sort((a, b) => a - b);
+  if (action === "start") return 0;
+  if (action === "end") return total;
+  if (action === "next") return sorted.find((s) => s > now + SAME_PLACE) ?? total;
+  const current = [...sorted].reverse().find((s) => s <= now + SAME_PLACE);
+  if (current === undefined) return 0;
+  if (now - current > RESTART_AFTER) return current;
+  const before = [...sorted].reverse().find((s) => s < current - SAME_PLACE);
+  return before ?? 0;
+}
+
