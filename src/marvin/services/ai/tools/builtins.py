@@ -880,13 +880,21 @@ def list_workflows(ctx: ToolContext, _args: dict) -> str:
         "case-insensitively; when nothing matches the error lists the workflows that exist — pick the "
         "right one (or ask the user) rather than guessing again. A workflow with run inputs (list_workflows shows "
         "them: name, type text|textarea|number|choice|entry|asset, options, required) takes them in `inputs` — an entry "
-        "input is an entry's slug or id, and the run acts on that entry; an asset input is an asset's slug, id or link."
+        "input is an entry's slug or id, and the run acts on that entry; an asset input is an asset's slug, id or link. "
+        "When the run starts a worker job (a render, a check, an import) the answer names it under `job`; give `wait` (seconds, up to 55) to "
+        "wait for it and get its `result` and `log` back, or follow it later with get_entry on its slug until `status` is done or failed."
     ),
     input_schema={
         "type": "object",
         "properties": {
             "workflow": {"type": "string", "description": "workflow slug, name, or id"},
             "inputs": {"type": "object", "description": "the workflow's run inputs, by name (see list_workflows)"},
+            "wait": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 55,
+                "description": "seconds to wait for the worker job the run starts, so its result comes back (default 0: do not wait)",
+            },
         },
         "required": ["workflow"],
     },
@@ -929,4 +937,15 @@ def run_workflow(ctx: ToolContext, args: dict) -> str:
         )
     except RunInputError as e:
         return json.dumps({"error": str(e), "inputs": describe(auto)})
-    return json.dumps({"workflow": auto.slug, "ok": res.get("ok"), "result": res.get("result")})
+    answer: dict = {"workflow": auto.slug, "ok": res.get("ok"), "result": res.get("result")}
+    from marvin.services.automation import watch
+
+    if entry_id := watch.entry_of(res):  # a worker job the run started: where it stands now, or its outcome when asked to wait
+        try:
+            wait = int(args.get("wait") or 0)
+        except (TypeError, ValueError):
+            wait = 0
+        if job := watch.follow(ctx.session, ctx.group_id, entry_id, wait):
+            hint = {} if job["finished"] else {"next": f"not finished: get_entry '{job['slug']}' again until its status is done or failed"}
+            answer["job"] = {**job, **hint}
+    return json.dumps(answer)
