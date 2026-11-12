@@ -6,7 +6,7 @@
  * commas; coerceDataJsonValue turns a list field's string back into an array.
  */
 import PlayButton from "@/components/PlayButton.astro";
-import { matchesAccept, uploadAccept } from "@/lib/assetAccept";
+import { matchesAccept, uploadAccept, kindOfAccept, uploadWords } from "@/lib/assetAccept";
 import { type LinkedItem, canAdd, chosen, idsOf, serialize } from "@/lib/linkedItems";
 
 export interface Props {
@@ -45,6 +45,8 @@ const newHref = isAsset ? "/workspace/assets/new" : "/workspace/resources/new";
 const role = (field as { role?: string | null }).role?.trim() || field.key;
 const accept = isAsset ? (field.accept ?? "").trim() : "";
 const offType = (item: LinkedItem) => !!accept && !matchesAccept(accept, item);
+const kind = isAsset ? kindOfAccept(accept) : "any";
+const words = uploadWords(kind, multiple, role);
 const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id)).length : 0;
 ---
 
@@ -90,7 +92,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
       </div>
     </details>
     {isAsset && (
-      <button type="button" class:list={["button", "secondary", "li-upload-open", { "li-hidden": !addable }]} data-linked-upload-open>Upload {multiple ? "assets" : "an asset"}…</button>
+      <button type="button" class:list={["button", "secondary", "li-upload-open", { "li-hidden": !addable }]} data-linked-upload-open>{words.open}</button>
     )}
     </div>
   )}
@@ -99,7 +101,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
     <dialog class="li-upload" data-linked-upload aria-labelledby={`${inputId}-upload-title`}>
       <div class="li-upload-body">
         <h3 id={`${inputId}-upload-title`}>Upload {field.label}</h3>
-        <p class="field-help">A new asset for this field: a picture opens in the cropper first (crop, rotate, brightness, contrast). It is uploaded now, chosen here, and attached as <code>{role}</code> when you save.</p>
+        <p class="field-help">{words.intro}</p>
         <div class="li-dropzone" data-linked-dropzone role="button" tabindex="0" aria-label={multiple ? "Choose files, or drop them here" : "Choose a file, or drop one here"}>
           <input type="file" data-linked-upload-file accept={uploadAccept(accept)} multiple={multiple} hidden />
           <div class="li-dropzone-empty" data-linked-dropzone-empty>
@@ -109,7 +111,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
               <line x1="12" y1="3" x2="12" y2="15"></line>
             </svg>
             <p><strong>Click to upload or drag and drop</strong></p>
-            <p class="field-help">{multiple ? "Pictures, sounds, videos or documents; several at once, each becomes an asset." : "One picture, sound, video or document."}</p>
+            <p class="field-help">{words.drop}</p>
           </div>
           <div class="li-upload-preview" data-linked-upload-preview hidden>
             <img alt="" />
@@ -120,12 +122,12 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
             </div>
           </div>
         </div>
-        <button type="button" class="button secondary li-record" data-linked-record>Record audio…</button>
+        {(kind === "audio" || kind === "any") && <button type="button" class="button secondary li-record" data-linked-record>Record audio…</button>}
         <label class="li-upload-keep" data-linked-upload-keep hidden><input type="checkbox" data-linked-upload-keep-on /> Also keep the original file (a second, full-size asset; the cropped picture is saved as a version made from it)</label>
         <label class="li-upload-label">Name {multiple && <small>(one file; several are each named after their file)</small>}
           <input type="text" data-linked-upload-name maxlength="200" />
         </label>
-        <label class="li-upload-label">Alt text <small>(what the picture shows, for people who cannot see it)</small>
+        <label class="li-upload-label" hidden={kind === "audio" || kind === "video"}>Alt text <small>(what the picture shows, for people who cannot see it)</small>
           <input type="text" data-linked-upload-alt maxlength="500" />
         </label>
         <label class="li-upload-label">Description <small>(optional)</small>
@@ -450,7 +452,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
       file.addEventListener("change", () => take(file.files));
       // Record a take: the page's recorder (SchemaForm puts one on the page) opens over this dialog and hands back a File,
       // which goes the way of a picked one, named after the entry when it has a title.
-      dialog.querySelector<HTMLButtonElement>("[data-linked-record]")!.addEventListener("click", async () => {
+      dialog.querySelector<HTMLButtonElement>("[data-linked-record]")?.addEventListener("click", async () => {
         const recorder = audioRecorder();
         if (!recorder) return;
         const entryTitle = root.closest("form")?.querySelector<HTMLInputElement>('[name="title"]')?.value.trim();
