@@ -4,7 +4,7 @@ import FileDrop from "@/components/FileDrop.astro";
 import WizardCreate from "@/components/WizardCreate.astro";
 import PlayButton from "@/components/PlayButton.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
-import NumberField from "@/components/schema-fields/NumberField.astro";
+import SchemaFormField from "@/components/SchemaFormField.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { acceptKind, acceptsAudio } from "@/lib/acceptKind";
 import { getAuthToken } from "@/lib/api/client";
@@ -24,6 +24,7 @@ const slug = Astro.params.slug ?? "";
 
 let wizard: WizardRead | null = null;
 let problem: string | null = authToken ? null : "Sign in to use this guided setup.";
+let galleryFields: { key?: string; accept?: string | null }[] = []; // the gallery entry type's fields: what its file field takes is what an upload takes
 let stepProblem: string | null = null; // what went wrong with the step just posted: shown inside its card
 let badFields: string[] = []; // the inputs it is about
 const bad = (name: string) => (badFields.includes(name) ? "invalid" : undefined);
@@ -82,6 +83,8 @@ if (Astro.request.method === "POST" && authToken && def && step) {
 // What the current step draws.
 const fieldsOf = (type: Awaited<ReturnType<typeof typeBySlug>>, keys: string[]) =>
   (((type?.schemaJson as { fields?: any[] } | null)?.fields ?? []) as any[]).filter((f) => keys.includes(f.key));
+/** A list cell is one compact control: a long-text field is a two-line box here, whatever editor it has on its own page. */
+const cellField = (c: any) => (c.type === "markdown" ? { ...c, type: "textarea", rows: 2 } : c);
 const simple = (fields: any[]) => fields.filter((f) => SIMPLE_FIELD_TYPES.includes(f.type));
 let choices: Row[] = [];
 let listRows: Row[] = [];
@@ -159,6 +162,7 @@ if (authToken && def && step) {
     const type = await typeBySlug(step.entry_type, authToken);
     missingType = !type;
     typeName = type?.name ?? step.entry_type;
+    galleryFields = (type as any)?.schemaJson?.fields ?? [];
     cards = (await findEntries(listSpec(step, ctx), authToken)).entries;
     if (step.sort === "natural") cards = naturalByTitle(cards);
     pictureRole = fieldRole(type, step.picture);
@@ -220,12 +224,12 @@ const opened = def?.open ? entries[def.open.entry] ?? null : null;
 const submitLabel = after ? "Continue" : "Save";
 // A column heading is the field's label without its explanation in brackets (the full label stays as the hover text).
 const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || label;
-const uploadAccept = step?.kind === "gallery" && step.upload ? galleryAccept(step) : null;
+const uploadAccept = step?.kind === "gallery" && step.upload ? galleryAccept(step, galleryFields) : null;
 const uploadNoun = { audio: "sound", image: "picture", file: "file" }[acceptKind(uploadAccept)];
 // A sound can be recorded instead of picked (the drop zone's Record button): the recorder is on the page once, when the step takes one.
 // A gallery's add form may hold a file box of its own (`add.file`): it takes recordings too.
 const lengthField: string | undefined = step?.upload?.seconds ?? step?.add?.file?.seconds; // where a card's sound length lives
-const addAccept = step?.kind === "gallery" && step.add?.file ? galleryAccept({ upload: step.add.file } as any) : null;
+const addAccept = step?.kind === "gallery" && step.add?.file ? galleryAccept({ upload: step.add.file } as any, galleryFields) : null;
 const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept) || acceptsAudio(addAccept);
 // What the recorder shows to read from (`add.file.script`: field keys of the add form, labelled as the form labels them): a take's words and direction.
 const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?? []) as string[]).map((key) => ({
@@ -387,31 +391,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       <div class="row-head"><a href={`/workspace/entries/${r.id}`}>{r.title}</a></div>
                       <input type="hidden" name={`row.${r.id}.__was`} value={JSON.stringify(Object.fromEntries(columns.map((c) => [c.key, r.dataJson?.[c.key] ?? null])))} />
                       <div class="cols">
-                        {columns.map((c) => {
-                          const Cell = c.type === "number" ? "div" : "label"; // a number is a box and a slider: not one label's one control
-                          return (
-                          <Cell class="col" title={c.label}>
-                            <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
-                            {refs[c.key] ? (
-                              <select class="input" name={`row.${r.id}.${c.key}`}>
-                                <option value="">— none —</option>
-                                {withCurrent(refs[c.key], r.dataJson?.[c.key]).map((o) => <option value={o.slug} selected={r.dataJson?.[c.key] === o.slug}>{o.title}</option>)}
-                              </select>
-                            ) : c.type === "select" ? (
-                              <select class="input" name={`row.${r.id}.${c.key}`}>
-                                <option value=""></option>
-                                {(c.options ?? []).map((o: string) => <option value={o} selected={r.dataJson?.[c.key] === o}>{o}</option>)}
-                              </select>
-                            ) : c.type === "textarea" || c.type === "markdown" ? (
-                              <textarea class="input" rows="2" name={`row.${r.id}.${c.key}`}>{r.dataJson?.[c.key] ?? ""}</textarea>
-                            ) : c.type === "number" ? (
-                              <NumberField bare field={c} value={r.dataJson?.[c.key] ?? undefined} name={`row.${r.id}.${c.key}`} id={`row-${r.id}-${c.key}`} />
-                            ) : (
-                              <input class="input" type="text" name={`row.${r.id}.${c.key}`} value={r.dataJson?.[c.key] ?? ""} />
-                            )}
-                          </Cell>
-                          );
-                        })}
+                        {columns.map((c) => (
+                          <div class="col" title={c.label}>
+                            <label for={`row-${r.id}-${c.key}`}>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</label>
+                            <SchemaFormField bare field={cellField(c)} value={r.dataJson?.[c.key] ?? undefined} refs={refs} name={`row.${r.id}.${c.key}`} id={`row-${r.id}-${c.key}`} />
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
@@ -423,31 +408,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                           <span>Name <span class="req" title="Required">*</span></span>
                           <input class:list={["input", bad("new.title")]} name="new.title" />
                         </label>
-                        {columns.map((c) => {
-                          const Cell = c.type === "number" ? "div" : "label";
-                          return (
-                          <Cell class="col" title={c.label}>
-                            <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
-                            {refs[c.key] ? (
-                              <select class:list={["input", bad(`new.${c.key}`)]} name={`new.${c.key}`}>
-                                <option value="">— none —</option>
-                                {refs[c.key].map((o) => <option value={o.slug}>{o.title}</option>)}
-                              </select>
-                            ) : c.type === "select" ? (
-                              <select class:list={["input", bad(`new.${c.key}`)]} name={`new.${c.key}`}>
-                                <option value=""></option>
-                                {(c.options ?? []).map((o: string) => <option value={o}>{o}</option>)}
-                              </select>
-                            ) : c.type === "textarea" || c.type === "markdown" ? (
-                              <textarea class:list={["input", bad(`new.${c.key}`)]} rows="2" name={`new.${c.key}`} />
-                            ) : c.type === "number" ? (
-                              <NumberField bare field={c} name={`new.${c.key}`} id={`new-${c.key}`} />
-                            ) : (
-                              <input class:list={["input", bad(`new.${c.key}`)]} type="text" name={`new.${c.key}`} />
-                            )}
-                          </Cell>
-                          );
-                        })}
+                        {columns.map((c) => (
+                          <div class="col" title={c.label}>
+                            <label for={`new-${c.key}`}>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</label>
+                            <SchemaFormField bare field={cellField(c)} error={bad(`new.${c.key}`)} refs={refs} name={`new.${c.key}`} id={`new-${c.key}`} />
+                          </div>
+                        ))}
                       </div>
                       <div class="actions"><button class="button secondary" type="submit" name="again" value="1">Add {typeName.toLowerCase()}</button></div>
                     </div>
@@ -842,8 +808,8 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .row-head { font-weight: 600; }
   .cols { display: grid; grid-template-columns: 1fr; gap: 14px; max-width: 560px; } /* stacked, a field to a line: side by side they were squeezed to about 130px each */
   .col { display: grid; gap: 5px; font-size: 13px; color: var(--muted); }
-  .col span { font-weight: 500; }
-  .col .input { font-size: 14px; font-weight: 400; color: var(--ink); }
+  .col > label { font-weight: 500; }
+  .col :global(.field-input), .col :global(.field-select), .col :global(.field-textarea) { font-size: 14px; font-weight: 400; color: var(--ink); }
   .none { margin: 0; }
 
   .run { display: grid; gap: 14px; }

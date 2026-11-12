@@ -18,11 +18,16 @@ export interface Props {
   };
   value?: string;
   error?: string;
+  /** The control's name and id when it is not an entry's own field (a row of a guided step's list), and just the control without its label and help. */
+  name?: string;
+  id?: string;
+  bare?: boolean;
   options: RefOption[];
 }
 
-const { field, value, error, options } = Astro.props;
-const inputId = `field-${field.key}`;
+const { field, value, error, name, id, bare = false, options } = Astro.props;
+const inputId = id ?? `field-${field.key}`;
+const inputName = name ?? `dataJson.${field.key}`;
 const selected = value || field.defaultValue || "";
 // A pick list of things that can be heard (a sound's recording) puts a play button beside it for the one chosen.
 const listens = options.some((o) => o.audio);
@@ -39,13 +44,15 @@ const groups = (list: RefOption[]): [string, RefOption[]][] => {
 ---
 
 <div class="field-group">
-  <label for={inputId}>
-    {field.label}
-    {field.required && <span class="required">*</span>}
-  </label>
+  {!bare && (
+    <label for={inputId}>
+      {field.label}
+      {field.required && <span class="required">*</span>}
+    </label>
+  )}
 
   <div class="ref-row" data-ref-listen={listens ? "1" : undefined}>
-  <select id={inputId} name={`dataJson.${field.key}`} required={field.required} class:list={["field-select", { error }]} data-ref-match={matched ? JSON.stringify(match) : undefined} data-ref-options={matched ? JSON.stringify(withCurrent(options, selected)) : undefined}>
+  <select id={inputId} name={inputName} required={field.required} class:list={["field-select", { error }]} data-ref-match={matched ? JSON.stringify(match) : undefined} data-ref-options={matched ? JSON.stringify(withCurrent(options, selected)) : undefined}>
     <option value="">— none —</option>
     {groups(withCurrent(options, selected)).map(([heading, list]) =>
       heading ? (
@@ -62,8 +69,8 @@ const groups = (list: RefOption[]): [string, RefOption[]][] => {
   )}
   </div>
 
-  {field.helpText && <p class="field-help">{field.helpText}</p>}
-  {error && <p class="field-error">{error}</p>}
+  {!bare && field.helpText && <p class="field-help">{field.helpText}</p>}
+  {!bare && error && <p class="field-error">{error}</p>}
 </div>
 
 <script>

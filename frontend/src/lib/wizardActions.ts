@@ -171,7 +171,7 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
   }
   if (action === "upload") {
     const file = form.get("file");
-    const kind = acceptKind(galleryAccept(step));
+    const kind = acceptKind(galleryAccept(step, (type.schemaJson as { fields?: { key?: string; accept?: string }[] } | undefined)?.fields ?? []));
     const words = UPLOAD_WORDS[kind];
     if (!(file instanceof File) || file.size === 0) throw new Error(`Choose a ${words.noun} to upload.`);
     if (!isKind(file, kind)) throw new Error(words.notOne);

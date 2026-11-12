@@ -18,19 +18,26 @@ export interface Props {
   };
   value?: string;
   error?: string;
+  /** The control\'s name and id when it is not an entry\'s own field (a row of a guided step\'s list), and just the control without its label and help. */
+  name?: string;
+  id?: string;
+  bare?: boolean;
 }
 
-const { field, value, error } = Astro.props;
-const inputId = `field-${field.key}`;
+const { field, value, error, name, id, bare = false } = Astro.props;
+const inputId = id ?? `field-${field.key}`;
+const inputName = name ?? `dataJson.${field.key}`;
 const autoEmbed = field.autoEmbed !== false;
 const canEmbed = autoEmbed && !field.readOnly;
 ---
 
 <div class="field-group markdown-field" data-auto-embed={autoEmbed ? "true" : "false"}>
-  <label for={inputId}>
-    {field.label}
-    {field.required && <span class="required">*</span>}
-  </label>
+  {!bare && (
+    <label for={inputId}>
+      {field.label}
+      {field.required && <span class="required">*</span>}
+    </label>
+  )}
 
   <div class="markdown-editor-container">
     <div class="markdown-tabs">
@@ -46,7 +53,7 @@ const canEmbed = autoEmbed && !field.readOnly;
     <div class="markdown-content">
       <textarea
         id={inputId}
-        name={`dataJson.${field.key}`}
+        name={inputName}
         placeholder={field.placeholder}
         required={field.required}
         readonly={field.readOnly}
@@ -61,8 +68,8 @@ const canEmbed = autoEmbed && !field.readOnly;
     </div>
   </div>
 
-  {field.helpText && <p class="field-help">{field.helpText}</p>}
-  {error && <p class="field-error">{error}</p>}
+  {!bare && field.helpText && <p class="field-help">{field.helpText}</p>}
+  {!bare && error && <p class="field-error">{error}</p>}
 
   {canEmbed && (
     <dialog class="modal embed-dialog" data-embed-dialog aria-label="Embed media">

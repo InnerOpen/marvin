@@ -18,22 +18,29 @@ export interface Props {
   };
   value?: string | string[];
   error?: string;
+  /** The control\'s name and id when it is not an entry\'s own field (a row of a guided step\'s list), and just the control without its label and help. */
+  name?: string;
+  id?: string;
+  bare?: boolean;
 }
 
-const { field, value, error } = Astro.props;
-const inputId = `field-${field.key}`;
+const { field, value, error, name, id, bare = false } = Astro.props;
+const inputId = id ?? `field-${field.key}`;
+const inputName = name ?? `dataJson.${field.key}`;
 const selectedValue = value || field.defaultValue;
 ---
 
 <div class="field-group">
-  <label for={inputId}>
-    {field.label}
-    {field.required && <span class="required">*</span>}
-  </label>
+  {!bare && (
+    <label for={inputId}>
+      {field.label}
+      {field.required && <span class="required">*</span>}
+    </label>
+  )}
 
   <select
     id={inputId}
-    name={`dataJson.${field.key}`}
+    name={inputName}
     required={field.required}
     disabled={field.readOnly}
     multiple={field.multiple}
@@ -56,8 +63,8 @@ const selectedValue = value || field.defaultValue;
     ))}
   </select>
 
-  {field.helpText && <p class="field-help">{field.helpText}</p>}
-  {error && <p class="field-error">{error}</p>}
+  {!bare && field.helpText && <p class="field-help">{field.helpText}</p>}
+  {!bare && error && <p class="field-error">{error}</p>}
 </div>
 
 <style>
