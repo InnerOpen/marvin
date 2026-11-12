@@ -1128,7 +1128,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     /* The clock takes what is left of its row beside the open/fold button (so the button is not pushed to a line of its own); the "beat +seconds"
        note goes on a line under the clock. */
     .tl-fold { display: inline-flex; flex: 0 0 auto; min-width: 2.6em; justify-content: center; }
-    .tl-actions .tl-clock { flex: 1 1 11em; min-width: 11em; flex-wrap: wrap; gap: 2px 8px; } /* too wide for the sliver beside the jumps: it takes its own row */
+    /* The bar is only about 205px wide here (inset to clear the chat and theme buttons): 8em for the clock leaves room for the 36px button beside it
+       (11em did not, and the button dropped to a line of its own), and is more than fits in the sliver beside the jumps, so the clock takes its own row. */
+    .tl-actions .tl-clock { flex: 1 1 8em; min-width: 8em; flex-wrap: wrap; gap: 2px 8px; }
     .tl-actions .tl-clock-input { flex: 1 1 8.5em; width: auto; min-width: 0; }
     .tl-actions .tl-clock-beat { flex: 1 1 100%; min-width: 0; font-size: 12px; }
     /* Folded: just Play, the clock and the button to open it again. */
