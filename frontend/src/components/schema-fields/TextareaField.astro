@@ -1,4 +1,5 @@
 ---
+import "../../styles/fountain.css";
 /**
  * TextareaField Component
  * Renders a multi-line plain text field
@@ -16,6 +17,8 @@ export interface Props {
     min?: number;
     max?: number;
     rows?: number;
+    /** What the text is: `fountain` (a screenplay) adds a Preview tab that draws it as one. */
+    format?: "fountain";
   };
   value?: string;
   error?: string;
@@ -28,14 +31,22 @@ export interface Props {
 const { field, value, error, name, id, bare = false } = Astro.props;
 const inputId = id ?? `field-${field.key}`;
 const inputName = name ?? `dataJson.${field.key}`;
+const fountain = field.format === "fountain";
 ---
 
-<div class="field-group">
+<div class:list={["field-group", { "fountain-field": fountain }]}>
   {!bare && (
     <label for={inputId}>
       {field.label}
       {field.required && <span class="required">*</span>}
     </label>
+  )}
+
+  {fountain && (
+    <div class="fountain-tabs">
+      <button type="button" class="tab-button active" data-tab="write">Write</button>
+      <button type="button" class="tab-button" data-tab="preview">Preview</button>
+    </div>
   )}
 
   <textarea
@@ -48,13 +59,57 @@ const inputName = name ?? `dataJson.${field.key}`;
     maxlength={field.max}
     rows={field.rows || 4}
     class:list={['field-textarea', { error }]}
+    data-fountain-input={fountain ? '' : undefined}
   >{value || field.defaultValue || ''}</textarea>
+
+
+  {fountain && <div class="fountain-preview" data-fountain-preview hidden></div>}
 
   {!bare && field.helpText && <p class="field-help">{field.helpText}</p>}
   {!bare && error && <p class="field-error">{error}</p>}
 </div>
 
 <style>
+  .fountain-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--line);
+    gap: 0.25rem;
+  }
+
+  .tab-button {
+    padding: 0.4rem 0.9rem;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .tab-button:hover {
+    color: var(--ink);
+  }
+
+  .tab-button.active {
+    color: var(--ink);
+    border-bottom-color: var(--color-primary);
+  }
+
+  .fountain-preview {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    padding: 0.75rem;
+    min-height: 12rem;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  .fountain-preview[hidden] {
+    display: none;
+  }
+
   .field-group {
     display: grid;
     gap: 0.5rem;
@@ -110,3 +165,41 @@ const inputName = name ?? `dataJson.${field.key}`;
     color: var(--color-error);
   }
 </style>
+
+<script>
+  import { fountainToHtml } from '@/lib/fountain';
+
+  // A Fountain text field: Write is the textarea, Preview draws what it holds as a screenplay (redrawn as it is typed in, once a moment passes).
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll<HTMLElement>('.fountain-field').forEach((field) => {
+      const write = field.querySelector<HTMLButtonElement>('[data-tab="write"]');
+      const preview = field.querySelector<HTMLButtonElement>('[data-tab="preview"]');
+      const input = field.querySelector<HTMLTextAreaElement>('[data-fountain-input]');
+      const page = field.querySelector<HTMLElement>('[data-fountain-preview]');
+      if (!write || !preview || !input || !page) return;
+
+      const draw = () => {
+        const html = fountainToHtml(input.value);
+        if (html) page.innerHTML = html;
+        else page.textContent = 'Nothing to preview';
+      };
+      const show = (previewing: boolean) => {
+        preview.classList.toggle('active', previewing);
+        write.classList.toggle('active', !previewing);
+        input.style.display = previewing ? 'none' : '';
+        page.hidden = !previewing;
+        if (previewing) draw();
+      };
+      write.addEventListener('click', () => show(false));
+      preview.addEventListener('click', () => show(true));
+
+      let timer: number;
+      input.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          if (!page.hidden) draw();
+        }, 300);
+      });
+    });
+  });
+</script>

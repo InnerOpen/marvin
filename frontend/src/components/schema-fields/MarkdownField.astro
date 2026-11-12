@@ -1,4 +1,5 @@
 ---
+import "../../styles/fountain.css";
 /**
  * MarkdownField Component
  * Renders a markdown editor field
@@ -15,6 +16,8 @@ export interface Props {
     readOnly?: boolean;
     /** Bare provider URLs on their own line become players (default). `false` keeps them plain links. */
     autoEmbed?: boolean;
+    /** What the text is: `fountain` (a screenplay) makes the Preview draw it as one, and leaves out the embed button. */
+    format?: "fountain";
   };
   value?: string;
   error?: string;
@@ -28,10 +31,11 @@ const { field, value, error, name, id, bare = false } = Astro.props;
 const inputId = id ?? `field-${field.key}`;
 const inputName = name ?? `dataJson.${field.key}`;
 const autoEmbed = field.autoEmbed !== false;
-const canEmbed = autoEmbed && !field.readOnly;
+const fountain = field.format === "fountain";
+const canEmbed = autoEmbed && !field.readOnly && !fountain;
 ---
 
-<div class="field-group markdown-field" data-auto-embed={autoEmbed ? "true" : "false"}>
+<div class="field-group markdown-field" data-auto-embed={autoEmbed ? "true" : "false"} data-format={fountain ? "fountain" : undefined}>
   {!bare && (
     <label for={inputId}>
       {field.label}
@@ -388,6 +392,7 @@ const canEmbed = autoEmbed && !field.readOnly;
 </style>
 
 <script>
+  import { fountainToHtml } from '@/lib/fountain';
   import { insertEmbedParagraph } from '@/lib/mediaEmbeds';
   import {
     buildEmbedElement,
@@ -481,7 +486,13 @@ const canEmbed = autoEmbed && !field.readOnly;
 
       if (!writeBtn || !previewBtn || !textarea || !preview) return;
       const autoEmbed = field.dataset.autoEmbed !== 'false';
-      const renderPreview = () => renderPreviewInto(preview, textarea.value, autoEmbed);
+      const isFountain = field.dataset.format === 'fountain';
+      const renderPreview = () => {
+        if (!isFountain) return renderPreviewInto(preview, textarea.value, autoEmbed);
+        const html = fountainToHtml(textarea.value);
+        if (html) preview.innerHTML = html;
+        else preview.textContent = 'Nothing to preview';
+      };
 
       // Tab switching
       writeBtn.addEventListener('click', () => {

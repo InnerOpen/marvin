@@ -68,12 +68,21 @@ class TextareaFieldSchema(BaseFieldSchema):
     min: int | None = Field(default=None, description="Minimum string length")
     max: int | None = Field(default=None, description="Maximum string length")
     rows: int | None = Field(default=None, description="Number of visible rows")
+    format: Literal["fountain"] | None = Field(
+        default=None,
+        description="What the text is, so the field can show it: `fountain` (a screenplay) adds a Preview tab that draws it as one.",
+    )
 
 
 class MarkdownFieldSchema(BaseFieldSchema):
     """Markdown editor field."""
 
     type: Literal["markdown"]
+    format: Literal["fountain"] | None = Field(
+        default=None,
+        description="What the text is, so the field can show it: `fountain` (a screenplay) makes the Preview tab draw it as one, and leaves out the "
+        "media embed button.",
+    )
     auto_embed: bool = Field(default=True, alias="autoEmbed")
     """A supported media link (YouTube, Vimeo, Spotify, …) alone on its own line becomes a player on the
     site (published under the entry's ``embeds``). ``false`` keeps every link in this field a plain link."""
