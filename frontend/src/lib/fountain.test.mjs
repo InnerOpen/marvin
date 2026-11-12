@@ -82,7 +82,7 @@ test("emphasis, underline and notes are read; everything else is escaped", () =>
 
 test("the page is escaped end to end, so text cannot add markup", () => {
   const html = fountainToHtml("Title: <img src=x onerror=alert(1)>\n\nINT. <b>CABIN</b> - NIGHT\n\n<i>NAME\n<script>x</script>");
-  assert.ok(!/<img|<script|<b>CABIN/.test(html));
+  for (const markup of ["<img", "<script", "<b>CABIN"]) assert.ok(!html.includes(markup), `${markup} must not appear`);
   assert.match(html, /ft-scene/);
 });
 
