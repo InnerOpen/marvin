@@ -558,6 +558,20 @@ try {
         ),
       );
     }
+    if (field.type === 'textarea' || field.type === 'markdown') {
+      body.append(
+        formGroup(
+          'full-width',
+          ['Format ', labelHint('— what the text is, so the field can show it')],
+          el(
+            'select',
+            { className: 'field-format' },
+            new Option(field.type === 'markdown' ? 'Markdown' : 'Plain text', '', !field.format, !field.format),
+            new Option('Fountain (a screenplay): the Preview draws it as one', 'fountain', field.format === 'fountain', field.format === 'fountain'),
+          ),
+        ),
+      );
+    }
     if (field.type === 'embed') {
       body.append(
         formGroup(
@@ -662,7 +676,7 @@ try {
     });
 
     // Update field on other input changes (placeholder, help text, type, required, etc.)
-    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-step, .field-slider, .field-role, .field-accept, .field-group-name, .field-providers, .field-auto-embed, .field-ref').forEach(input => {
+    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-step, .field-slider, .field-role, .field-accept, .field-group-name, .field-providers, .field-auto-embed, .field-format, .field-ref').forEach(input => {
       input.addEventListener('input', () => updateField(index, div));
     });
 
@@ -714,6 +728,11 @@ try {
     } else {
       delete field.providers;
     }
+
+    // What the text is (a screenplay): kept only when it is not plain.
+    const formatChoice = fieldEl.querySelector('.field-format');
+    if ((field.type === 'textarea' || field.type === 'markdown') && formatChoice?.value) field.format = formatChoice.value;
+    else delete field.format;
 
     // Markdown auto-embed is on unless explicitly off — store only `autoEmbed: false`.
     if (field.type === 'markdown') {
