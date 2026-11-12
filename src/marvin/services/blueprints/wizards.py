@@ -125,7 +125,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             known.add(step["as"])
         if kind == "choose":
             entries.add(step["as"])
-    return _check_open(payload.get("open"), entries, slug) or _check_button(payload.get("button"), entries, seen, slug)
+    return _check_open(payload.get("open"), entries, slug) or _check_buttons(payload.get("button"), entries, seen, slug)
 
 
 def _check_open(spec: Any, entries: set[str], slug: str) -> str | None:
@@ -139,6 +139,26 @@ def _check_open(spec: Any, entries: set[str], slug: str) -> str | None:
         return f"wizard {slug!r}: open names {spec.get('entry')!r}, which no choose step sets"
     if spec.get("view") is not None and not (isinstance(spec["view"], str) and _SLUG.match(spec["view"])):
         return f"wizard {slug!r}: open.view must be the slug of a view"
+    return None
+
+
+MAX_BUTTONS = 3
+
+
+def _check_buttons(spec: Any, entries: set[str], steps: set[str], slug: str) -> str | None:
+    """``button`` is one button, or a list of up to three when the setup is offered on several types of entry (a line's Takes and a story's)."""
+    if not isinstance(spec, list):
+        return _check_button(spec, entries, steps, slug)
+    if not 1 <= len(spec) <= MAX_BUTTONS:
+        return f"wizard {slug!r}: button is one button or a list of 1 to {MAX_BUTTONS}"
+    for item in spec:
+        if item is None:
+            return f"wizard {slug!r}: button is one button or a list of 1 to {MAX_BUTTONS}"
+        if problem := _check_button(item, entries, steps, slug):
+            return problem
+    types = [b.get("entry_type") for b in spec if isinstance(b, dict)]
+    if len(set(types)) != len(types):
+        return f"wizard {slug!r}: two buttons on the same type of entry: give each type one"
     return None
 
 
