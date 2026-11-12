@@ -14,6 +14,7 @@ from pytest import fixture
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
 from marvin.db.models.groups.groups import Groups
 from marvin.db.models.users.roles import WorkspaceRole
+from marvin.services.ai.tools import get_tool
 from marvin.services.ai.tools.builtins import list_workflows, run_workflow
 from marvin.services.ai.tools.builtins_overview import workspace_overview
 
@@ -113,3 +114,60 @@ def test_run_workflow_miss_lists_what_exists_instead_of_a_bare_error(workspace):
     out = json.loads(run_workflow(workspace, {"workflow": "Summerize Published Notes"}))
     assert out["error"].startswith("no workflow 'Summerize Published Notes'")
     assert [w["slug"] for w in out["available"]] == ["add-tags-to-entry", "summarize-bench-notes"]
+
+
+def test_a_job_is_followed_until_it_finishes_and_its_result_comes_back():
+    from marvin.services.automation import watch
+
+    states = iter(
+        [
+            ("check-1", {"kind": "check-fountain", "status": "queued"}),
+            ("check-1", {"kind": "check-fountain", "status": "running", "log": "reading"}),
+            ("check-1", {"kind": "check-fountain", "status": "done", "result": {"errors": 7}, "log": "Checked."}),
+        ]
+    )
+    slept = []
+    out = watch.wait_for_job(lambda: next(states), 30, sleep=slept.append)
+    assert out == {"slug": "check-1", "kind": "check-fountain", "status": "done", "finished": True, "result": {"errors": 7}, "log": "Checked."}
+    assert len(slept) == 2  # it looked three times, waiting between
+
+
+def test_a_job_that_is_not_done_in_time_says_where_it_got_to_and_what_is_not_a_job_is_ignored():
+    from marvin.services.automation import watch
+
+    clock = iter([0, 0, 1, 2, 3, 4, 5])
+    out = watch.wait_for_job(lambda: ("render-1", {"kind": "render", "status": "running"}), 3, sleep=lambda s: None, clock=lambda: next(clock))
+    assert out["status"] == "running" and out["finished"] is False
+    assert watch.wait_for_job(lambda: ("a-post", {"title": "x"}), 5, sleep=lambda s: None) is None  # no kind, no status: not a worker job
+    assert watch.wait_for_job(lambda: ("a-job", {"kind": "k", "status": "published"}), 5) is None  # a status that is not the worker's
+    assert watch.wait_for_job(lambda: None, 5) is None
+    assert watch.entry_of({"result": {"entry_id": "abc"}}) == "abc" and watch.entry_of({"result": "done"}) is None and watch.entry_of(None) is None
+    assert len(watch.outcome("j", {"kind": "k", "status": "done", "log": "x" * 20000})["log"]) == watch.LOG_LIMIT
+
+
+def test_run_workflow_names_the_job_it_started_and_waits_for_it_when_asked(workspace, monkeypatch):
+    import marvin.services.automation.engine as engine
+    from marvin.services.automation import watch
+
+    monkeypatch.setattr(
+        engine,
+        "run_automation_now",
+        lambda session, group_id, auto, **kw: {"ok": True, "result": {"op": "create", "entry_id": "11111111-1111-1111-1111-111111111111"}},
+    )
+    seen = []
+    monkeypatch.setattr(
+        watch,
+        "follow",
+        lambda session, gid, eid, seconds: seen.append((eid, seconds))
+        or {"slug": "check-a-fountain", "kind": "check-fountain", "status": "done", "finished": True, "result": {"errors": 7}},
+    )
+    out = json.loads(run_workflow(workspace, {"workflow": "summarize-bench-notes", "inputs": {"text": "x"}, "wait": 20}))
+    assert out["job"] == {"slug": "check-a-fountain", "kind": "check-fountain", "status": "done", "finished": True, "result": {"errors": 7}}
+    assert seen == [("11111111-1111-1111-1111-111111111111", 20)]
+    monkeypatch.setattr(watch, "follow", lambda *a: {"slug": "r", "kind": "render", "status": "queued", "finished": False})
+    assert (
+        "get_entry 'r'" in json.loads(run_workflow(workspace, {"workflow": "summarize-bench-notes"}))["job"]["next"]
+    )  # no wait: it says where to look
+    monkeypatch.setattr(watch, "follow", lambda *a: None)
+    assert "job" not in json.loads(run_workflow(workspace, {"workflow": "summarize-bench-notes"}))  # the run made no worker job
+    assert get_tool("run_workflow").input_schema["properties"]["wait"]["maximum"] == watch.MAX_WAIT
