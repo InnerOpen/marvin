@@ -1,0 +1,93 @@
+---
+/**
+ * FountainToolbar: buttons above a Fountain text field that write its elements for you (a scene heading, a speaker, a centered line, a note), so
+ * nobody has to remember that centered is `> text <` on one line. The edits are `applyFountain` in lib/fountain.ts; this draws the buttons and
+ * applies one to the textarea of the field it sits in.
+ */
+const TOOLS = [
+  { tool: "scene", label: "Scene", hint: "Scene heading: INT. PLACE - DAY (where and when, in capitals). Select a place first to use it." },
+  { tool: "character", label: "Dialogue", hint: "A speaker and what they say: the NAME over the line. Select the words first to use them as the line." },
+  { tool: "parenthetical", label: "( )", hint: "How a line is said, inside a speech: (quietly) on a line of its own under the name." },
+  { tool: "transition", label: "Transition", hint: "CUT TO: on its own line, in capitals, ending in a colon (DISSOLVE TO:, CROSSFADE TO:)." },
+  { tool: "centered", label: "Centered", hint: "A centered line: > text <, all on one line." },
+  { tool: "section", label: "Section", hint: "# ACT I: a chapter heading (## for a smaller one)." },
+  { tool: "synopsis", label: "Synopsis", hint: "= one line on what the scene does, under its heading." },
+  { tool: "lyrics", label: "Lyrics", hint: "~ a sung line." },
+  { tool: "break", label: "Page break", hint: "=== starts a new picture." },
+  { tool: "note", label: "Note", hint: "[[a note]]: about the script, not in it (Hold: 2s, Sound: thunder)." },
+  { tool: "bold", label: "B", hint: "Bold: **words**" },
+  { tool: "italic", label: "I", hint: "Italic: *words*" },
+  { tool: "underline", label: "U", hint: "Underline: _words_" },
+] as const;
+---
+
+<div class="fountain-toolbar" data-fountain-toolbar role="toolbar" aria-label="Write a Fountain element">
+  {TOOLS.map((t) => (
+    <button type="button" class:list={["ft-tool", { "ft-mark": t.label.length === 1 }]} data-ft={t.tool} title={t.hint} aria-label={t.hint}>{t.label}</button>
+  ))}
+</div>
+
+<style>
+  .fountain-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+
+  .fountain-toolbar[hidden] {
+    display: none;
+  }
+
+  .ft-tool {
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+
+  .ft-tool:hover {
+    border-color: var(--color-primary);
+  }
+
+  .ft-mark {
+    min-width: 1.75rem;
+    padding: 0.2rem 0.4rem;
+    font-weight: 700;
+  }
+</style>
+
+<script>
+  import { applyFountain, type FountainTool } from '@/lib/fountain';
+
+  // Each toolbar edits the textarea of the field it is in, and is out of the way while the Preview shows.
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll<HTMLElement>('[data-fountain-toolbar]').forEach((bar) => {
+      const box = bar.closest<HTMLElement>('.fountain-field, .markdown-field');
+      const area = box?.querySelector<HTMLTextAreaElement>('textarea');
+      if (!box || !area) return;
+
+      bar.addEventListener('mousedown', (event) => event.preventDefault()); // keep the selection in the text
+      bar.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLElement>('[data-ft]');
+        if (!button) return;
+        const edit = applyFountain(button.dataset.ft as FountainTool, area.value, area.selectionStart, area.selectionEnd);
+        area.value = edit.value;
+        area.focus();
+        area.setSelectionRange(edit.start, edit.end);
+        area.dispatchEvent(new Event('input', { bubbles: true })); // the form's change tracking and the preview listen for this
+      });
+
+      box.querySelectorAll<HTMLElement>('[data-tab]').forEach((tab) => {
+        tab.addEventListener('click', () => {
+          bar.hidden = tab.dataset.tab === 'preview';
+        });
+      });
+    });
+  });
+</script>

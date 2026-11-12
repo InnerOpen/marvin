@@ -196,3 +196,92 @@ export function fountainToHtml(source: string): string {
   });
   return `<div class="ft-page">${html.join("")}</div>`;
 }
+
+// ── a toolbar's edits ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export type FountainTool = "scene" | "character" | "parenthetical" | "transition" | "centered" | "section" | "synopsis" | "lyrics" | "break" | "note" | "bold" | "italic" | "underline";
+
+/** What the text and its selection are after a toolbar button: the new text, and the part to leave selected so typing replaces the placeholder. */
+export interface FountainEdit {
+  value: string;
+  start: number;
+  end: number;
+}
+
+const INLINE: Partial<Record<FountainTool, [string, string, string]>> = {
+  note: ["[[", "]]", "note"],
+  bold: ["**", "**", "bold"],
+  italic: ["*", "*", "italic"],
+  underline: ["_", "_", "underlined"],
+};
+
+/** The blank lines a paragraph needs between itself and what comes before it (none at the very start), given the text before it. */
+const breaksBefore = (before: string): string => (before === "" || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n");
+/** The same after it: a blank line before the next paragraph, and room to keep writing at the end of the text. */
+const breaksAfter = (after: string): string => (after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n");
+
+const oneLine = (text: string): string => text.replace(/\s*\n\s*/g, " ").trim();
+
+/** The element's text for a tool, given the selected words (or none): where inside it the placeholder sits, so it can be selected. */
+function elementFor(tool: FountainTool, picked: string): { text: string; from: number; to: number } {
+  const words = oneLine(picked);
+  const slot = (before: string, fill: string, after = "") => ({ text: before + fill + after, from: before.length, to: before.length + fill.length });
+  switch (tool) {
+    case "scene": {
+      if (/^(?:INT|EXT|EST|INT\.?\/EXT|INT\/EXT|I\/E)[. ]/i.test(words)) return slot("", words.toUpperCase());
+      return slot("INT. ", (words || "PLACE").toUpperCase(), " - DAY");
+    }
+    case "character": {
+      // the selection, when there is one, is what is said; the name is left to type
+      const said = picked.trim() || "Dialogue.";
+      return { text: `NAME\n${said}`, from: 0, to: 4 };
+    }
+    case "transition": {
+      const text = words ? words.toUpperCase().replace(/:?$/, ":") : "CUT TO:";
+      return { text, from: 0, to: words ? text.length : 3 };
+    }
+    case "centered":
+      return slot("> ", words || "TEXT", " <");
+    case "section":
+      return slot("# ", words || "ACT I");
+    case "synopsis":
+      return slot("= ", words || "What happens here.");
+    case "lyrics":
+      return slot("~", words || "A line of the song");
+    case "parenthetical":
+      return slot("(", words || "delivery", ")");
+    case "break":
+      return { text: "===", from: 3, to: 3 };
+    default:
+      return { text: "", from: 0, to: 0 };
+  }
+}
+
+/**
+ * A toolbar button's edit: the text with the element written in at the selection, the selection's words used in it, and a placeholder selected for
+ * typing over. A paragraph element (a scene heading, a speaker, a transition, a centered line, a section, a synopsis, lyrics, a page break) starts its
+ * own paragraph, with a blank line either side, since Fountain reads elements by their blank lines; a parenthetical starts its own line; a note,
+ * bold, italic and underline wrap the selection where it stands.
+ */
+export function applyFountain(tool: FountainTool, value: string, start: number, end: number): FountainEdit {
+  const from = Math.max(0, Math.min(start, end, value.length));
+  const to = Math.min(value.length, Math.max(start, end));
+  const before = value.slice(0, from);
+  const after = value.slice(to);
+  const picked = value.slice(from, to);
+
+  const wrap = INLINE[tool];
+  if (wrap) {
+    const [open, close, placeholder] = wrap;
+    const inner = picked || placeholder;
+    const at = before.length + open.length;
+    return { value: before + open + inner + close + after, start: at, end: at + inner.length };
+  }
+
+  const element = elementFor(tool, picked);
+  const lead = tool === "parenthetical" ? (before === "" || before.endsWith("\n") ? "" : "\n") : breaksBefore(before);
+  const trail = tool === "parenthetical" ? (after.startsWith("\n") || after === "" ? "" : "\n") : breaksAfter(after);
+  const at = before.length + lead.length;
+  const next = before + lead + element.text + trail + after;
+  return element.from === element.to && tool === "break" ? { value: next, start: at + element.text.length + trail.length, end: at + element.text.length + trail.length } : { value: next, start: at + element.from, end: at + element.to };
+}

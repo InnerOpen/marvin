@@ -1,4 +1,5 @@
 ---
+import FountainToolbar from "./FountainToolbar.astro";
 import "../../styles/fountain.css";
 /**
  * MarkdownField Component
@@ -53,6 +54,7 @@ const canEmbed = autoEmbed && !field.readOnly && !fountain;
         </button>
       )}
     </div>
+    {fountain && !field.readOnly && <FountainToolbar />}
 
     <div class="markdown-content">
       <textarea
