@@ -68,7 +68,7 @@ TIMELINE = {
             "id": "sounds",
             "title": "Sounds",
             "entry_type": "sound",
-            "placed": {"field": "sounds", "ref": "sound", "at": "at", "filter": {"kind": "effect"}},
+            "placed": {"field": "sounds", "ref": "sound", "at": "at", "volume": "volume", "filter": {"kind": "effect"}},
             "audio": "audio",
             "seconds": "duration_seconds",
             "volume": "volume",
@@ -437,3 +437,10 @@ def test_a_wrong_story_bed_field_says_which_key(key):
     ambience = next(lane for lane in payload["lanes"] if lane.get("bed", {}).get("entry_field"))
     ambience["bed"][key] = "Bad Key"
     assert key in (payload_problem(payload, "story-timeline") or "")
+
+
+def test_a_wrong_cue_level_key_says_which_key():
+    payload = copy.deepcopy(TIMELINE)
+    lane = next(lane for lane in payload["lanes"] if lane.get("placed"))
+    lane["placed"]["volume"] = "Bad Key"
+    assert "placed: volume must be a field key" in (payload_problem(payload, "story-timeline") or "")

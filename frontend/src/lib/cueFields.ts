@@ -10,6 +10,8 @@ export interface CueSpec {
   /** Keys inside each cue: the referenced entry's slug and its offset in seconds. */
   ref: string;
   at: string;
+  /** The key inside each cue holding its own level, 0 to 1 (a sound effect louder or quieter than the sound's own); empty keeps the sound's own. */
+  volume?: string;
   /** The referenced entries' type, and the lane's title (what the cues are called). */
   entryType: string;
   title: string;
@@ -24,7 +26,7 @@ interface ViewLike {
   definition?: {
     kind?: string;
     spine?: { entry_type?: string };
-    lanes?: { id?: string; title?: string; entry_type?: string; placed?: { field: string; ref: string; at: string; filter?: Record<string, unknown> }; audio?: string; seconds?: string }[];
+    lanes?: { id?: string; title?: string; entry_type?: string; placed?: { field: string; ref: string; at: string; volume?: string; filter?: Record<string, unknown> }; audio?: string; seconds?: string }[];
   };
 }
 
@@ -47,6 +49,7 @@ export function cueSpecsFor(views: readonly ViewLike[], typeSlug: string): CueSp
         field: lane.placed.field,
         ref: lane.placed.ref,
         at: lane.placed.at,
+        ...(typeof lane.placed.volume === "string" && lane.placed.volume ? { volume: lane.placed.volume } : {}),
         entryType: lane.entry_type,
         title: lane.title || lane.id || lane.entry_type,
         audio: lane.audio,
@@ -61,6 +64,8 @@ export function cueSpecsFor(views: readonly ViewLike[], typeSlug: string): CueSp
 export interface Cue {
   ref: string;
   at: number;
+  /** The cue's own level (0 to 1), or null for the sound's own. */
+  level: number | null;
   /** Anything else the cue carried, kept as it was. */
   rest: Record<string, unknown>;
 }
@@ -71,7 +76,7 @@ const num = (v: unknown): number => {
 };
 
 /** The field's value as cues: a JSON text or an already-parsed list; anything that is not a list of objects is no cues. */
-export function parseCues(value: unknown, spec: Pick<CueSpec, "ref" | "at">): Cue[] {
+export function parseCues(value: unknown, spec: Pick<CueSpec, "ref" | "at" | "volume">): Cue[] {
   let list: unknown = value;
   if (typeof value === "string") {
     try {
@@ -85,16 +90,25 @@ export function parseCues(value: unknown, spec: Pick<CueSpec, "ref" | "at">): Cu
   for (const item of list) {
     if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
     const { [spec.ref]: ref, [spec.at]: at, ...rest } = item as Record<string, unknown>;
-    out.push({ ref: typeof ref === "string" ? ref : "", at: num(at), rest });
+    let level: number | null = null;
+    if (spec.volume && spec.volume in rest) {
+      const own = rest[spec.volume];
+      const n = typeof own === "string" && own.trim() !== "" ? Number(own) : own;
+      if (typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1) {
+        level = n;
+        delete rest[spec.volume]; // the editor owns it now; written back below when it is set
+      }
+    }
+    out.push({ ref: typeof ref === "string" ? ref : "", at: num(at), level, rest });
   }
   return out;
 }
 
 /** The cues back as the field's JSON, in time order, cues naming nothing left out. */
-export function serializeCues(cues: readonly Cue[], spec: Pick<CueSpec, "ref" | "at">): string {
+export function serializeCues(cues: readonly Cue[], spec: Pick<CueSpec, "ref" | "at" | "volume">): string {
   const rows = cues
     .filter((c) => c.ref)
     .sort((a, b) => a.at - b.at)
-    .map((c) => ({ ...c.rest, [spec.ref]: c.ref, [spec.at]: Number(c.at.toFixed(3)) }));
+    .map((c) => ({ ...c.rest, [spec.ref]: c.ref, [spec.at]: Number(c.at.toFixed(3)), ...(spec.volume && c.level !== null ? { [spec.volume]: Number(c.level.toFixed(3)) } : {}) }));
   return JSON.stringify(rows, null, 2);
 }
