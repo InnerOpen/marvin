@@ -269,9 +269,13 @@ export function cardAudio(assets: AttachedAsset[] | undefined, audioField: strin
   return hit?.publicUrl ?? null;
 }
 
-/** What a gallery's upload takes: its `upload.accept` (a picture unless it says otherwise). */
-export function galleryAccept(step: Step): string {
-  return typeof step.upload?.accept === "string" && step.upload.accept.trim() ? step.upload.accept.trim() : "image/*";
+/** What a gallery's upload takes: its own `upload.accept`, else what the entry type's field it fills takes (the field's Accepts setting, so the step
+ *  need not say it twice), else a picture. `fields` are the entry type's field definitions. */
+export function galleryAccept(step: Step, fields: { key?: string; accept?: string | null }[] = []): string {
+  const own = typeof step.upload?.accept === "string" ? step.upload.accept.trim() : "";
+  if (own) return own;
+  const held = fields.find((f) => f.key === step.upload?.field)?.accept;
+  return typeof held === "string" && held.trim() ? held.trim() : "image/*";
 }
 
 /** A gallery's generate action as the run step it is: the step's own keys plus the typed prompt as a context value. */

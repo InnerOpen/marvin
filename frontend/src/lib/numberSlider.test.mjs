@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { boxText, sliderState, sliderStep, meterState } from "./numberSlider.ts";
+import { boxText, sliderState, sliderStep, meterState, sliderWanted } from "./numberSlider.ts";
 
 test("the thumb stands where the box says, and a box with nothing in it is not set", () => {
   assert.deepEqual(sliderState("0.25", 0, 1, 0.5), { set: true, position: 0.25 });
@@ -41,4 +41,16 @@ test("a meter fills from the low end to the high end, goes amber near the top an
   for (const none of [undefined, null, "", "abc"]) assert.equal(meterState(none, -60, 0).has, false);
   assert.equal(meterState(0, -60, 0).has, true); // a measured zero is a reading
   assert.equal(meterState(1, 5, 5).has, false); // no range, no meter
+});
+
+test("a number field with both ends gets a slider by itself; one end, none, a read-only value or a meter does not; false opts out and true insists", () => {
+  assert.equal(sliderWanted({ min: 0, max: 30 }), true); // not asked for: it can go from 0 to 30, so it can be dragged
+  assert.equal(sliderWanted({ min: 0.5, max: 30, slider: null }), true);
+  assert.equal(sliderWanted({ min: -60, max: 0 }), true); // a lower end below zero is still a range
+  for (const none of [{}, { min: 0 }, { max: 1 }, { min: 1, max: 1 }, { min: 2, max: 1 }, { min: Number.NaN, max: 1 }]) assert.equal(sliderWanted(none), false);
+  assert.equal(sliderWanted({ min: 0, max: 1, slider: false }), false); // opted out
+  assert.equal(sliderWanted({ min: 0, max: 1, readOnly: true }), false); // nothing to drag
+  assert.equal(sliderWanted({ min: -60, max: 0, meter: true, readOnly: true }), false); // the meter is the picture
+  assert.equal(sliderWanted({ min: 0, max: 1, readOnly: true, slider: true }), true); // asked for, so shown (dimmed)
+  assert.equal(sliderWanted({ slider: true }), false); // asked for but no ends: nothing to draw
 });

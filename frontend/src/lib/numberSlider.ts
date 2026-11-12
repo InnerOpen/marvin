@@ -28,3 +28,12 @@ export function meterState(value: unknown, min: number, max: number): { has: boo
   const position = Math.min(1, Math.max(0, (n - min) / (max - min)));
   return { has: true, position, zone: position >= 0.95 ? "hot" : position >= 0.8 ? "warn" : "ok" };
 }
+
+/** Whether a number field shows a drag slider beside its box (and its up and down arrows). Any field with both ends gets one without being asked:
+ *  you can go from a low number to a higher one, so you can drag it. `slider: false` opts a field out; `slider: true` asks for one where it would
+ *  not come by itself (a read-only field). A read-only field, or one drawn as a meter, does not get one by itself: there is nothing to drag. */
+export function sliderWanted(field: { slider?: boolean | null; meter?: boolean | null; readOnly?: boolean | null; min?: number | null; max?: number | null }): boolean {
+  const ends = typeof field.min === "number" && typeof field.max === "number" && Number.isFinite(field.min) && Number.isFinite(field.max) && field.max > field.min;
+  if (!ends || field.slider === false) return false;
+  return field.slider === true || (!field.readOnly && !field.meter);
+}

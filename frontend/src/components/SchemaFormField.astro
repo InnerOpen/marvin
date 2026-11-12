@@ -27,9 +27,14 @@ export interface Props {
   resources?: LinkedItem[];
   cues?: Record<string, { spec: CueSpec; options: CueOption[] }>;
   refs?: Record<string, RefOption[]>;
+  /** For a field drawn outside an entry's own form (a row of a guided step's list): its name and id, and just the control without label and help. */
+  name?: string;
+  id?: string;
+  bare?: boolean;
 }
 
-const { field, value, error, assets = [], resources = [], cues = {}, refs = {} } = Astro.props;
+const { field, value, error, assets = [], resources = [], cues = {}, refs = {}, name, id, bare = false } = Astro.props;
+const own = { name, id, bare }; // passed on to the types that can be drawn in a row
 ---
 
 {(() => {
@@ -37,29 +42,29 @@ const { field, value, error, assets = [], resources = [], cues = {}, refs = {} }
     // Render appropriate component based on field type
     switch (field.type) {
       case 'text':
-        if (field.ref && refs[field.key] && !field.readOnly) return <RefField field={field as any} value={value} error={error} options={refs[field.key]} />;
-        return <TextField field={field as any} value={value} error={error} />;
+        if (field.ref && refs[field.key] && !field.readOnly) return <RefField field={field as any} value={value} error={error} {...own} options={refs[field.key]} />;
+        return <TextField field={field as any} value={value} error={error} {...own} />;
 
       case 'textarea':
-        return <TextareaField field={field as any} value={value} error={error} />;
+        return <TextareaField field={field as any} value={value} error={error} {...own} />;
 
       case 'markdown':
-        return <MarkdownField field={field as any} value={value} error={error} />;
+        return <MarkdownField field={field as any} value={value} error={error} {...own} />;
 
       case 'number':
-        return <NumberField field={field as any} value={value} error={error} />;
+        return <NumberField field={field as any} value={value} error={error} {...own} />;
 
       case 'boolean':
         return <BooleanField field={field as any} value={value} error={error} />;
 
       case 'select':
-        return <SelectField field={field as any} value={value} error={error} />;
+        return <SelectField field={field as any} value={value} error={error} {...own} />;
 
       case 'date':
-        return <DateField field={field as any} value={value} error={error} />;
+        return <DateField field={field as any} value={value} error={error} {...own} />;
 
       case 'datetime':
-        return <DateTimeField field={field as any} value={value} error={error} />;
+        return <DateTimeField field={field as any} value={value} error={error} {...own} />;
 
       case 'asset':
       case 'asset-list':

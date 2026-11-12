@@ -167,6 +167,11 @@ test("a card's picture (and sound) is the asset in that field's role, and genera
   assert.equal(cardAudio(assets, undefined), null);
   assert.equal(cardAudio(undefined, "voice_sample"), null);
   assert.equal(galleryAccept({ upload: { field: "sample", accept: "audio/*" } }), "audio/*");
+  const fields = [{ key: "sample", accept: "audio/*" }, { key: "photo" }];
+  assert.equal(galleryAccept({ upload: { field: "sample" } }, fields), "audio/*"); // the field says it, so the step need not
+  assert.equal(galleryAccept({ upload: { field: "sample", accept: "video/*" } }, fields), "video/*"); // the step may say otherwise
+  assert.equal(galleryAccept({ upload: { field: "photo" } }, fields), "image/*"); // a field that says nothing: a picture, as before
+  assert.equal(galleryAccept({ upload: { field: "nope" } }, fields), "image/*");
   assert.equal(galleryAccept({ upload: { field: "general_view" } }), "image/*"); // a picture unless it says otherwise
   const step = { id: "troupe", kind: "gallery", title: "T", entry_type: "actor", generate: { workflow: "make-actor", inputs: { world: "${world}", brief: "${brief}" }, button: "Make one", prompt: { name: "brief", label: "Who" } } };
   const { run, extra } = generateAsRun(step, "a tall sailor");
