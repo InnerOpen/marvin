@@ -1133,6 +1133,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     .tl-actions .tl-clock { flex: 1 1 8em; min-width: 8em; flex-wrap: wrap; gap: 2px 8px; }
     .tl-actions .tl-clock-input { flex: 1 1 8.5em; width: auto; min-width: 0; }
     .tl-actions .tl-clock-beat { flex: 1 1 100%; min-width: 0; font-size: 12px; }
+    /* Smaller type and padding in the clock box, so the whole timestamp fits in the 84px it has beside Play and the button when folded. */
+    .tl-actions .tl-clock-input { font-size: 0.8125rem; padding: 0.3rem 0.25rem; flex: 1 1 6.5em; }
+    .tl-actions.is-folded .tl-play { padding-inline: 0.7em; }
     /* Folded: just Play, the clock and the button to open it again. */
     .tl-actions.is-folded { flex-wrap: nowrap; }
     .tl-actions.is-folded .tl-clock { min-width: 0; flex-basis: 0; }
