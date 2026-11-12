@@ -166,3 +166,58 @@ test("toolbar: a selection backwards or past the end is taken as it is", () => {
   assert.equal(applyFountain("bold", "abc", 3, 0).value, "**abc**");
   assert.equal(applyFountain("note", "abc", 99, 99).value, "abc[[note]]");
 });
+
+// ── lyrics, dual dialogue and forced action ────────────────────────────────────────────────────────────────────────────────────────────────────
+test("a line starting with ~ is a sung line (the tilde is not shown), and lines after each other are one lyric", () => {
+  assert.deepEqual(parseFountain("~Willy Wonka! Willy Wonka!"), [{ kind: "lyrics", text: "Willy Wonka! Willy Wonka!" }]);
+  assert.deepEqual(parseFountain("~ line one\n~ line two"), [{ kind: "lyrics", text: "line one\nline two" }]);
+  const html = fountainToHtml("~ La la");
+  assert.ok(html.includes("ft-lyrics") && !html.includes("~"));
+});
+
+test("a lyric inside a speech stays part of the speech", () => {
+  const [d] = parseFountain("CHET\n~Heave ho\nAye.");
+  assert.deepEqual(d.lines.map((l) => l.kind), ["lyrics", "dialogue"]);
+});
+
+test("a cue ending in ^ is spoken at once with the speech before it: one dual block, drawn in two columns", () => {
+  const blocks = parseFountain("BRICK\nScrew retirement.\n\nSTEEL ^\nScrew retirement!");
+  assert.equal(blocks.length, 1);
+  assert.deepEqual([blocks[0].kind, blocks[0].left.character, blocks[0].right.character], ["dual", "BRICK", "STEEL"]);
+  const html = fountainToHtml("BRICK\nScrew retirement.\n\nSTEEL ^\nScrew retirement!");
+  assert.ok(html.includes("ft-dual") && !html.includes("^"));
+});
+
+test("a ^ with no speech before it, or after a speech that is already dual, is drawn as a speech on its own", () => {
+  assert.deepEqual(parseFountain("STEEL ^\nHi.").map((b) => b.kind), ["dialogue"]);
+  assert.deepEqual(parseFountain("A\nHi.\n\nB ^\nYo.\n\nC ^\nYes.").map((b) => b.kind), ["dual", "dialogue"]);
+});
+
+test("forced action: a leading ! is dropped and the line is action, whatever it looks like", () => {
+  assert.deepEqual(parseFountain("!INT. THE LINE IS NOT A HEADING").map((b) => b.kind), ["action"]);
+  assert.equal(parseFountain("!THE PLAGUE RISES.")[0].text, "THE PLAGUE RISES.");
+});
+
+test("toolbar: Action writes a forced action paragraph, using the selection's own lines", () => {
+  assert.deepEqual(run("action", ""), { text: "!Action line\n\n", picked: "Action line" });
+  const kept = run("action", "THE END\nOF ALL", 0, 14);
+  assert.equal(kept.text, "!THE END\nOF ALL\n\n");
+  assert.deepEqual(parseFountain(kept.text).map((b) => b.kind), ["action"]);
+});
+
+test("toolbar: Dual adds a ^ to the cue of the speech the cursor is in, and takes it off again", () => {
+  const speech = "BRICK\nScrew retirement.\n\nSTEEL\nScrew retirement!";
+  const first = applyFountain("dual", speech, speech.length, speech.length);
+  assert.equal(first.value, "BRICK\nScrew retirement.\n\nSTEEL ^\nScrew retirement!");
+  assert.equal(parseFountain(first.value)[0].kind, "dual");
+  const off = applyFountain("dual", first.value, first.value.length, first.value.length);
+  assert.equal(off.value, speech);
+  assert.equal(applyFountain("dual", speech, 2, 2).value.startsWith("BRICK ^\n"), true); // the first speech's cue, when the cursor is in it
+});
+
+test("toolbar: Dual outside a speech writes a second speaker in with the ^", () => {
+  const edit = applyFountain("dual", "BRICK\nHi.\n\n", 11, 11);
+  assert.equal(edit.value, "BRICK\nHi.\n\nNAME ^\nDialogue.\n\n");
+  assert.equal(edit.value.slice(edit.start, edit.end), "NAME");
+  assert.equal(parseFountain(edit.value)[0].kind, "dual");
+});
