@@ -79,6 +79,9 @@ if (spec && authToken) {
       } else if (lane.cover) {
         // An overlay comes from the item, else the entry its `via` field names (a scene), else the view's own entry: nothing more to fetch.
         if (lane.cover.via && lane.cover.entry_type) via[lane.id] = (await bySlugs(lane.cover.entry_type, slugsIn(rows, lane.cover.via))) as LaidRow[];
+      } else if (lane.marks) {
+        // A choice comes from the item, else the entry its `via` field names (a scene), else the view's own entry: only the `via` entries to fetch.
+        if (lane.marks.via && lane.marks.entry_type) via[lane.id] = (await bySlugs(lane.marks.entry_type, slugsIn(rows, lane.marks.via))) as LaidRow[];
       } else if (lane.bed?.via && lane.bed.entry_type) {
         via[lane.id] = (await bySlugs(lane.bed.entry_type, slugsIn(rows, lane.bed.via))) as LaidRow[];
         // the scenes' sounds, a beat's own, and the story's: every layer the lane draws
@@ -181,6 +184,8 @@ const bandsOver = (key: string, track: { start: number; seconds: number }) =>
   (laid?.bands[key] ?? []).filter((b) => b.start < track.start + track.seconds && b.start + b.seconds > track.start);
 const coversIn = (lane: LaneSpec, track: { start: number; seconds: number }) =>
   (laid?.covers[lane.id] ?? []).filter((c) => c.start < track.start + track.seconds && c.start + c.seconds > track.start);
+const marksIn = (lane: LaneSpec, track: { start: number; seconds: number }) =>
+  (laid?.marks[lane.id] ?? []).filter((m) => m.start < track.start + track.seconds && m.start + m.seconds > track.start);
 // A bed's level steps as bars inside its block, as a share of the loudest of them (a block of 40 s with a silent beat in the middle).
 const stepBars = (b: Bed, track: { start: number; seconds: number }) => {
   const from = clip(b, track);
@@ -384,7 +389,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   return (
                   <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title} style={lane.bed || laneRows.some((r) => r > 0) || bedRows.some((r) => r > 0) ? `height:${laneHeight}px` : undefined}>
                     <span class="tl-lane-name">
-                      {!lane.cover && <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>}
+                      {!lane.cover && !lane.marks && <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>}
                       {lane.title}
                       {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.estimated && !p.unmeasured)) && <em>hatched: no take yet, length estimated</em>}
                       {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.unmeasured)) && <em>dashed edge: take attached, length not stored</em>}
@@ -429,6 +434,20 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         >
                           <span>{c.name}</span>
                           <small>{c.blend}{c.opacity < 1 ? ` ${Math.round(c.opacity * 100)}%` : ""} · {c.from}</small>
+                        </span>
+                      ))}
+                    {lane.marks &&
+                      marksIn(lane, track).map((m) => (
+                        <span
+                          class:list={["tl-bed", "tl-mark", { inherited: !m.custom && m.from !== spec.spine.entry_type, custom: m.custom }]}
+                          role="listitem"
+                          data-start={m.start}
+                          data-end={m.start + m.seconds}
+                          style={`left:${pctIn(track, clip(m, track).from)};width:${pctIn(track, track.start + clip(m, track).seconds)}`}
+                          title={`${m.label}\n${timecode(m.start)} → ${timecode(m.start + m.seconds)} · ${m.custom ? "written out on the beat itself" : m.from === spec.spine.entry_type ? `set on the ${m.from}` : `from the ${m.from}`}`}
+                        >
+                          <span>{m.icon ? `${m.icon} ` : ""}{m.label}</span>
+                          {(m.custom || m.from !== spec.spine.entry_type) && <small>{m.custom ? "exact numbers" : m.from}</small>}
                         </span>
                       ))}
                     {quiets(track.items, lane).map((q) => (
@@ -1113,6 +1132,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-fade.in { left: 0; clip-path: polygon(0 0, 100% 0, 0 100%); }
   .tl-fade.out { right: 0; clip-path: polygon(0 0, 100% 0, 100% 100%); }
   .tl-cover { cursor: default; border-style: dashed; background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+  /* A marks lane (the camera): a chip the width of its beat; one set on the beat itself is solid, one a scene or the story gave it is dashed, one written out is accented. */
+  .tl-mark { cursor: default; background: color-mix(in srgb, var(--accent) 16%, var(--panel)); }
+  .tl-mark.inherited { border-style: dashed; background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+  .tl-mark.custom { background: color-mix(in srgb, var(--accent) 30%, var(--panel)); }
   .tl-bed.silent { border-style: dotted; background: var(--panel); }
   .tl-bed.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-piece:hover { z-index: 1; min-width: max-content; }

@@ -119,6 +119,19 @@ TIMELINE = {
             "entry_type": "beat",
             "cover": {"field": "overlay", "blend": "overlay_blend", "opacity": "overlay_opacity", "via": "scene", "entry_type": "scene"},
         },
+        {
+            "id": "camera",
+            "title": "Camera",
+            "entry_type": "beat",
+            "marks": {
+                "field": "camera",
+                "via": "scene",
+                "entry_type": "scene",
+                "labels": {"push-in": "Push in"},
+                "icons": {"push-in": "⤢"},
+                "other": {"field": "move", "label": "Custom move"},
+            },
+        },
     ],
     "actions": [
         {"label": "Guided setup", "wizard": "narrate"},
@@ -233,6 +246,18 @@ def _bad(mutate) -> str | None:
         (lambda p: p["lanes"][4]["cover"].update(blend="Screen!"), "blend must be a field key"),
         (lambda p: p["lanes"][4].update(cover="overlay"), "cover is"),
         (lambda p: p["lanes"][4].update(bed={"field": "music"}), "one of `in`"),
+        (lambda p: p["lanes"][5]["marks"].pop("field"), "marks needs field"),
+        (lambda p: p["lanes"][5]["marks"].update(field="Camera Move"), "field must be a field key"),
+        (lambda p: p["lanes"][5]["marks"].pop("entry_type"), "marks.via"),
+        (lambda p: p["lanes"][5]["marks"].pop("via"), "marks.via"),
+        (lambda p: p["lanes"][5]["marks"].update(labels={}), "marks.labels is"),
+        (lambda p: p["lanes"][5]["marks"].update(labels={"push-in": ""}), "marks.labels is"),
+        (lambda p: p["lanes"][5]["marks"].update(icons={"push-in": "x" * 41}), "marks.icons is"),
+        (lambda p: p["lanes"][5]["marks"].update(labels={f"v{i}": "x" for i in range(41)}), "marks.labels is"),
+        (lambda p: p["lanes"][5]["marks"].update(other={"field": "move"}), "marks.other is"),
+        (lambda p: p["lanes"][5]["marks"].update(other={"label": "Custom"}), "marks.other needs field"),
+        (lambda p: p["lanes"][5].update(marks="camera"), "marks is"),
+        (lambda p: p["lanes"][5].update(bed={"field": "music"}), "one of `in`"),
         (lambda p: p.update(lanes=p["lanes"] * 2), "at most 6"),
         (lambda p: p["actions"].append({"label": "Both", "wizard": "a", "workflow": "b"}), "either a wizard or a workflow"),
         (lambda p: p["actions"].append({"wizard": "a"}), "needs a label"),
@@ -356,7 +381,7 @@ def test_a_view_is_read_by_slug_and_by_entry_type(db_session, workspace):  # noq
     found = service.get_view(db_session, workspace.id, "story-timeline")
 
     assert isinstance(found, ViewRead) and (found.package, found.kind, found.entry_type) == ("story-kit", "timeline", "story")
-    assert [lane["id"] for lane in found.definition["lanes"]] == ["lines", "sounds", "ambience", "music", "overlay"]
+    assert [lane["id"] for lane in found.definition["lanes"]] == ["lines", "sounds", "ambience", "music", "overlay", "camera"]
     assert service.get_view(db_session, workspace.id, "missing") is None
     assert [v.slug for v in service.list_views(db_session, workspace.id, entry_type="story")] == ["story-timeline"]
     assert service.list_views(db_session, workspace.id, entry_type="beat") == []
