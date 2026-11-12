@@ -86,6 +86,18 @@ export function cardActionShown(action: { when?: { field: string; op: "eq" | "ne
   return w.op === "eq" ? same : !same;
 }
 
+/** What a step's `subtitle` shows under a title: one field, or up to three joined with " · " (a line's words, then its status). Fields with nothing in
+ *  them are left out, and each is cut at `max` characters (the whole thing is wanted where there is room: a pick list). */
+export function subtitleOf(subtitle: unknown, data: Record<string, unknown> | null | undefined, max = 60): string {
+  const keys = Array.isArray(subtitle) ? subtitle : typeof subtitle === "string" && subtitle ? [subtitle] : [];
+  return keys
+    .slice(0, 3)
+    .map((k) => String(data?.[String(k)] ?? "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .map((s) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s))
+    .join(" · ");
+}
+
 /** The label a gallery's `highlight` puts on a card whose field has the wanted value (the take in use), or null. */
 export function highlightOf(step: Step, data: Record<string, unknown> | null | undefined): string | null {
   const h = step.highlight as { field: string; value: string; label: string } | undefined;

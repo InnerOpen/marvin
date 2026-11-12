@@ -13,7 +13,7 @@ import { refOptionsFor } from "@/lib/refFieldsApi";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
-  type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
+  type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
   StepError, cardAudio, cardPicture, fieldRole, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
@@ -315,7 +315,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} />
                             <span class="tpic">{pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(c.title || "?").slice(0, 1)}</span>}</span>
                             <strong>{c.title}</strong>
-                            {step.subtitle && c.dataJson?.[step.subtitle] && <span class="muted gsub">{String(c.dataJson[step.subtitle]).slice(0, 60)}</span>}
+                            {subtitleOf(step.subtitle, c.dataJson) && <span class="muted gsub">{subtitleOf(step.subtitle, c.dataJson)}</span>}
                           </label>
                         );
                       })}
@@ -324,7 +324,8 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                     <div class="choices">
                       {choices.map((c) => (
                         <label class="choice" data-pick-item>
-                          <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} /> {c.title}
+                          <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} />
+                          <span class="choice-text">{c.title}{subtitleOf(step.subtitle, c.dataJson, 400) && <span class="muted gsub">{subtitleOf(step.subtitle, c.dataJson, 400)}</span>}</span>
                         </label>
                       ))}
                     </div>
@@ -465,7 +466,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                         </div>
                         <div class="gbody">
                           <strong>{r.title}</strong>
-                          {step.subtitle && r.dataJson?.[step.subtitle] && <span class="muted gsub">{String(r.dataJson[step.subtitle]).slice(0, 80)}</span>}
+                          {subtitleOf(step.subtitle, r.dataJson, 80) && <span class="muted gsub">{subtitleOf(step.subtitle, r.dataJson, 80)}</span>}
                           {(badges.length > 0 || highlightOf(step, r.dataJson)) && (
                             <span class="gbadges">
                               {highlightOf(step, r.dataJson) && <span class="pill inuse">{highlightOf(step, r.dataJson)}</span>}
@@ -795,7 +796,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .tpic .gnone { font-size: 44px; }
   @media (prefers-reduced-motion: reduce) { .tile { transition: none; } }
   /* Everything you can pick in a step is a darker panel with no outline; the accent outline shows on hover and on the one picked. */
-  .choice { display: flex; gap: 10px; align-items: center; cursor: pointer; padding: 10px 14px; border: 1px solid transparent; border-radius: var(--radius); background: var(--bg); }
+  .choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; padding: 10px 14px; border: 1px solid transparent; border-radius: var(--radius); background: var(--bg); }
   .choice:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .choice:has(input:checked) { border-color: var(--accent); }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -843,6 +844,8 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .gnone { font-size: 40px; font-weight: 700; color: var(--muted); }
   .gbody { display: grid; gap: 4px; padding: 10px 12px; font-size: 14px; }
   .gsub { font-size: 12px; }
+  .choice-text { display: grid; gap: 2px; min-width: 0; }
+  .choice-text .gsub { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
   .gbadges { display: flex; flex-wrap: wrap; gap: 4px; }
   .gbadges .pill { font-size: 11px; }
   .gactions { display: grid; gap: 10px; }

@@ -164,7 +164,9 @@ def _bad(mutate) -> str | None:
         (lambda p: p["steps"][7].update(upload={}), "upload needs"),
         (lambda p: p["steps"][7].update(audio="Voice Sample"), "audio must be a field key"),
         (lambda p: p["steps"][1].update(picture="Head Shot"), "picture must be a field key"),
-        (lambda p: p["steps"][1].update(subtitle=["build"]), "subtitle must be a field key"),
+        (lambda p: p["steps"][1].update(subtitle=["build", "bad key"]), "subtitle must be a field key"),
+        (lambda p: p["steps"][1].update(subtitle=["a", "b", "c", "d"]), "up to three"),
+        (lambda p: p["steps"][1].update(subtitle=[]), "subtitle must be a field key"),
         (lambda p: p["steps"][7]["upload"].update(accept=["audio/*"]), "upload.accept"),
         (lambda p: p["steps"][7]["upload"].update(accept="sounds please"), "upload.accept"),
         (lambda p: p["steps"][7]["upload"].update(accept="audio/*,"), "upload.accept"),
@@ -517,3 +519,9 @@ def test_an_option_step_may_be_optional_and_says_so_with_true_or_false():
     assert payload_problem(payload, "narrate") is None
     option["optional"] = "yes"
     assert "optional is true or false" in (payload_problem(payload, "narrate") or "")
+
+
+@pytest.mark.parametrize("subtitle", ["build", ["text"], ["text", "status"], ["a", "b", "c"]])
+def test_a_choose_or_gallery_step_may_show_one_field_or_up_to_three_under_each_title(subtitle):
+    assert _bad(lambda p: p["steps"][1].update(subtitle=subtitle)) is None
+    assert _bad(lambda p: p["steps"][7].update(subtitle=subtitle)) is None  # the gallery

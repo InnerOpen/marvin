@@ -286,15 +286,26 @@ def _check_create(s: _Step, create: Any) -> str | None:
     return s.refs_known(create.get("data"), "create.data")
 
 
+def _check_subtitle(s: _Step) -> str | None:
+    """``subtitle``: the field shown under each title, or a list of up to three (a line's words, then its status), joined with a dot."""
+    sub = s.step.get("subtitle")
+    if sub is None or _is_field(sub):
+        return None
+    if isinstance(sub, list) and 1 <= len(sub) <= 3 and all(_is_field(k) for k in sub):
+        return None
+    return f"{s.label}: subtitle must be a field key, or a list of up to three of them"
+
+
 def _check_choose(s: _Step) -> str | None:
     if s.step.get("sort") not in (None, "natural"):
         return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
     scope, create = s.step.get("scope"), s.step.get("create")
     if scope is not None and (not isinstance(scope, dict) or not all(_is_field(k) for k in scope)):
         return f"{s.label}: scope must map field keys to values"
-    for key in ("picture", "subtitle"):  # a pick with a picture is drawn as tiles, not a plain list
-        if s.step.get(key) is not None and not _is_field(s.step[key]):
-            return f"{s.label}: {key} must be a field key"
+    if s.step.get("picture") is not None and not _is_field(s.step["picture"]):  # a pick with a picture is drawn as tiles, not a plain list
+        return f"{s.label}: picture must be a field key"
+    if problem := _check_subtitle(s):
+        return problem
     return s.sets_context() or s.entry_type() or s.refs_known(scope, "scope") or (create is not None and _check_create(s, create)) or None
 
 
@@ -446,9 +457,11 @@ def _check_gallery(s: _Step) -> str | None:
         return f"{s.label}: parent and parent_field go together (or neither)"
     if scoped and not _is_field(step.get("parent_field")):
         return f"{s.label}: parent_field must be a field key"
-    for key in ("picture", "audio", "subtitle"):
+    for key in ("picture", "audio"):
         if step.get(key) is not None and not _is_field(step[key]):
             return f"{s.label}: {key} must be a field key"
+    if problem := _check_subtitle(s):
+        return problem
     if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
         return problem
     if problem := _check_gallery_extras(s):

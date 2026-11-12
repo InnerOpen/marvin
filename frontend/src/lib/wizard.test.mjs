@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  approvalsOf, buttonHref, cardActionShown, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
-} from "./wizard.ts";
+import { approvalsOf, buttonHref, cardActionShown, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -270,4 +268,15 @@ test("an optional option never blocks the steps after it, and a plain one still 
   assert.equal(blocker(pick(true), {}, "next"), null);
   assert.equal(blocker(pick(false), {}, "next")?.id, "how");
   assert.equal(blocker(pick(false), { input: "a" }, "next"), null);
+});
+
+test("a step's subtitle is one field or up to three joined, with empty ones left out and each cut at the limit", () => {
+  const line = { text: "There was a channel through the Devil's Shoals. Wide enough for a ship.", status: "draft", empty: "" };
+  assert.equal(subtitleOf("status", line), "draft");
+  assert.equal(subtitleOf(["text", "status"], line, 200), "There was a channel through the Devil's Shoals. Wide enough for a ship. · draft");
+  assert.equal(subtitleOf(["empty", "status"], line), "draft"); // nothing in it, so nothing shown
+  assert.equal(subtitleOf(["text"], line, 20), "There was a channel…"); // cut, not mid-word with a stray mark
+  assert.equal(subtitleOf(["a", "b", "c", "text"], { a: "1", b: "2", c: "3", text: "4" }), "1 · 2 · 3"); // three at most
+  for (const none of [undefined, null, "", [], 5]) assert.equal(subtitleOf(none, line), "");
+  assert.equal(subtitleOf("status", null), "");
 });
