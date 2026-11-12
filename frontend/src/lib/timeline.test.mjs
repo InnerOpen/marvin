@@ -823,3 +823,47 @@ test("a waveform outline is one polygon: the peaks above the middle line and the
   assert.equal(pts.length, 4);
   assert.deepEqual(pts, ["0.50,2.0", "1.50,49.4", "1.50,50.6", "0.50,98.0"]);
 });
+
+// ── marks lanes: one choice per item (the camera's move) ──────────────────────────────────────────────────────────────────────────────────────
+const marksLane = { id: "camera", title: "Camera", entry_type: "beat", marks: { field: "camera", via: "scene", entry_type: "scene", labels: { "pan-left": "Pan left!" }, icons: { "push-in": "⤢" }, other: { field: "move", label: "Custom move" } } };
+const marksSpec = { ...spec, lanes: [...spec.lanes, marksLane] };
+const marksLaid = ({ story = {}, sceneData = {}, beatsData = [], lane = marksLane }) => {
+  const spine = bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, ...(beatsData[i] ?? {}) } }));
+  const view = lane === marksLane ? marksSpec : { ...spec, lanes: [...spec.lanes, lane] };
+  return layout(view, { entry: row("s", story), spine, groups: chapters, lanes: { lines: [], sounds: [] }, via: { camera: [row("deck", sceneData)] } });
+};
+const marksOf = (laid) => laid.marks.camera.map((m) => [m.item, m.label, m.from, m.start, m.seconds]);
+
+test("marks lane: an item's own choice wins, then its scene's, then the story's, and an item with none has no mark", () => {
+  const laid = marksLaid({ story: { camera: "drift" }, sceneData: { camera: "tilt-up" }, beatsData: [{ camera: "pan-left" }, {}, {}, {}, {}] });
+  assert.deepEqual(laid.marks.camera.map((m) => [m.value, m.from]), [
+    ["pan-left", "beat"], // b1's own
+    ["tilt-up", "scene"], // b2 and b3: the deck's
+    ["tilt-up", "scene"],
+    ["drift", "story"], // b4's scene is not the deck, b5's does not exist: the story's
+    ["drift", "story"],
+  ]);
+  assert.equal(marksLaid({}).marks.camera.length, 0);
+});
+
+test("marks lane: a label says how a value reads, else the value is spaced and capitalised, and an icon is kept", () => {
+  const laid = marksLaid({ beatsData: [{ camera: "pan-left" }, { camera: "push-in" }, { camera: "pedestal_down" }] });
+  assert.deepEqual(laid.marks.camera.map((m) => [m.label, m.icon]), [["Pan left!", ""], ["Push in", "⤢"], ["Pedestal down", ""]]);
+});
+
+test("marks lane: an exact setting of the item's own wins over a choice and is shown as custom", () => {
+  const laid = marksLaid({ story: { camera: "drift" }, beatsData: [{ move: { from: { x: 0.5 }, to: { x: 0.6 } }, camera: "push-in" }, { move: {} }] });
+  assert.deepEqual(laid.marks.camera.slice(0, 2).map((m) => [m.custom, m.label, m.value]), [[true, "Custom move", ""], [false, "Drift", "drift"]]); // an empty move is no setting
+});
+
+test("marks lane: each mark spans its item's time, in order", () => {
+  const laid = marksLaid({ story: { camera: "drift" } });
+  assert.deepEqual(marksOf(laid).map(([item, , , start, seconds]) => [item, start, seconds]), [["id-b1", 0, 4], ["id-b2", 4, 4], ["id-b3", 8, 4], ["id-b4", 12, 4], ["id-b5", 16, 4]]);
+});
+
+test("marks lane: a view without one has no marks, and a lane with no via reads the item then the story", () => {
+  assert.deepEqual(layout(spec, { spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [] } }).marks, {});
+  const plain = { id: "camera", title: "Camera", entry_type: "beat", marks: { field: "camera" } };
+  const laid = marksLaid({ story: { camera: "drift" }, sceneData: { camera: "tilt-up" }, beatsData: [{ camera: "pan-left" }], lane: plain });
+  assert.deepEqual(laid.marks.camera.map((m) => m.value).slice(0, 3), ["pan-left", "drift", "drift"]); // no scene tier
+});

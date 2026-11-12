@@ -65,7 +65,11 @@ A timeline definition::
   that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
   silence) and shows as steps in the block. ``cover`` is a video laid over each item's picture: ``field`` is the asset field, ``blend`` and
   ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with ``entry_type``) names, then the view's entry itself, and a
-  blend of ``none`` at one of them switches the overlay off from there up.
+  blend of ``none`` at one of them switches the overlay off from there up. ``marks`` writes one choice per spine item in its block, for
+  something about the shot that is not sound or picture (the camera's move, the time of day): ``field`` holds the choice (a select's value),
+  read from the item, else the entry ``via`` (with ``entry_type``) names, else the view's entry, so a scene or a story can set it for the
+  beats that do not; ``labels`` and ``icons`` ({value: text}) say how a value reads, and ``other`` ({field, label}) names what the item
+  shows when that other field holds something of its own (an exact camera move written out) and so wins over the choice.
 - ``spine.review`` ({ready, keep, redo}) puts Keep and Redo buttons on each item whose ``spine.status`` is one of ``ready`` (a still that was
   made and waits to be looked at): Keep writes the status ``keep``, Redo the status ``redo`` into the item's status field, and the page shows
   the new status at once. What the package does with those statuses (a redo made again) is its own workflows' business.
@@ -328,11 +332,11 @@ def _check_lane(lane: dict, label: str) -> str | None:
         return f"{label} needs a title"
     if problem := _slug(lane, "entry_type", label):
         return problem
-    shapes = [k for k in ("in", "placed", "bed", "cover") if lane.get(k) is not None]
+    shapes = [k for k in ("in", "placed", "bed", "cover", "marks") if lane.get(k) is not None]
     if len(shapes) != 1:
         return (
             f"{label}: one of `in` (the field holding the spine item's slug), `placed` ({{field, ref, at}}), "
-            "`bed` ({field, via?}) or `cover` ({field, via?})"
+            "`bed` ({field, via?}), `cover` ({field, via?}) or `marks` ({field, via?})"
         )
     if problem := _field(lane, "of", label, required=shapes == ["in"]):
         return problem
@@ -355,6 +359,8 @@ def _check_lane(lane: dict, label: str) -> str | None:
     if (cover := lane.get("cover")) is not None:
         if problem := _check_cover(cover, label):
             return problem
+    if (marks := lane.get("marks")) is not None and (problem := _check_marks(marks, label)):
+        return problem
     if (opens := lane.get("open")) is not None:
         if not isinstance(opens, dict):
             return f"{label}: open is {{wizard}}, the guided setup a piece opens on instead of its own page"
@@ -374,6 +380,38 @@ def _check_cover(cover: Any, label: str) -> str | None:
         return f"{label}: cover.via (the spine item's field naming the entry) and cover.entry_type go together"
     if cover.get("entry_type") is not None:
         return _slug(cover, "entry_type", f"{label} cover")
+    return None
+
+
+MAX_MARK_WORDS = 40  # how many values a marks lane may name, and the longest a label or icon may be
+_MARK_TEXT = 40
+
+
+def _check_marks(marks: Any, label: str) -> str | None:
+    if not isinstance(marks, dict):
+        return f"{label}: marks is {{field, via?, entry_type?, labels?, icons?, other?}}"
+    if problem := _field(marks, "field", f"{label} marks", required=True):
+        return problem
+    if problem := _field(marks, "via", f"{label} marks"):
+        return problem
+    if (marks.get("via") is None) != (marks.get("entry_type") is None):
+        return f"{label}: marks.via (the spine item's field naming the entry) and marks.entry_type go together"
+    if marks.get("entry_type") is not None and (problem := _slug(marks, "entry_type", f"{label} marks")):
+        return problem
+    for key in ("labels", "icons"):
+        words = marks.get(key)
+        if words is None:
+            continue
+        if not (
+            isinstance(words, dict)
+            and 0 < len(words) <= MAX_MARK_WORDS
+            and all(isinstance(k, str) and k and isinstance(v, str) and v.strip() and len(v) <= _MARK_TEXT for k, v in words.items())
+        ):
+            return f"{label}: marks.{key} is {{value: text}}, at most {MAX_MARK_WORDS} values and {_MARK_TEXT} characters each"
+    if (other := marks.get("other")) is not None:
+        if not isinstance(other, dict) or not isinstance(other.get("label"), str) or not other["label"].strip() or len(other["label"]) > _MARK_TEXT:
+            return f"{label}: marks.other is {{field, label}}, what an item shows when that field holds something of its own"
+        return _field(other, "field", f"{label} marks.other", required=True)
     return None
 
 

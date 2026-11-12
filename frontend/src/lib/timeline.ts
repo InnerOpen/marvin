@@ -107,6 +107,19 @@ export interface CoverSpec {
   entry_type?: string;
 }
 
+/** One choice per spine item, written in its block: something about the shot that is not sound or picture (the camera's move). The item's own field
+ * wins, then the entry `via` names (a beat's scene), then the view's entry itself (the story). `other` is what an item shows when a different field
+ * of its own is filled in (an exact camera move) and so wins over the choice. */
+export interface MarksSpec {
+  field: string;
+  via?: string;
+  entry_type?: string;
+  /** How a value reads (else the value itself, spaced and capitalised) and the symbol drawn before it. */
+  labels?: Record<string, string>;
+  icons?: Record<string, string>;
+  other?: { field: string; label: string };
+}
+
 export interface LaneSpec {
   id: string;
   title: string;
@@ -118,6 +131,7 @@ export interface LaneSpec {
   placed?: { field: string; ref: string; at: string; volume?: string };
   bed?: BedSpec;
   cover?: CoverSpec;
+  marks?: MarksSpec;
   order?: string;
   text?: string;
   who?: string;
@@ -291,6 +305,8 @@ export interface Layout {
   beds: Record<string, Bed[]>;
   /** Per cover lane, its blocks in time order. */
   covers: Record<string, Cover[]>;
+  /** Per marks lane, one mark for each item that has a choice, in time order. */
+  marks: Record<string, Mark[]>;
 }
 
 export const DEFAULT_SECONDS = { hold: 4, lead: 0.3, gap: 0.25, tail: 0.35 };
@@ -496,9 +512,11 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   for (const lane of bedLanes) beds[lane.id] = bedsOf(lane, items, rows, clock, bySlug(lane));
   const covers: Record<string, Cover[]> = {};
   for (const lane of lanes.filter((l) => l.cover)) covers[lane.id] = coversOf(lane.cover!, spec, items, rows, lane.id);
+  const marks: Record<string, Mark[]> = {};
+  for (const lane of lanes.filter((l) => l.marks)) marks[lane.id] = marksOf(lane.marks!, spec, items, rows, lane.id);
   const bands: Record<string, Band[]> = {};
   for (const band of spec.spine.bands ?? []) bands[band.id ?? band.field] = bandsOf(band, items, rows, band.id ?? band.field);
-  return { total: clock, groups: out, items, bands, beds, covers };
+  return { total: clock, groups: out, items, bands, beds, covers, marks };
 }
 
 /** A bed's level as the render plays it: the level set where the sound is named (a beat's, else its scene's or the story's) *replaces* the
@@ -713,6 +731,21 @@ function stepsOf(spec: BedSpec, items: Item[], rows: Rows, base: number): BedSte
   return runs.length > 1 || (runs.length === 1 && Math.abs(runs[0].volume - base) > 1e-9) ? runs : [];
 }
 
+/** One item's choice in a marks lane, drawn across the item's width. */
+export interface Mark {
+  /** The value chosen (a select's value), or "" for an item's own exact setting (`custom`). */
+  value: string;
+  label: string;
+  icon: string;
+  /** The entry type it was set on: the spine's, the `via`'s or the view's own; "" for a custom one. */
+  from: string;
+  /** True for what the lane's `other` field says: the item has its own exact setting, which wins over the choice. */
+  custom: boolean;
+  start: number;
+  seconds: number;
+  item: string;
+}
+
 /** The file name of a published address, without its query: only for an asset with no title, since a published name is often just an id. */
 const fileName = (url: string): string => decodeURIComponent(url.split("?")[0].split("/").pop() ?? url);
 
@@ -747,6 +780,40 @@ function coversOf(spec: CoverSpec, view: TimelineSpec, items: Item[], rows: Rows
       last.seconds = item.start + item.seconds - last.start;
       last.items.push(item.id);
     } else out.push(found);
+  }
+  return out;
+}
+
+const filled = (value: unknown): boolean => value !== null && value !== undefined && value !== "" && !(typeof value === "object" && Object.keys(value as object).length === 0);
+
+/** A value as words: its label when the lane names one, else the value with its dashes and underscores spaced and its first letter a capital. */
+const wordsOf = (value: string, labels: Record<string, string> | undefined): string => labels?.[value] ?? (value.replace(/[-_]+/g, " ").trim().replace(/^./, (c) => c.toUpperCase()) || value);
+
+/** The marks of a marks lane: for each item its own `other` setting, else the choice its own field, its `via` entry's or the view's entry names. */
+function marksOf(spec: MarksSpec, view: TimelineSpec, items: Item[], rows: Rows, laneId: string): Mark[] {
+  const via = new Map((rows.via?.[laneId] ?? []).map((r) => [r.slug, r] as const));
+  const spine = new Map(rows.spine.map((r) => [r.id, r] as const));
+  const out: Mark[] = [];
+  for (const item of items) {
+    if (item.card) continue; // a card is a title, not a shot: it has no camera
+    const row = spine.get(item.id);
+    const own = { start: item.start, seconds: item.seconds, item: item.id };
+    if (row && spec.other && filled(field(row, spec.other.field))) {
+      out.push({ value: "", label: spec.other.label, icon: "", from: "", custom: true, ...own });
+      continue;
+    }
+    const named = row && spec.via ? via.get(str(field(row, spec.via))) : undefined;
+    const tiers: [Row | undefined, string][] = [
+      [row, view.spine.entry_type],
+      [named, spec.entry_type ?? ""],
+      [rows.entry, view.entry_type],
+    ];
+    for (const [owner, from] of tiers) {
+      const value = owner ? str(field(owner, spec.field)).trim() : "";
+      if (!value) continue;
+      out.push({ value, label: wordsOf(value, spec.labels), icon: spec.icons?.[value] ?? "", from, custom: false, ...own });
+      break;
+    }
   }
   return out;
 }
