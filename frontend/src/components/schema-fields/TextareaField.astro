@@ -1,4 +1,5 @@
 ---
+import FountainToolbar from "./FountainToolbar.astro";
 import "../../styles/fountain.css";
 /**
  * TextareaField Component
@@ -48,6 +49,7 @@ const fountain = field.format === "fountain";
       <button type="button" class="tab-button" data-tab="preview">Preview</button>
     </div>
   )}
+  {fountain && !field.readOnly && <FountainToolbar />}
 
   <textarea
     id={inputId}

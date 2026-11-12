@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { fountainToHtml, inline, parseFountain } from "./fountain.ts";
+import { applyFountain, fountainToHtml, inline, parseFountain } from "./fountain.ts";
 
 const kinds = (text) => parseFountain(text).map((b) => b.kind);
 
@@ -95,4 +95,74 @@ test("nothing to read gives nothing to show", () => {
 test("the story's own file reads as it is meant to: heading, speaker, delivery, line, transition", () => {
   const text = "Title: THE DEVIL'S SHOALS\nAuthor: Jared\n\n# ACT I: THE WRECK\n\nEXT. THE REEF - NIGHT #1#\n= Black rocks break the surface.\n\nLightning reveals the ship.\n\n[[Sound: timber grinding at 0s.]]\n\nCHET (O.S.)\n(shouting)\nThe hull is groaning, Captain!\n\nCUT TO:\n\nINT. CAPTAIN'S CABIN - CONTINUOUS #2#\n";
   assert.deepEqual(kinds(text), ["title", "section", "scene", "synopsis", "action", "note", "dialogue", "transition", "scene"]);
+});
+
+// ── the toolbar's edits ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+const run = (tool, value, start = value.length, end = start) => {
+  const edit = applyFountain(tool, value, start, end);
+  return { text: edit.value, picked: edit.value.slice(edit.start, edit.end) };
+};
+
+test("toolbar: a scene heading starts its own paragraph, with the place to type selected", () => {
+  assert.deepEqual(run("scene", ""), { text: "INT. PLACE - DAY\n\n", picked: "PLACE" });
+  assert.deepEqual(run("scene", "She waits."), { text: "She waits.\n\nINT. PLACE - DAY\n\n", picked: "PLACE" });
+  assert.deepEqual(run("scene", "She waits.\n"), { text: "She waits.\n\nINT. PLACE - DAY\n\n", picked: "PLACE" });
+  assert.deepEqual(run("scene", "She waits.\n\n"), { text: "She waits.\n\nINT. PLACE - DAY\n\n", picked: "PLACE" });
+});
+
+test("toolbar: selected words become the place, upper-cased, and a heading already written is only upper-cased", () => {
+  assert.deepEqual(run("scene", "the cabin", 0, 9), { text: "INT. THE CABIN - DAY\n\n", picked: "THE CABIN" });
+  assert.deepEqual(run("scene", "ext. reef - night", 0, 17), { text: "EXT. REEF - NIGHT\n\n", picked: "EXT. REEF - NIGHT" });
+});
+
+test("toolbar: a speaker is a name over what is said, the name selected; a selection is what is said", () => {
+  assert.deepEqual(run("character", ""), { text: "NAME\nDialogue.\n\n", picked: "NAME" });
+  const said = run("character", "Aye, Captain.", 0, 13);
+  assert.equal(said.text, "NAME\nAye, Captain.\n\n");
+  assert.equal(parseFountain(said.text)[0].kind, "dialogue");
+});
+
+test("toolbar: a parenthetical goes on its own line, not its own paragraph, so it stays inside the speech", () => {
+  assert.deepEqual(run("parenthetical", "CHET\n"), { text: "CHET\n(delivery)", picked: "delivery" });
+  assert.deepEqual(run("parenthetical", "CHET"), { text: "CHET\n(delivery)", picked: "delivery" });
+  const speech = run("parenthetical", "CHET\n").text + "\nThe hull groans.";
+  assert.deepEqual(parseFountain(speech)[0].lines.map((l) => l.kind), ["parenthetical", "dialogue"]);
+});
+
+test("toolbar: a transition is upper-cased with its colon, and the default is CUT TO:", () => {
+  assert.deepEqual(run("transition", ""), { text: "CUT TO:\n\n", picked: "CUT" });
+  assert.equal(run("transition", "dissolve to", 0, 11).text, "DISSOLVE TO:\n\n");
+  assert.equal(parseFountain(run("transition", "").text)[0].kind, "transition");
+});
+
+test("toolbar: a centered line is > text < on one line, and many selected lines become one", () => {
+  assert.deepEqual(run("centered", ""), { text: "> TEXT <\n\n", picked: "TEXT" });
+  assert.equal(run("centered", "THE\nEND", 0, 7).text, "> THE END <\n\n");
+  assert.equal(parseFountain(run("centered", "THE END", 0, 7).text)[0].kind, "centered");
+});
+
+test("toolbar: a section, a synopsis, lyrics and a page break are each read back as what they are", () => {
+  assert.equal(parseFountain(run("section", "").text)[0].kind, "section");
+  assert.equal(parseFountain(run("synopsis", "").text)[0].kind, "synopsis");
+  assert.equal(run("lyrics", "").text, "~A line of the song\n\n");
+  assert.equal(parseFountain(run("break", "Before.").text)[1].kind, "break");
+});
+
+test("toolbar: a note, bold, italic and underline wrap the selection where it stands, or a placeholder", () => {
+  assert.deepEqual(run("note", "A line.", 2, 6), { text: "A [[line]].", picked: "line" });
+  assert.deepEqual(run("bold", "go", 0, 2), { text: "**go**", picked: "go" });
+  assert.deepEqual(run("italic", ""), { text: "*italic*", picked: "italic" });
+  assert.deepEqual(run("underline", "x ", 2), { text: "x _underlined_", picked: "underlined" });
+  assert.equal(inline("**go** *x* _y_ [[n]]").includes("<b>go</b>"), true);
+});
+
+test("toolbar: an edit in the middle of the text keeps what comes after on its own paragraph", () => {
+  const edit = applyFountain("scene", "One.\n\nTwo.", 6, 6);
+  assert.equal(edit.value, "One.\n\nINT. PLACE - DAY\n\nTwo.");
+  assert.equal(edit.value.slice(edit.start, edit.end), "PLACE");
+});
+
+test("toolbar: a selection backwards or past the end is taken as it is", () => {
+  assert.equal(applyFountain("bold", "abc", 3, 0).value, "**abc**");
+  assert.equal(applyFountain("note", "abc", 99, 99).value, "abc[[note]]");
 });
