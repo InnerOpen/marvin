@@ -434,6 +434,27 @@ def test_an_add_forms_file_box_and_name_box_may_say_what_they_mean():
     assert payload_problem(wizard, "takes") is None
 
 
+def test_the_recorder_may_be_told_which_of_the_forms_fields_to_show_to_read_from():
+    wizard = _add_wizard(fields=["spoken", "direction"], file={"field": "audio", "accept": "audio/*", "script": ["spoken", "direction"]})
+    assert payload_problem(wizard, "takes") is None
+
+
+@pytest.mark.parametrize(
+    ("script", "words"),
+    [
+        ("spoken", "add.file.script is 1 to 3"),
+        ([], "add.file.script is 1 to 3"),
+        (["spoken", "spoken"], "add.file.script is 1 to 3"),
+        (["a", "b", "c", "d"], "add.file.script is 1 to 3"),
+        (["Bad Key"], "add.file.script is 1 to 3"),
+        (["nope"], "which the form does not have"),
+    ],
+)
+def test_a_wrong_script_says_what_is_wrong(script, words):
+    wizard = _add_wizard(fields=["spoken", "direction", "a", "b", "c", "d"], file={"field": "audio", "script": script})
+    assert words in (payload_problem(wizard, "takes") or "")
+
+
 @pytest.mark.parametrize(
     ("change", "words"),
     [

@@ -4,7 +4,13 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  CUE_SCALES,
+  MAX_CUE_CARDS,
+  MAX_CUE_CHARS,
   MIME_CANDIDATES,
+  cueCards,
+  stepCueScale,
+  storedCueScale,
   canPauseReliably,
   containerOf,
   fileFor,
@@ -196,3 +202,38 @@ describe("recordingMetadata", () => {
     assert.deepEqual(recording.constraints, { echo_cancellation: null, noise_suppression: null, auto_gain_control: null });
   });
 });
+
+describe("the script to read from", () => {
+  test("a card with nothing to read is left out, the rest trimmed and in order", () => {
+    const cards = cueCards([{ label: " Words ", text: "  Hold her straight!  " }, { label: "Direction", text: "   " }, { label: "Notes", text: null }, { text: "Loud" }]);
+    assert.deepEqual(cards, [
+      { label: "Words", text: "Hold her straight!" },
+      { label: "", text: "Loud" },
+    ]);
+    assert.deepEqual(cueCards(undefined), []);
+    assert.deepEqual(cueCards(null), []);
+  });
+
+  test("at most three cards, and none longer than a screen of reading", () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({ label: `L${i}`, text: "x".repeat(MAX_CUE_CHARS + 50) }));
+    const cards = cueCards(many);
+    assert.equal(cards.length, MAX_CUE_CARDS);
+    assert.equal(cards[0].text.length, MAX_CUE_CHARS);
+  });
+
+  test("A+ and A- step through the sizes and stop at the ends", () => {
+    assert.equal(stepCueScale(1, 1), 1.25);
+    assert.equal(stepCueScale(1, -1), 0.8);
+    assert.equal(stepCueScale(CUE_SCALES.at(-1), 1), CUE_SCALES.at(-1));
+    assert.equal(stepCueScale(CUE_SCALES[0], -1), CUE_SCALES[0]);
+    assert.equal(stepCueScale(1.3, 1), 1.6, "a size that is not one of them goes to the nearest first");
+  });
+
+  test("a remembered size is used only when it is one of the sizes", () => {
+    assert.equal(storedCueScale("1.6"), 1.6);
+    assert.equal(storedCueScale("9"), 1);
+    assert.equal(storedCueScale(null), 1);
+    assert.equal(storedCueScale("abc"), 1);
+  });
+});
+

@@ -55,6 +55,7 @@ _ACCEPT_PART = r"(?:[a-z]+/(?:\*|[a-z0-9.+-]+)|\.[a-z0-9]{1,10})"
 _ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IGNORECASE)
 MAX_SHOWN = 8
 MAX_PREFILL = 12
+MAX_SCRIPT = 3  # fields of the add form the recorder shows to read from
 RESERVED_KEYS = ("step", "notice")  # address parameters the page uses for itself: never a context key
 _STEP_ID = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
@@ -262,6 +263,10 @@ def _check_upload_spec(s: _Step, upload: Any, what: str) -> str | None:
         return f"{s.label}: {what}.accept is a file input's accept, like audio/* or image/png,.webp"
     if upload.get("seconds") is not None and not _is_field(upload["seconds"]):
         return f"{s.label}: {what}.seconds is the number field that takes the sound's length, measured in the browser"
+    if (script := upload.get("script")) is not None and not (
+        isinstance(script, list) and 1 <= len(script) <= MAX_SCRIPT and len(set(script)) == len(script) and all(_is_field(k) for k in script)
+    ):
+        return f"{s.label}: {what}.script is 1 to {MAX_SCRIPT} different field keys of the form, whose text the recorder shows large to read from"
     # What a gallery add form's own file box says (a take's wording is the default).
     for word, longest in (("label", 60), ("help", 300), ("hint", 100)):
         if upload.get(word) is not None and not (isinstance(upload[word], str) and upload[word].strip() and len(upload[word]) <= longest):
@@ -352,7 +357,8 @@ def _check_run(s: _Step) -> str | None:
 def _check_add_extras(s: _Step, add: Any) -> str | None:
     """What a gallery's ``add`` form may carry beyond fields and data: ``open`` (shown open), ``title``, ``prefill`` ({field: "key.field"}: start
     from the chosen entry's own value, a take from its line's words), ``file`` (a Record/Upload box in the form, as ``upload``;
-    its ``label``, ``help`` and ``hint`` say what the file is, a take by default) and ``buttons``
+    its ``label``, ``help`` and ``hint`` say what the file is, a take by default; its ``script`` names up to three of the form's fields
+    whose current text the recorder shows large, above its controls, to read from: a take's words and direction) and ``buttons``
     (up to 3 ways to save, each ``{label, data?, file?}``: its data is added to the entry, ``file`` is "required" or "none")."""
     if not isinstance(add, dict):
         return None
@@ -372,6 +378,10 @@ def _check_add_extras(s: _Step, add: Any) -> str | None:
                     )
     if add.get("file") is not None and (problem := _check_upload_spec(s, add["file"], "add.file")):
         return problem
+    if isinstance(add.get("file"), dict) and add["file"].get("script") is not None:
+        shown = [f for f in add["file"]["script"] if f not in (add.get("fields") or [])]
+        if shown:
+            return f"{s.label}: add.file.script names {', '.join(shown)}, which the form does not have (add.fields)"
     if (buttons := add.get("buttons")) is not None:
         if not isinstance(buttons, list) or not 1 <= len(buttons) <= 3:
             return f"{s.label}: add.buttons is a list of 1 to 3 buttons"

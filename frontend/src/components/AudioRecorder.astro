@@ -4,6 +4,7 @@
  * to send as it would a picked file. Put it on a page once (SchemaForm does, as it does the cropper) and call
  *
  *   const file = await window.AudioRecorder.open({ suggestedName, metadata }); // null when nothing was kept
+ *   // `script: [{ label, text }]` (up to three) is shown large above the controls, to read from while recording (a take's words and direction)
  *   const facts = window.AudioRecorder.metadataOf(file); // { ...metadata, recording: { mime, device, duration_seconds, … } }
  *
  * Echo cancellation and automatic gain are off by default (a narration take is wanted as the microphone hears it), so
@@ -15,6 +16,16 @@
 <dialog class="audio-recorder" id="audioRecorder" aria-labelledby="audioRecorderTitle">
   <div class="ar-body">
     <h3 id="audioRecorderTitle">Record audio</h3>
+    <section class="ar-script" data-ar-script hidden aria-label="Text to read">
+      <div class="ar-script-tools">
+        <span>Read from</span>
+        <span class="ar-script-size">
+          <button type="button" class="button secondary small" data-ar-smaller aria-label="Smaller text" title="Smaller text">A−</button>
+          <button type="button" class="button secondary small" data-ar-larger aria-label="Larger text" title="Larger text">A+</button>
+        </span>
+      </div>
+      <div class="ar-cues" data-ar-cues></div>
+    </section>
     <p class="ar-help">With echo cancellation and automatic gain off the take is what the microphone hears: wear headphones and keep the meter out of the red.</p>
     <label class="ar-label">Microphone
       <select data-ar-device><option value="">Default microphone</option></select>
@@ -48,6 +59,17 @@
   /* Global, scoped by the dialog's class: the dialog sits in the top layer over whichever page or dialog opened it. */
   .audio-recorder { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(440px, calc(100vw - 32px)); background: var(--panel); color: var(--ink); }
   .audio-recorder::backdrop { background: rgb(0 0 0 / 0.45); }
+  /* With a script to read from, the dialog widens and the words come first, large; the controls stay below, so the Record button is in reach. */
+  .audio-recorder.ar-reading { width: min(960px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; }
+  .audio-recorder.ar-reading .ar-help { display: none; }
+  .audio-recorder .ar-script { display: grid; gap: 10px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2, var(--bg)); }
+  .audio-recorder .ar-script-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .audio-recorder .ar-script-size { display: inline-flex; gap: 6px; }
+  .audio-recorder .ar-cues { display: grid; gap: 16px; max-height: 46vh; overflow: auto; }
+  .audio-recorder .ar-cue-label { display: block; margin-bottom: 2px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .audio-recorder .ar-cue-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
+  .audio-recorder .ar-cue:first-child .ar-cue-text { font-size: calc(clamp(1.5rem, 3.2vw, 2.5rem) * var(--ar-scale, 1)); font-weight: 600; }
+  .audio-recorder .ar-cue:not(:first-child) .ar-cue-text { font-size: calc(clamp(1.1rem, 2.2vw, 1.6rem) * var(--ar-scale, 1)); font-style: italic; }
   /* The page's .button sets a display of its own, which would otherwise beat the hidden attribute. */
   .audio-recorder [hidden] { display: none; }
   .audio-recorder .ar-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 20px; }
@@ -72,6 +94,7 @@
 <script>
   import {
     canPauseReliably,
+    cueCards,
     fileFor,
     formatClock,
     levelOf,
@@ -79,6 +102,8 @@
     meterPosition,
     pickMimeType,
     recordingMetadata,
+    stepCueScale,
+    storedCueScale,
     type RecordingSettings,
   } from "@/lib/audioRecorder";
 
@@ -88,7 +113,7 @@
   const FFT_SIZE = 2048;
   const FALLBACK_NAME = "recording";
 
-  type Options = { suggestedName?: string; metadata?: Record<string, unknown> };
+  type Options = { suggestedName?: string; metadata?: Record<string, unknown>; script?: { label?: string; text?: string }[] };
   type Constraint = "autoGainControl" | "echoCancellation" | "noiseSuppression";
 
   const dialog = document.getElementById("audioRecorder") as HTMLDialogElement;
@@ -101,6 +126,17 @@
   const status = el<HTMLElement>("status");
   const playback = el<HTMLAudioElement>("playback");
   const error = el<HTMLElement>("error");
+  const scriptPanel = el<HTMLElement>("script");
+  const cueList = el<HTMLElement>("cues");
+  const SCALE_KEY = "audio-recorder-script-scale";
+  const remembered = () => {
+    try {
+      return localStorage.getItem(SCALE_KEY);
+    } catch {
+      return null; // storage can be refused (a private window): the text just starts at the default size
+    }
+  };
+  let cueScale = storedCueScale(remembered());
   const buttons = {
     discard: el<HTMLButtonElement>("discard"),
     again: el<HTMLButtonElement>("again"),
@@ -369,9 +405,45 @@
     settle = null;
   }
 
+  /** The words to read from, large above the controls; with nothing to read the panel stays away and the dialog is as it was. */
+  function renderScript(raw: Options["script"]) {
+    const cards = cueCards(raw);
+    cueList.replaceChildren(
+      ...cards.map((card) => {
+        const block = document.createElement("div");
+        block.className = "ar-cue";
+        if (card.label) {
+          const label = document.createElement("span");
+          label.className = "ar-cue-label";
+          label.textContent = card.label;
+          block.append(label);
+        }
+        const text = document.createElement("p");
+        text.className = "ar-cue-text";
+        text.textContent = card.text; // text only: what was typed in the form is never read as markup
+        block.append(text);
+        return block;
+      }),
+    );
+    scriptPanel.hidden = cards.length === 0;
+    dialog.classList.toggle("ar-reading", cards.length > 0);
+    dialog.style.setProperty("--ar-scale", String(cueScale));
+  }
+
+  function resize(direction: 1 | -1) {
+    cueScale = stepCueScale(cueScale, direction);
+    dialog.style.setProperty("--ar-scale", String(cueScale));
+    try {
+      localStorage.setItem(SCALE_KEY, String(cueScale));
+    } catch {
+      /* the size just is not remembered */
+    }
+  }
+
   function open(opts: Options = {}): Promise<File | null> {
     if (dialog.open) return Promise.resolve(null);
     options = opts;
+    renderScript(opts.script);
     kept = null;
     clock.textContent = formatClock(0);
     clip.hidden = true;
@@ -386,6 +458,8 @@
   buttons.pause.addEventListener("click", pauseOrResume);
   buttons.stop.addEventListener("click", stop);
   buttons.use.addEventListener("click", useTake);
+  el<HTMLButtonElement>("smaller").addEventListener("click", () => resize(-1));
+  el<HTMLButtonElement>("larger").addEventListener("click", () => resize(1));
   buttons.discard.addEventListener("click", () => dialog.close());
   buttons.again.addEventListener("click", () => {
     dropTake();

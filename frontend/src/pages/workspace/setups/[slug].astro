@@ -226,6 +226,11 @@ const uploadNoun = { audio: "sound", image: "picture", file: "file" }[acceptKind
 const lengthField: string | undefined = step?.upload?.seconds ?? step?.add?.file?.seconds; // where a card's sound length lives
 const addAccept = step?.kind === "gallery" && step.add?.file ? galleryAccept({ upload: step.add.file } as any) : null;
 const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept) || acceptsAudio(addAccept);
+// What the recorder shows to read from (`add.file.script`: field keys of the add form, labelled as the form labels them): a take's words and direction.
+const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?? []) as string[]).map((key) => ({
+  field: key,
+  label: String((addFields as { key: string; label?: string }[]).find((f) => f.key === key)?.label ?? key).replace(/\s*\([^)]*\)\s*$/, ""), // "Words (what is said)" reads as "Words" at this size
+}));
 ---
 
 <AppLayout crumb="workspace.wizards.run" title={wizard?.name ?? "Guided setup"} width="page">
@@ -538,7 +543,7 @@ const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uplo
                           <div class="form-group">
                             <label>{step.add.file.label ?? "Your own take"}</label>
                             <p class="muted">{step.add.file.help ?? "Record or upload one, then use the first button. Leave it empty to have ElevenLabs make it from the words above."}</p>
-                            <FileDrop accept={addAccept ?? undefined} hint={step.add.file.hint ?? "Record or upload one take."} nameFrom="add_title" required={false} />
+                            <FileDrop accept={addAccept ?? undefined} hint={step.add.file.hint ?? "Record or upload one take."} nameFrom="add_title" required={false} script={readFrom} />
                           </div>
                         )}
                         <div class="actions">

@@ -14,14 +14,16 @@ interface Props {
   hint?: string;
   /** The name of another field in the same form that names what is being added (e.g. a title box): a recording is named from it. */
   nameFrom?: string;
+  /** Fields of the same form (`dataJson.<field>` inputs) whose text the recorder shows large to read from, as they stand when it opens. */
+  script?: { label: string; field: string }[];
 }
 
-const { name = "file", accept, required = true, hint = "One file.", nameFrom } = Astro.props;
+const { name = "file", accept, required = true, hint = "One file.", nameFrom, script } = Astro.props;
 // A zone that takes a sound offers "Record…" too, when the page has the recorder (components/AudioRecorder.astro); the script shows it.
 const recordable = acceptsAudio(accept);
 ---
 
-<div class="file-drop" data-file-drop data-required={required ? "1" : undefined} data-name-from={nameFrom} role="button" tabindex="0" aria-label="Choose a file, or drop one here">
+<div class="file-drop" data-file-drop data-required={required ? "1" : undefined} data-name-from={nameFrom} data-script={script?.length ? JSON.stringify(script) : undefined} role="button" tabindex="0" aria-label="Choose a file, or drop one here">
   <input type="file" name={name} accept={accept} hidden data-file-drop-input />
   <div class="file-drop-empty" data-file-drop-empty>
     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -60,7 +62,7 @@ const recordable = acceptsAudio(accept);
 </style>
 
 <script>
-  type RecorderApi = { open: (options?: { suggestedName?: string }) => Promise<File | null> };
+  type RecorderApi = { open: (options?: { suggestedName?: string; script?: { label: string; text: string }[] }) => Promise<File | null> };
 
   function wire(zone: HTMLElement) {
     const input = zone.querySelector<HTMLInputElement>("[data-file-drop-input]")!;
@@ -109,7 +111,13 @@ const recordable = acceptsAudio(accept);
         if (!open) return;
         // Named for what the person typed in the form's name box, else the file already chosen; never left as "recording".
         const typed = zone.dataset.nameFrom ? zone.closest("form")?.querySelector<HTMLInputElement>(`[name="${zone.dataset.nameFrom}"]`)?.value.trim() : "";
-        const file = await open({ suggestedName: typed || input.files?.[0]?.name.replace(/\.[a-z0-9]+$/i, "") || undefined });
+        // What the form says now (the person may have changed the words or the direction for this take) is what the recorder shows to read from.
+        const form = zone.closest("form");
+        const script = (JSON.parse(zone.dataset.script || "[]") as { label: string; field: string }[]).map(({ label, field }) => ({
+          label,
+          text: form?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="dataJson.${field}"]`)?.value ?? "",
+        }));
+        const file = await open({ suggestedName: typed || input.files?.[0]?.name.replace(/\.[a-z0-9]+$/i, "") || undefined, script });
         if (file) take(file);
       }),
     );
