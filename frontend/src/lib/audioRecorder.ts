@@ -152,3 +152,37 @@ export function recordingMetadata(settings: RecordingSettings, stats: RecordingS
     },
   };
 }
+
+/** One card of the script the recorder shows to read from: a label ("Words") and the text. */
+export interface CueCard {
+  label: string;
+  text: string;
+}
+
+/** The most cards the recorder shows, and the longest text on one: it is for reading aloud, not for a whole chapter. */
+export const MAX_CUE_CARDS = 3;
+export const MAX_CUE_CHARS = 4000;
+
+/** The cards to show: those with text, trimmed and in order, at most `MAX_CUE_CARDS`; a card with nothing to read is left out, not shown empty. */
+export function cueCards(raw: ReadonlyArray<{ label?: string | null; text?: string | null }> | null | undefined): CueCard[] {
+  return (raw ?? [])
+    .map((c) => ({ label: (c.label ?? "").trim(), text: (c.text ?? "").trim().slice(0, MAX_CUE_CHARS) }))
+    .filter((c) => c.text)
+    .slice(0, MAX_CUE_CARDS);
+}
+
+/** The sizes of the text to read from, as a factor of the default; the person steps through them with A- and A+ and the choice is kept. */
+export const CUE_SCALES = [0.8, 1, 1.25, 1.6, 2, 2.5] as const;
+
+/** The scale after a step up (1) or down (-1), kept within `CUE_SCALES`. */
+export function stepCueScale(current: number, direction: 1 | -1): number {
+  const at = CUE_SCALES.reduce((best, scale, i) => (Math.abs(scale - current) < Math.abs(CUE_SCALES[best] - current) ? i : best), 0);
+  return CUE_SCALES[Math.min(CUE_SCALES.length - 1, Math.max(0, at + direction))];
+}
+
+/** A remembered scale (text from storage), or the default when there is none or it is not one of the sizes. */
+export function storedCueScale(value: string | null | undefined): number {
+  const found = CUE_SCALES.find((scale) => String(scale) === String(value));
+  return found ?? 1;
+}
+
