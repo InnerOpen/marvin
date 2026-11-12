@@ -350,6 +350,43 @@ def test_the_wizards_of_an_entry_type_are_those_with_a_button_on_it(db_session, 
     assert [w.slug for w in service.list_wizards(db_session, workspace.id)] == ["narrate"]
 
 
+SECOND_BUTTON = {"entry_type": "beat", "label": "Narrate beat", "key": "story"}
+
+
+def test_a_wizard_may_put_a_button_on_several_types_of_entry():
+    payload = copy.deepcopy(WIZARD)
+    payload["button"] = [copy.deepcopy(BUTTON), copy.deepcopy(SECOND_BUTTON)]
+    assert payload_problem(payload, "narrate") is None
+
+
+@pytest.mark.parametrize(
+    ("buttons", "words"),
+    [
+        ([], "list of 1 to 3"),
+        ([BUTTON] * 4, "list of 1 to 3"),
+        ([BUTTON, BUTTON], "same type"),
+        ([BUTTON, None], "list of 1 to 3"),
+        ([BUTTON, {**SECOND_BUTTON, "key": "nope"}], "not a key a choose step sets"),
+    ],
+)
+def test_a_wrong_list_of_buttons_says_what_is_wrong(buttons, words):
+    payload = copy.deepcopy(WIZARD)
+    payload["button"] = copy.deepcopy(buttons)
+    assert words in (payload_problem(payload, "narrate") or "")
+
+
+def test_each_type_of_entry_gets_its_own_button_from_a_wizard_that_has_several(db_session, workspace):  # noqa: F811
+    payload = copy.deepcopy(WIZARD)
+    payload["button"] = [copy.deepcopy(BUTTON), copy.deepcopy(SECOND_BUTTON)]
+    service.install(db_session, workspace.id, service.parse_manifest(_with_wizard(payload=payload)), actor_id=workspace.user_id)
+    db_session.commit()
+
+    assert service.list_wizards(db_session, workspace.id, "story-note")[0].button.label == "Narrate"
+    assert service.list_wizards(db_session, workspace.id, "beat")[0].button.label == "Narrate beat"
+    every = service.list_wizards(db_session, workspace.id)[0]
+    assert [b.entry_type for b in every.buttons] == ["story-note", "beat"] and every.button.entry_type == "story-note"
+
+
 def _takes_wizard(**gallery) -> dict:
     step = {
         "id": "takes",

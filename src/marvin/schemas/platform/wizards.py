@@ -28,7 +28,9 @@ class WizardSummary(_MarvinModel):
     """Slug of the package that brings it."""
     package_name: str
     button: WizardButton | None = None
-    """Where an entry's page offers this setup, when the wizard says so."""
+    """Where an entry's page offers this setup, when the wizard says so. In a list for one type of entry, the button on that type."""
+    buttons: list[WizardButton] = Field(default_factory=list)
+    """Every button the wizard puts on entries' pages (one per type of entry)."""
 
 
 class WizardRead(WizardSummary):
