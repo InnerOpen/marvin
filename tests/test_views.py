@@ -444,3 +444,8 @@ def test_a_wrong_cue_level_key_says_which_key():
     lane = next(lane for lane in payload["lanes"] if lane.get("placed"))
     lane["placed"]["volume"] = "Bad Key"
     assert "placed: volume must be a field key" in (payload_problem(payload, "story-timeline") or "")
+
+
+def test_a_lane_may_name_the_field_holding_a_recordings_peaks_for_its_waveform():
+    assert _bad(lambda p: p["lanes"][0].update(waveform="waveform")) is None
+    assert "waveform" in (_bad(lambda p: p["lanes"][0].update(waveform="not a field")) or "")  # a field name, like audio

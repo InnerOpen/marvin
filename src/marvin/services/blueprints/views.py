@@ -360,7 +360,7 @@ def _check_lane(lane: dict, label: str) -> str | None:
             return f"{label}: open is {{wizard}}, the guided setup a piece opens on instead of its own page"
         if problem := _slug(opens, "wizard", f"{label} open"):
             return problem
-    return _fields(lane, ("order", "text", "who", "audio", "seconds", "volume", "loop", "estimate_from", "status"), label)
+    return _fields(lane, ("order", "text", "who", "audio", "waveform", "seconds", "volume", "loop", "estimate_from", "status"), label)
 
 
 def _check_cover(cover: Any, label: str) -> str | None:

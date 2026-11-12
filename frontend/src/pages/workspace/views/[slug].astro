@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, canReview } from "@/lib/timeline";
+import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, wavePolygon, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, canReview } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -445,6 +445,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}`}
                         title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}`}
                       >
+                        {p.wave && (
+                          <svg class="tl-wave" viewBox={`0 0 ${p.wave.length} 100`} preserveAspectRatio="none" aria-hidden="true"><polygon points={wavePolygon(p.wave)} /></svg>
+                        )}
                         {p.who && <b>{p.who}</b>}
                         <span>{firstWords(p.text || p.title)}</span>
                       </a>
@@ -1079,6 +1082,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-quiet { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border-bottom: 2px dotted var(--muted); background: color-mix(in srgb, var(--muted) 8%, transparent); color: var(--muted); overflow: hidden; pointer-events: none; }
   .tl-quiet small { font-size: 10px; letter-spacing: 0.02em; }
   .tl-quiet.hold { border-bottom-style: dashed; }
+  /* A recording's waveform behind the label: its peaks mirrored round the middle, in the lane's accent. */
+  .tl-wave { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .tl-wave polygon { fill: color-mix(in srgb, var(--accent) 55%, transparent); }
+  .tl-piece b, .tl-piece span { position: relative; z-index: 1; }
   .tl-piece b { font-weight: 600; }
   .tl-piece span { overflow: hidden; text-overflow: ellipsis; }
   .tl-piece.estimated { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--panel)) 0 6px, var(--panel) 6px 10px); border-style: dashed; }

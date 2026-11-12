@@ -122,6 +122,8 @@ export interface LaneSpec {
   text?: string;
   who?: string;
   audio?: string;
+  /** The field holding the recording's peaks, to draw its waveform in the block: an array of peaks (0 to 1) or audiowaveform JSON ({bits, data: [min, max, …]}). */
+  waveform?: string;
   seconds?: string;
   /** The lane entry's own level (0 to 1) and whether it repeats. */
   volume?: string;
@@ -177,6 +179,8 @@ export interface Piece {
   /** True when there is a take but its length was never stored (an upload), so `seconds` is still the text's estimate. */
   unmeasured: boolean;
   audio: string | null;
+  /** The recording's peaks (0 to 1, a few hundred at most) for its waveform, when the entry holds them. */
+  wave: number[] | null;
   /** The entry's own level, 0 to 1, when it declares one. */
   volume: number | null;
   /** For a placed piece: its offset inside the item, as declared. */
@@ -527,6 +531,57 @@ function bedFades(spec: BedSpec, sound: Row, start: number, seconds: number, tot
   return { fadeIn: Math.min(fadeIn, half), fadeOut: Math.min(fadeOut, half) };
 }
 
+/** Peaks as many as a block can show: the most a waveform keeps (more is only a heavier page). */
+export const WAVE_POINTS = 240;
+
+/**
+ * A recording's waveform from what a record holds: an array of peaks (0 to 1; larger numbers are taken relative to the largest), or the audiowaveform
+ * JSON format ({bits, data: [min, max, min, max, …]}, as a tool like BBC's audiowaveform writes), either also as JSON text. Peaks are the loudest
+ * of each stretch, cut down to at most `points` by taking the loudest of each group. Null when it is none of these, so a bad value draws nothing.
+ */
+export function wavePeaks(value: unknown, points: number = WAVE_POINTS): number[] | null {
+  let v = value;
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return null;
+    }
+  }
+  let peaks: number[];
+  if (Array.isArray(v)) {
+    if (!v.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+    const top = Math.max(1, ...v.map((n) => Math.abs(n as number)));
+    peaks = v.map((n) => Math.abs(n as number) / top);
+  } else if (v && typeof v === "object" && Array.isArray((v as { data?: unknown }).data)) {
+    const { data, bits } = v as { data: unknown[]; bits?: number };
+    if (data.length < 2 || !data.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+    const full = 2 ** ((Number.isInteger(bits) && (bits as number) > 1 ? (bits as number) : 8) - 1);
+    peaks = [];
+    for (let i = 0; i + 1 < data.length; i += 2) peaks.push(Math.min(1, Math.max(Math.abs(data[i] as number), Math.abs(data[i + 1] as number)) / full));
+  } else {
+    return null;
+  }
+  if (peaks.length < 2) return null;
+  if (peaks.length <= points) return peaks.map((p) => Math.round(p * 1000) / 1000);
+  const out: number[] = [];
+  for (let i = 0; i < points; i++) {
+    const from = Math.floor((i * peaks.length) / points);
+    const to = Math.max(from + 1, Math.floor(((i + 1) * peaks.length) / points));
+    out.push(Math.round(Math.max(...peaks.slice(from, to)) * 1000) / 1000);
+  }
+  return out;
+}
+
+/** The outline of a waveform as an SVG polygon's points in a 100-high box: the peaks above the middle line and the same below, so it is one shape. */
+export function wavePolygon(peaks: number[]): string {
+  const x = (i: number) => (i + 0.5).toFixed(2);
+  const half = (p: number) => Math.max(0.6, p * 48); // a quiet stretch is still a line
+  const top = peaks.map((p, i) => `${x(i)},${(50 - half(p)).toFixed(1)}`);
+  const bottom = peaks.map((p, i) => `${x(i)},${(50 + half(p)).toFixed(1)}`).reverse();
+  return [...top, ...bottom].join(" ");
+}
+
 /** The blocks of a bed lane: which sound runs under each item, merged across consecutive items that share one, at what level. */
 function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds: Map<string, Row>): Bed[] {
   const spec = lane.bed!;
@@ -709,6 +764,7 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
     estimated,
     unmeasured: estimated && !!assetUrl(row, lane.audio, "audio/"),
     audio: assetUrl(row, lane.audio, "audio/"),
+    wave: wavePeaks(field(row, lane.waveform)),
     volume: level(field(row, lane.volume)),
     at,
   };

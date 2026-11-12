@@ -797,3 +797,29 @@ test("the playhead is in the item that started last, and the offset is how far i
   assert.equal(placeIn([5], 3), null, "before the first item");
 });
 
+
+import { wavePeaks, wavePolygon, WAVE_POINTS } from "./timeline.ts";
+
+test("a waveform comes from an array of peaks or from audiowaveform JSON, also as text, and a bad value draws nothing", () => {
+  assert.deepEqual(wavePeaks([0, 0.5, 1, 0.25]), [0, 0.5, 1, 0.25]);
+  assert.deepEqual(wavePeaks([0, 50, 100, 25]), [0, 0.5, 1, 0.25]); // larger numbers are taken relative to the largest
+  const file = { version: 2, bits: 8, data: [0, 0, -64, 32, -128, 127, 10, -20] }; // min, max pairs, as audiowaveform writes them
+  assert.deepEqual(wavePeaks(file), [0, 0.5, 1, 0.156]); // the larger of each pair's two sides, over the full scale of the bits
+  assert.deepEqual(wavePeaks(JSON.stringify(file)), wavePeaks(file));
+  for (const bad of [null, undefined, "", "not json", {}, [], [1], { data: [1] }, [1, "a"], { data: [1, "x", 2, 3] }, 5]) assert.equal(wavePeaks(bad), null, String(bad));
+});
+
+test("a waveform with more peaks than a block can show keeps the loudest of each group", () => {
+  const many = Array.from({ length: 1000 }, (_, i) => (i === 500 ? 1 : 0.1));
+  const out = wavePeaks(many, 100);
+  assert.equal(out.length, 100);
+  assert.equal(Math.max(...out), 1); // the one loud peak is not averaged away
+  assert.equal(out[50], 1);
+  assert.equal(wavePeaks(many).length, WAVE_POINTS);
+});
+
+test("a waveform outline is one polygon: the peaks above the middle line and the same below, a quiet stretch still a line", () => {
+  const pts = wavePolygon([1, 0]).split(" ");
+  assert.equal(pts.length, 4);
+  assert.deepEqual(pts, ["0.50,2.0", "1.50,49.4", "1.50,50.6", "0.50,98.0"]);
+});
