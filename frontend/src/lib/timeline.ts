@@ -1000,3 +1000,40 @@ export function jumpTo(starts: readonly number[], total: number, now: number, ac
   return before ?? 0;
 }
 
+/** A time as the playhead clock shows it: hours, minutes, seconds and thousandths, `0:01:23.456`. */
+export function clockText(seconds: number): string {
+  const total = Math.max(0, Math.round((Number.isFinite(seconds) ? seconds : 0) * 1000));
+  const h = Math.floor(total / 3_600_000);
+  const m = Math.floor((total % 3_600_000) / 60_000);
+  const sec = Math.floor((total % 60_000) / 1000);
+  const ms = total % 1000;
+  return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+}
+
+/**
+ * A time typed into the playhead clock, in seconds, or null when it is not one: plain seconds (`83.5`), minutes and seconds (`1:23.5`), hours, minutes and
+ * seconds (`0:01:23.456`), or those with the thousandths after a fourth colon (`0:01:23:456`). A comma works as the decimal point.
+ */
+export function parseClock(text: string): number | null {
+  const raw = text.trim().replace(",", ".");
+  if (!raw) return null;
+  const parts = raw.split(":");
+  if (parts.length > 4 || parts.some((p) => !/^\d+(\.\d+)?$/.test(p))) return null;
+  const nums = parts.map(Number);
+  if (nums.some((n) => !Number.isFinite(n))) return null;
+  if (parts.length === 4) {
+    if (parts[3].includes(".") || parts[2].includes(".")) return null; // the fourth part is whole thousandths
+    return nums[0] * 3600 + nums[1] * 60 + nums[2] + nums[3] / 1000;
+  }
+  return nums.reduce((total, n) => total * 60 + n, 0);
+}
+
+/** Which item the playhead is in (the last whose start is not after it) and how far into it: the offset is the "at" a sound cue in that item needs. */
+export function placeIn(starts: readonly number[], now: number): { index: number; offset: number } | null {
+  let index = -1;
+  starts.forEach((start, i) => {
+    if (start <= now + 1e-9 && (index < 0 || start >= starts[index])) index = i;
+  });
+  return index < 0 ? null : { index, offset: Math.max(0, now - starts[index]) };
+}
+
