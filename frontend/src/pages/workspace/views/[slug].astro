@@ -188,7 +188,18 @@ const stepBars = (b: Bed, track: { start: number; seconds: number }) => {
   return b.steps
     .map((st) => ({ ...st, ...clip(st, track) }))
     .filter((st) => st.seconds > 0 && from.seconds > 0)
-    .map((st) => ({ left: ((st.from - from.from) / from.seconds) * 100, width: (st.seconds / from.seconds) * 100, height: (st.volume / top) * 100, volume: st.volume, start: st.start, end: st.start + st.seconds }));
+    .map((st) => ({ left: ((st.from - from.from) / from.seconds) * 100, width: (st.seconds / from.seconds) * 100, height: (st.volume / top) * 100, volume: st.volume, start: st.start, end: st.start + st.seconds, source: st.source, by: st.by, muffled: st.muffled }));
+};
+// Who set a stretch of the story's bed, in words: "set by the story", "set by the scene On deck", "set by the beat 1005".
+const stepSetBy = (st: { source?: string; by?: string }) => (st.source ? ` · set by ${st.source === "story" ? "the story" : `the ${st.source}${st.by ? ` ${st.by}` : ""}`}` : "");
+// One line for a block whose stretches say who set them: "20% story · 10% scene · 5% beat · muffled in places".
+const setBySummary = (b: Bed) => {
+  const seen: string[] = [];
+  for (const st of b.steps) {
+    const part = `${Math.round(st.volume * 100)}% ${st.source}`;
+    if (st.source && !seen.includes(part)) seen.push(part);
+  }
+  return `${seen.join(" · ")}${b.steps.some((st) => st.muffled) ? " · muffled in places" : ""}`;
 };
 // A bed's fades as ramps at the ends of its block, as a share of the block drawn (a block clipped to a chapter has no ramp where it was cut).
 const fadeRamps = (b: Bed, track: { start: number; seconds: number }) => {
@@ -416,10 +427,17 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           {fadeRamps(b, track).inPct > 0 && <i class="tl-fade in" aria-hidden="true" style={`width:${fadeRamps(b, track).inPct}%`} title={`fades in over ${b.fadeIn.toFixed(1).replace(/\.0$/, "")} s`} />}
                           {fadeRamps(b, track).outPct > 0 && <i class="tl-fade out" aria-hidden="true" style={`width:${fadeRamps(b, track).outPct}%`} title={`fades out over ${b.fadeOut.toFixed(1).replace(/\.0$/, "")} s`} />}
                           {stepBars(b, track).map((st) => (
-                            <i class:list={["tl-step", { off: st.volume === 0 }]} aria-hidden="true" style={`left:${st.left}%;width:${st.width}%;height:${Math.max(st.height, st.volume === 0 ? 0 : 8)}%`} title={`${timecode(st.start)} → ${timecode(st.end)} · ${st.volume === 0 ? "silent" : `level ${Math.round(st.volume * 100)}%`}`} />
+                            <i
+                              class:list={["tl-step", { off: st.volume === 0, muffled: st.muffled }, st.source && `by-${st.source}`]}
+                              aria-hidden="true"
+                              style={`left:${st.left}%;width:${st.width}%;height:${Math.max(st.height, st.volume === 0 ? 0 : 8)}%`}
+                              title={`${timecode(st.start)} → ${timecode(st.end)} · ${st.volume === 0 ? "silent" : `level ${Math.round(st.volume * 100)}%`}${stepSetBy(st)}${st.muffled ? " · heard from inside (muffled)" : ""}`}
+                            >
+                              {st.source && st.width >= 7 && <b class="tl-step-tag">{st.source} {Math.round(st.volume * 100)}%{st.muffled ? " ≈" : ""}</b>}
+                            </i>
                           ))}
                           <span>{b.title}</span>
-                          <small>{b.steps.some((st) => st.volume === 0) ? "dips to silence" : b.steps.length ? `${Math.round(b.volume * 100)}%, changes` : `${Math.round(b.volume * 100)}%`}{b.muffled ? " · muffled" : ""}{b.audio ? "" : " · no take yet"}</small>
+                          <small>{b.steps.some((st) => st.source) ? setBySummary(b) : b.steps.some((st) => st.volume === 0) ? "dips to silence" : b.steps.length ? `${Math.round(b.volume * 100)}%, changes` : `${Math.round(b.volume * 100)}%`}{b.muffled ? " · muffled" : ""}{b.audio ? "" : " · no take yet"}</small>
                         </a>
                       ))}
                     {lane.cover &&
@@ -947,6 +965,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-bed > span, .tl-bed > small { position: relative; z-index: 1; }
   /* A bed's level over time: bars rising from the foot of the block, a silent stretch hatched. */
   .tl-step { position: absolute; bottom: 0; background: color-mix(in srgb, var(--accent) 22%, transparent); border-left: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); box-sizing: border-box; }
+  /* Who set a stretch of the story's bed: the story's own plain, a scene's and a beat's stronger; indoors (muffled) hatched. */
+  .tl-step.by-scene { background: color-mix(in srgb, var(--accent) 38%, transparent); }
+  .tl-step.by-beat { background: color-mix(in srgb, var(--accent) 60%, transparent); }
+  .tl-step.muffled { background-image: repeating-linear-gradient(45deg, transparent 0 4px, color-mix(in srgb, var(--ink) 28%, transparent) 4px 5px); }
+  .tl-step-tag { position: absolute; left: 3px; bottom: 2px; max-width: calc(100% - 6px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; color: var(--ink); text-shadow: 0 0 3px var(--panel); pointer-events: none; }
   .tl-step.off { height: 100% !important; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink) 14%, transparent) 0 4px, transparent 4px 8px); }
   /* A fade: the part of the block that is not loud yet (or no longer) is cut away in a triangle, so the block's edge slopes. */
   .tl-fade { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--panel) 70%, transparent); pointer-events: none; }

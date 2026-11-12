@@ -86,6 +86,12 @@ export interface BedSpec {
   item_field?: string;
   entry_field?: string;
   entry_volume?: string;
+  /** Where the story's bed is turned down or muffled (`entry_field` above): a field on each spine item (a beat's level for the story's bed), and fields
+   * on the entry the item's `via` names (a scene's level, and whether it is heard from inside). The item's wins over the entry's over the story's:
+   * each stretch is a step in the block that says who set it. */
+  entry_item_volume?: string;
+  entry_via_volume?: string;
+  entry_via_muffled?: string;
   /** A field on the view's entry holding `none`, `light` or `strong`: how far the bed goes down under each spoken line (Play follows it). */
   duck?: string;
 }
@@ -203,7 +209,13 @@ export interface BedStep {
   start: number;
   seconds: number;
   volume: number;
+  /** For the story's bed: who set this stretch's level (the story itself, a scene or a beat), the title of that scene or beat, and whether it is heard from inside. */
+  source?: BedSource;
+  by?: string;
+  muffled?: boolean;
 }
+
+export type BedSource = "story" | "scene" | "beat";
 
 /** A video over a stretch of pictures, merged across consecutive items that get the same one. */
 export interface Cover {
@@ -542,6 +554,7 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
   // The story's own bed under the whole film, which plays together with the beds of items and scenes (the render layers them).
   const storySound = spec.entry_field && rows.entry ? sounds.get(str(field(rows.entry, spec.entry_field))) : undefined;
   const everywhere = storySound && total > 0 ? [make(storySound, 0, total, level(field(rows.entry!, spec.entry_volume)), false, items.map((i) => i.id))] : [];
+  if (everywhere[0]) everywhere[0].steps = storyBedSteps(spec, items, spine, via, everywhere[0].volume);
   for (const item of items) {
     const row = spine.get(item.id);
     if (!row) continue;
@@ -599,6 +612,31 @@ function cardOf(spec: CardSpec | undefined, entry: Row | undefined, kind: "intro
   if (!title) return null;
   const set = num(field(entry, spec.seconds));
   return { title, seconds: set !== null && set > 0 ? set : (spec.default_seconds ?? 2.5), label: spec.label ?? (kind === "intro" ? "Title card" : "End card") };
+}
+
+/**
+ * The story's own bed turned down, or heard from inside, where the story is: for each item its level is the item's own (a beat's), else the entry
+ * the item names' (a scene's), else the story's (`base`); it is muffled when that entry says so. Consecutive items alike are one step, and each step
+ * says who set its level. Nothing (no steps) when no item or scene changes either, so a bed nobody adjusts is drawn as before.
+ */
+function storyBedSteps(spec: BedSpec, items: Item[], spine: Map<string, Row>, via: Map<string, Row>, base: number): BedStep[] {
+  if (!spec.entry_item_volume && !spec.entry_via_volume && !spec.entry_via_muffled) return [];
+  const runs: BedStep[] = [];
+  for (const item of items) {
+    const row = spine.get(item.id);
+    const named = row && spec.via ? via.get(str(field(row, spec.via))) : undefined;
+    const own = row && spec.entry_item_volume ? level(field(row, spec.entry_item_volume)) : null;
+    const scene = named && spec.entry_via_volume ? level(field(named, spec.entry_via_volume)) : null;
+    const volume = own ?? scene ?? base;
+    const source: BedSource = own !== null ? "beat" : scene !== null ? "scene" : "story";
+    const by = own !== null ? row?.title || item.title : scene !== null && named ? named.title : undefined;
+    const muffled = !!(named && spec.entry_via_muffled && field(named, spec.entry_via_muffled) === true);
+    const last = runs[runs.length - 1];
+    if (last && Math.abs(last.volume - volume) < 1e-9 && last.source === source && last.muffled === muffled && last.by === by) last.seconds = item.start + item.seconds - last.start;
+    else runs.push({ start: item.start, seconds: item.seconds, volume, source, by, muffled });
+  }
+  const changed = runs.some((r) => r.source !== "story" || r.muffled);
+  return changed ? runs : [];
 }
 
 /** A story-wide bed's level over time when spine items set one of their own: runs at one level each, or none when no item changes it. */

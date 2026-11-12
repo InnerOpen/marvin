@@ -53,6 +53,10 @@ A timeline definition::
   then the entry's, then the item's. ``bed.item_field`` (a field on each spine item) names that item's own sound, winning over the ``via``
   entry's, and ``bed.entry_field`` / ``bed.entry_volume`` name a sound under the whole film and its level: it plays together with the others,
   as the render layers them. ``bed.duck`` is a field on the view's entry holding none, light or strong: how far the bed goes down under each
+  The story's bed can be turned down (or muffled) where the story is: ``bed.entry_item_volume`` is a field on each spine item (a beat's level for
+  the story's bed), ``bed.entry_via_volume`` and ``bed.entry_via_muffled`` fields on the entry the item's ``via`` names (a scene's level, and
+  whether it is heard from inside). The item's level wins over the entry's, which wins over the story's; the block shows each stretch as a
+  step, says who set it (the story, a scene or a beat) and marks the muffled ones.
   spoken line.
   ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it
   repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
@@ -298,6 +302,9 @@ def _check_bed(bed: Any, label: str) -> str | None:
             "item_field",
             "entry_field",
             "entry_volume",
+            "entry_item_volume",
+            "entry_via_volume",
+            "entry_via_muffled",
         ),
         f"{label} bed",
     ):
