@@ -6,13 +6,15 @@
  */
 const TOOLS = [
   { tool: "scene", label: "Scene", hint: "Scene heading: INT. PLACE - DAY (where and when, in capitals). Select a place first to use it." },
+  { tool: "action", label: "Action", hint: "Forced action: a ! at the start makes a line action even if it looks like a heading or a speaker (!THE END). Select the words first to use them." },
   { tool: "character", label: "Dialogue", hint: "A speaker and what they say: the NAME over the line. Select the words first to use them as the line." },
   { tool: "parenthetical", label: "( )", hint: "How a line is said, inside a speech: (quietly) on a line of its own under the name." },
+  { tool: "dual", label: "Dual", hint: "Dual dialogue: put the cursor in a speech and this adds a ^ to its speaker's name so it is spoken at the same time as the speech before it (again to take it off)." },
   { tool: "transition", label: "Transition", hint: "CUT TO: on its own line, in capitals, ending in a colon (DISSOLVE TO:, CROSSFADE TO:)." },
   { tool: "centered", label: "Centered", hint: "A centered line: > text <, all on one line." },
   { tool: "section", label: "Section", hint: "# ACT I: a chapter heading (## for a smaller one)." },
   { tool: "synopsis", label: "Synopsis", hint: "= one line on what the scene does, under its heading." },
-  { tool: "lyrics", label: "Lyrics", hint: "~ a sung line." },
+  { tool: "lyrics", label: "Lyrics", hint: "~ a sung line, shown in italics and set in from the margin." },
   { tool: "break", label: "Page break", hint: "=== starts a new picture." },
   { tool: "note", label: "Note", hint: "[[a note]]: about the script, not in it (Hold: 2s, Sound: thunder)." },
   { tool: "bold", label: "B", hint: "Bold: **words**" },

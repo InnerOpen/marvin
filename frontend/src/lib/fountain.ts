@@ -8,11 +8,15 @@
 
 export type DialogueLine = { kind: "dialogue" | "parenthetical" | "lyrics"; text: string };
 
+export type DialogueBlock = { kind: "dialogue"; character: string; extension: string; dual: boolean; lines: DialogueLine[] };
+
 export type FountainBlock =
   | { kind: "title"; pairs: { key: string; value: string }[] }
   | { kind: "scene"; text: string; number: string }
   | { kind: "action"; text: string }
   | { kind: "dialogue"; character: string; extension: string; dual: boolean; lines: DialogueLine[] }
+  | { kind: "dual"; left: DialogueBlock; right: DialogueBlock }
+  | { kind: "lyrics"; text: string }
   | { kind: "transition"; text: string }
   | { kind: "centered"; text: string }
   | { kind: "section"; depth: number; text: string }
@@ -94,6 +98,10 @@ export function parseFountain(source: string): FountainBlock[] {
       } else if ((m = text.match(/^=(?!=)\s*(.*)$/))) {
         out.push({ kind: "synopsis", text: m[1] });
         i++;
+      } else if (text.startsWith("~")) {
+        const sung: string[] = [];
+        while (i < lines.length && lines[i].trim().startsWith("~")) sung.push(lines[i++].trim().replace(/^~\s*/, ""));
+        out.push({ kind: "lyrics", text: sung.join("\n") });
       } else if (afterHeading && (/^\.(?!\.)./.test(text) || (SCENE.test(text) && !/^\.\./.test(text)))) {
         const forced = text.startsWith(".");
         const number = text.match(/\s#([^#\n]+)#\s*$/);
@@ -119,7 +127,10 @@ export function parseFountain(source: string): FountainBlock[] {
           else if (t.startsWith("~")) body.push({ kind: "lyrics", text: t.replace(/^~\s*/, "") });
           else body.push({ kind: "dialogue", text: row === "  " ? "" : t });
         }
-        out.push({ kind: "dialogue", character: ext ? bare.slice(0, ext.index).trim() : bare, extension: ext ? ext[1] : "", dual, lines: body });
+        const speech: DialogueBlock = { kind: "dialogue", character: ext ? bare.slice(0, ext.index).trim() : bare, extension: ext ? ext[1] : "", dual, lines: body };
+        // a cue ending in ^ plays beside the speech before it: the two are one block, drawn in two columns
+        if (dual && before?.kind === "dialogue" && !before.dual) out[out.length - 1] = { kind: "dual", left: before, right: speech };
+        else out.push(speech);
         i = lines.length;
       } else {
         const rest = lines.slice(i);
@@ -156,6 +167,11 @@ export function inline(text: string): string {
     .join("");
 }
 
+function dialogueHtml(b: DialogueBlock): string {
+  const lines = b.lines.map((l) => `<p class="ft-${l.kind === "dialogue" ? "line" : l.kind === "parenthetical" ? "paren" : "lyrics"}">${inline(l.text)}</p>`).join("");
+  return `<div class="ft-dialogue"><p class="ft-cue">${escape(b.character)}${b.extension ? ` <span class="ft-ext">${escape(b.extension)}</span>` : ""}</p>${lines}</div>`;
+}
+
 /** The screenplay as HTML for a preview. Every piece of the text is escaped; the markup is this function's own. */
 export function fountainToHtml(source: string): string {
   const blocks = parseFountain(source);
@@ -175,11 +191,11 @@ export function fountainToHtml(source: string): string {
       case "action":
         return `<p class="ft-action">${inline(b.text)}</p>`;
       case "dialogue":
-        return (
-          `<div class="ft-dialogue${b.dual ? " ft-dual" : ""}"><p class="ft-cue">${escape(b.character)}${b.extension ? ` <span class="ft-ext">${escape(b.extension)}</span>` : ""}</p>` +
-          b.lines.map((l) => `<p class="ft-${l.kind === "dialogue" ? "line" : l.kind === "parenthetical" ? "paren" : "lyrics"}">${inline(l.text)}</p>`).join("") +
-          "</div>"
-        );
+        return dialogueHtml(b);
+      case "dual":
+        return `<div class="ft-dual">${dialogueHtml(b.left)}${dialogueHtml(b.right)}</div>`;
+      case "lyrics":
+        return `<p class="ft-lyrics ft-sung">${inline(b.text)}</p>`;
       case "transition":
         return `<p class="ft-transition">${emphasis(b.text)}</p>`;
       case "centered":
@@ -199,7 +215,7 @@ export function fountainToHtml(source: string): string {
 
 // ── a toolbar's edits ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export type FountainTool = "scene" | "character" | "parenthetical" | "transition" | "centered" | "section" | "synopsis" | "lyrics" | "break" | "note" | "bold" | "italic" | "underline";
+export type FountainTool = "scene" | "action" | "dual" | "character" | "parenthetical" | "transition" | "centered" | "section" | "synopsis" | "lyrics" | "break" | "note" | "bold" | "italic" | "underline";
 
 /** What the text and its selection are after a toolbar button: the new text, and the part to leave selected so typing replaces the placeholder. */
 export interface FountainEdit {
@@ -240,6 +256,11 @@ function elementFor(tool: FountainTool, picked: string): { text: string; from: n
       const text = words ? words.toUpperCase().replace(/:?$/, ":") : "CUT TO:";
       return { text, from: 0, to: words ? text.length : 3 };
     }
+    case "action": {
+      // forced action: a ! makes a line action even when it looks like a heading or a name; a selection keeps its own lines
+      const kept = picked.trim() || "Action line";
+      return { text: `!${kept}`, from: 1, to: 1 + kept.length };
+    }
     case "centered":
       return slot("> ", words || "TEXT", " <");
     case "section":
@@ -255,6 +276,34 @@ function elementFor(tool: FountainTool, picked: string): { text: string; from: n
     default:
       return { text: "", from: 0, to: 0 };
   }
+}
+
+/** The paragraph around a position: where it starts and ends (the blank lines either side), so an edit can read the speech the cursor is in. */
+function paragraphAround(value: string, at: number): { start: number; end: number } {
+  const before = value.lastIndexOf("\n\n", Math.max(0, at - 1));
+  const after = value.indexOf("\n\n", at);
+  return { start: before < 0 ? 0 : before + 2, end: after < 0 ? value.length : after };
+}
+
+/** Dual dialogue: in a speech, the speaker's cue gets (or loses) a ^ so it plays beside the speech before it; anywhere else, a second speaker is written in. */
+function dualEdit(value: string, from: number, to: number): FountainEdit {
+  const { start, end } = paragraphAround(value, from);
+  const paragraph = value.slice(start, end);
+  const cueEnd = paragraph.indexOf("\n");
+  const cue = cueEnd < 0 ? paragraph : paragraph.slice(0, cueEnd);
+  if (cueEnd > 0 && cue.trim() && isCue(cue.trim())) {
+    const marked = /\s*\^\s*$/.test(cue);
+    const newCue = marked ? cue.replace(/\s*\^\s*$/, "") : `${cue.trimEnd()} ^`;
+    const next = value.slice(0, start) + newCue + value.slice(start + cue.length);
+    const shift = newCue.length - cue.length;
+    return { value: next, start: Math.max(start, from + (from > start + cue.length ? shift : 0)), end: Math.max(start, to + (to > start + cue.length ? shift : 0)) };
+  }
+  const before = value.slice(0, to);
+  const after = value.slice(to);
+  const lead = breaksBefore(before);
+  const text = "NAME ^\nDialogue.";
+  const at = before.length + lead.length;
+  return { value: before + lead + text + breaksAfter(after) + after, start: at, end: at + 4 };
 }
 
 /**
@@ -277,6 +326,8 @@ export function applyFountain(tool: FountainTool, value: string, start: number, 
     const at = before.length + open.length;
     return { value: before + open + inner + close + after, start: at, end: at + inner.length };
   }
+
+  if (tool === "dual") return dualEdit(value, from, to);
 
   const element = elementFor(tool, picked);
   const lead = tool === "parenthetical" ? (before === "" || before.endsWith("\n") ? "" : "\n") : breaksBefore(before);

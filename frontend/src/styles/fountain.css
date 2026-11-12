@@ -23,6 +23,13 @@
 .ft-paren { margin-left: 28%; max-width: 24ch; }
 .ft-line { margin-left: 18%; max-width: 36ch; }
 .ft-lyrics { margin-left: 18%; max-width: 36ch; font-style: italic; }
+.ft-sung { margin-left: 18%; max-width: 36ch; }
+/* Dual dialogue: two speeches side by side, each narrower, so they read as spoken at once. */
+.ft-dual { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.5rem; margin: 0 0 1em; }
+.ft-dual .ft-dialogue { margin: 0; }
+.ft-dual .ft-cue { margin-left: 15%; }
+.ft-dual .ft-paren { margin-left: 8%; max-width: none; }
+.ft-dual .ft-line, .ft-dual .ft-lyrics { margin-left: 0; max-width: none; }
 .ft-transition { text-align: right; text-transform: uppercase; }
 .ft-centered { text-align: center; }
 .ft-section { font-weight: 700; color: var(--muted); margin-top: 1.5em; }
