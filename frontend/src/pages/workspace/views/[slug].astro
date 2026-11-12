@@ -248,47 +248,6 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
             {laid.items.some((i) => i.estimated) && <span class="muted" title="A line with no take yet is measured by its words, at 150 a minute."> · lengths with no take are estimates</span>}
           </p>
         </div>
-        <div class="tl-actions">
-          <span class="tl-nav" role="group" aria-label="Move through the story">
-            <button type="button" class="button secondary" data-jump="start" aria-label="Back to the start" title="Back to the start (Home)" disabled={laid.items.length === 0}>|&lt;</button>
-            <button type="button" class="button secondary" data-jump="back" aria-label="Previous beat" title="Previous beat: the start of this one first (←)" disabled={laid.items.length === 0}>&lt;&lt;</button>
-            <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>
-            <button type="button" class="button secondary" data-jump="next" aria-label="Next beat" title="Next beat (→)" disabled={laid.items.length === 0}>&gt;&gt;</button>
-            <button type="button" class="button secondary" data-jump="end" aria-label="On to the end" title="On to the end (End)" disabled={laid.items.length === 0}>&gt;|</button>
-          </span>
-          <span class="tl-clock" role="group" aria-label="Playhead position">
-            <input
-              type="text"
-              class="tl-clock-input"
-              data-clock
-              value="0:00:00.000"
-              inputmode="decimal"
-              spellcheck="false"
-              autocomplete="off"
-              aria-label="Playhead time, hours:minutes:seconds.thousandths"
-              title="Where the playhead is: h:mm:ss.mmm. Type a time (1:23.5, 0:01:23.456 or 83.5) and press Enter to go there. , and . nudge it by a tenth of a second (Shift: a whole second)."
-              disabled={laid.items.length === 0}
-            />
-            <span class="tl-clock-beat" data-clock-beat title={`How far into the ${spec.spine.entry_type.replace(/-/g, " ")} the playhead is: the "at" a sound placed in it needs`}></span>
-          </span>
-          <button type="button" class="button secondary tl-fold" data-fold aria-expanded="true" aria-label="Fold the controls down to Play and the clock" title="Fold the controls down to Play and the clock, to see more of the timeline">⌄</button>
-          <span class="tl-zoom" role="group" aria-label="Zoom" title="How wide the timeline is: Fit is the page, 2× is two pages. Also + and −.">
-            {ZOOM_LEVELS.map((z) => (
-              <button type="button" data-zoom={z} aria-pressed={z === 1 ? "true" : "false"}>{z === 1 ? "Fit" : `${z}×`}</button>
-            ))}
-          </span>
-          <span class="tl-zoom" role="group" aria-label="Picture size" title="How big the pictures are drawn: small, medium or large. The frame keeps the story's shape.">
-            {Object.keys(PICTURE_SIZES).map((k) => (
-              <button type="button" data-size={k} aria-pressed={k === "s" ? "true" : "false"}>{k.toUpperCase()}</button>
-            ))}
-          </span>
-          {stackable && (
-            <span class="tl-zoom" role="group" aria-label="Layout" title="One track for the whole story, or a track per chapter stacked down the page.">
-              <a href={stackHref(false)} aria-current={stacked ? undefined : "true"}>One track</a>
-              <a href={stackHref(true)} aria-current={stacked ? "true" : undefined}>By {spec.spine.group!.entry_type.replace(/-/g, " ")}</a>
-            </span>
-          )}
-        </div>
         <div class="tl-links">
           {actions.map((a) =>
             a.run ? (
@@ -501,6 +460,47 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         ))
       )}
       <p class="tl-hint muted">Click a card to put the playhead there; Open takes you to it. Space plays and pauses. A take plays as recorded; a line with none passes in silence for its estimated length. Sound effects and beds (ambience, music) play over it at their levels, when they have a take.</p>
+      <div class="tl-actions">
+        <span class="tl-nav" role="group" aria-label="Move through the story">
+          <button type="button" class="button secondary" data-jump="start" aria-label="Back to the start" title="Back to the start (Home)" disabled={laid.items.length === 0}>|&lt;</button>
+          <button type="button" class="button secondary" data-jump="back" aria-label="Previous beat" title="Previous beat: the start of this one first (←)" disabled={laid.items.length === 0}>&lt;&lt;</button>
+          <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>
+          <button type="button" class="button secondary" data-jump="next" aria-label="Next beat" title="Next beat (→)" disabled={laid.items.length === 0}>&gt;&gt;</button>
+          <button type="button" class="button secondary" data-jump="end" aria-label="On to the end" title="On to the end (End)" disabled={laid.items.length === 0}>&gt;|</button>
+        </span>
+        <span class="tl-clock" role="group" aria-label="Playhead position">
+          <input
+            type="text"
+            class="tl-clock-input"
+            data-clock
+            value="0:00:00.000"
+            inputmode="decimal"
+            spellcheck="false"
+            autocomplete="off"
+            aria-label="Playhead time, hours:minutes:seconds.thousandths"
+            title="Where the playhead is: h:mm:ss.mmm. Type a time (1:23.5, 0:01:23.456 or 83.5) and press Enter to go there. , and . nudge it by a tenth of a second (Shift: a whole second)."
+            disabled={laid.items.length === 0}
+          />
+          <span class="tl-clock-beat" data-clock-beat title={`How far into the ${spec.spine.entry_type.replace(/-/g, " ")} the playhead is: the "at" a sound placed in it needs`}></span>
+        </span>
+        <button type="button" class="button secondary tl-fold" data-fold aria-expanded="true" aria-label="Fold the controls down to Play and the clock" title="Fold the controls down to Play and the clock, to see more of the timeline">⌄</button>
+        <span class="tl-zoom" role="group" aria-label="Zoom" title="How wide the timeline is: Fit is the page, 2× is two pages. Also + and −.">
+          {ZOOM_LEVELS.map((z) => (
+            <button type="button" data-zoom={z} aria-pressed={z === 1 ? "true" : "false"}>{z === 1 ? "Fit" : `${z}×`}</button>
+          ))}
+        </span>
+        <span class="tl-zoom" role="group" aria-label="Picture size" title="How big the pictures are drawn: small, medium or large. The frame keeps the story's shape.">
+          {Object.keys(PICTURE_SIZES).map((k) => (
+            <button type="button" data-size={k} aria-pressed={k === "s" ? "true" : "false"}>{k.toUpperCase()}</button>
+          ))}
+        </span>
+        {stackable && (
+          <span class="tl-zoom" role="group" aria-label="Layout" title="One track for the whole story, or a track per chapter stacked down the page.">
+            <a href={stackHref(false)} aria-current={stacked ? undefined : "true"}>One track</a>
+            <a href={stackHref(true)} aria-current={stacked ? "true" : undefined}>By {spec.spine.group!.entry_type.replace(/-/g, " ")}</a>
+          </span>
+        )}
+      </div>
       <script is:inline type="application/json" data-cues set:html={playJson} />
       <script is:inline type="application/json" data-overlays set:html={overJson} />
     </div>
@@ -992,6 +992,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-run[hidden] { display: none; }
   .tl-run-close { flex: none; border: 0; background: transparent; color: var(--muted); font-size: 1.25rem; line-height: 1; padding: 0 2px; cursor: pointer; }
   .tl-actions, .tl-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* The controls are pinned to the bottom of the window, centered in the timeline's column, so Play and the clock stay in reach down a long page
+     (a track for each chapter); at the end of the page they rest in place. On a phone they are the fixed bar below. */
+  .tl-actions { position: sticky; bottom: 12px; z-index: 30; justify-self: center; justify-content: center; width: fit-content; max-width: 100%; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 24px rgb(0 0 0 / 0.25); }
+  .tl-run { bottom: 84px; } /* above the pinned bar */
   /* The transport: Play between the four jumps, one joined group; the jump buttons are small and mono so the pair of signs stay narrow. */
   .tl-nav { display: inline-flex; gap: 4px; align-items: center; }
   .tl-nav [data-jump] { min-width: 2.6em; padding-inline: 0.55em; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem; letter-spacing: -0.04em; }
@@ -1123,7 +1127,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     /* Play, zoom and layout stay within reach: a bar fixed to the bottom of the phone's screen; the other buttons wrap above the strip. */
     /* Inset from the sides so the app's floating buttons (chat, theme) in the bottom corners stay clear of it. */
     .tl-run { bottom: 84px; } /* above the fixed Play bar */
-    .tl-actions { position: fixed; left: 72px; right: 72px; bottom: 0; z-index: 20; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; gap: 6px; box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08); }
+    .tl-actions { width: auto; justify-self: stretch; position: fixed; left: 72px; right: 72px; bottom: 0; z-index: 20; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; gap: 6px; box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08); }
     /* The five transport buttons are one centered row at their own width (Play no longer takes the whole row and its label no longer wraps); the
        jump buttons are narrow enough that the row fits a 360px phone's 197px bar. */
     .tl-actions .tl-nav { flex: 1 1 100%; justify-content: center; gap: 1px; }
