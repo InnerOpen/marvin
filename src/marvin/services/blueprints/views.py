@@ -69,7 +69,8 @@ A timeline definition::
   something about the shot that is not sound or picture (the camera's move, the time of day): ``field`` holds the choice (a select's value),
   read from the item, else the entry ``via`` (with ``entry_type``) names, else the view's entry, so a scene or a story can set it for the
   beats that do not; ``labels`` and ``icons`` ({value: text}) say how a value reads, and ``other`` ({field, label}) names what the item
-  shows when that other field holds something of its own (an exact camera move written out) and so wins over the choice.
+  shows when it has no choice of its own but that other field holds something of its own (an exact camera move written out): it wins over
+  what the scene or the story chose, not over the item's own choice.
 - ``spine.review`` ({ready, keep, redo}) puts Keep and Redo buttons on each item whose ``spine.status`` is one of ``ready`` (a still that was
   made and waits to be looked at): Keep writes the status ``keep``, Redo the status ``redo`` into the item's status field, and the page shows
   the new status at once. What the package does with those statuses (a redo made again) is its own workflows' business.
