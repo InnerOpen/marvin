@@ -108,8 +108,8 @@ export interface CoverSpec {
 }
 
 /** One choice per spine item, written in its block: something about the shot that is not sound or picture (the camera's move). The item's own field
- * wins, then the entry `via` names (a beat's scene), then the view's entry itself (the story). `other` is what an item shows when a different field
- * of its own is filled in (an exact camera move) and so wins over the choice. */
+ * wins, then `other` (what an item shows when a different field of its own is filled in: an exact camera move), then the entry `via` names (a beat's
+ * scene), then the view's entry itself (the story). */
 export interface MarksSpec {
   field: string;
   via?: string;
@@ -789,7 +789,8 @@ const filled = (value: unknown): boolean => value !== null && value !== undefine
 /** A value as words: its label when the lane names one, else the value with its dashes and underscores spaced and its first letter a capital. */
 const wordsOf = (value: string, labels: Record<string, string> | undefined): string => labels?.[value] ?? (value.replace(/[-_]+/g, " ").trim().replace(/^./, (c) => c.toUpperCase()) || value);
 
-/** The marks of a marks lane: for each item its own `other` setting, else the choice its own field, its `via` entry's or the view's entry names. */
+/** The marks of a marks lane: for each item its own choice, else its own `other` setting (shown as custom), else the choice its `via` entry's or the view's
+ * entry names. What an item chose by name beats numbers it also holds; its own numbers beat what its scene or the story chose. */
 function marksOf(spec: MarksSpec, view: TimelineSpec, items: Item[], rows: Rows, laneId: string): Mark[] {
   const via = new Map((rows.via?.[laneId] ?? []).map((r) => [r.slug, r] as const));
   const spine = new Map(rows.spine.map((r) => [r.id, r] as const));
@@ -798,22 +799,14 @@ function marksOf(spec: MarksSpec, view: TimelineSpec, items: Item[], rows: Rows,
     if (item.card) continue; // a card is a title, not a shot: it has no camera
     const row = spine.get(item.id);
     const own = { start: item.start, seconds: item.seconds, item: item.id };
-    if (row && spec.other && filled(field(row, spec.other.field))) {
-      out.push({ value: "", label: spec.other.label, icon: "", from: "", custom: true, ...own });
-      continue;
-    }
     const named = row && spec.via ? via.get(str(field(row, spec.via))) : undefined;
-    const tiers: [Row | undefined, string][] = [
-      [row, view.spine.entry_type],
-      [named, spec.entry_type ?? ""],
-      [rows.entry, view.entry_type],
-    ];
-    for (const [owner, from] of tiers) {
+    const choice = (owner: Row | undefined, from: string): Mark | null => {
       const value = owner ? str(field(owner, spec.field)).trim() : "";
-      if (!value) continue;
-      out.push({ value, label: wordsOf(value, spec.labels), icon: spec.icons?.[value] ?? "", from, custom: false, ...own });
-      break;
-    }
+      return value ? { value, label: wordsOf(value, spec.labels), icon: spec.icons?.[value] ?? "", from, custom: false, ...own } : null;
+    };
+    const written: Mark | null = row && spec.other && filled(field(row, spec.other.field)) ? { value: "", label: spec.other.label, icon: "", from: "", custom: true, ...own } : null;
+    const found = choice(row, view.spine.entry_type) ?? written ?? choice(named, spec.entry_type ?? "") ?? choice(rows.entry, view.entry_type);
+    if (found) out.push(found);
   }
   return out;
 }
