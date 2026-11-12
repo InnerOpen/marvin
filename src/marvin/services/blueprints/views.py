@@ -40,7 +40,9 @@ A timeline definition::
 - A ``lane`` is a child type drawn under the spine, in one of four shapes. ``in`` names the field that holds the spine item's slug (a line
   belongs to a beat; ``of`` is then required and scopes the lane's entries to the view's entry). ``placed`` says the spine item lists them:
   ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at`` (the entries come by
-  those slugs, so a library sound shared by stories is found; ``of`` is optional; ``filter`` limits what the item's page offers to pick
+  those slugs, so a library sound shared by stories is found; ``of`` is optional; ``volume`` names the key inside each cue that holds its own
+  level (0 to 1), which replaces the sound's own for that cue and gets a slider in the cue editor; ``filter`` limits what the item's page offers to
+  pick
   to entries whose fields hold those values, e.g. ``{"kind": "effect"}``). ``bed`` is a sound that runs under a stretch: ``field``
   names the lane entry's slug on the view's entry itself (a story's music, one block under everything), or on each spine item, or, with
   ``via`` and ``entry_type``, on the entry a spine item's ``via`` field names (a beat's scene names its ambience); consecutive items with the
@@ -342,6 +344,8 @@ def _check_lane(lane: dict, label: str) -> str | None:
         for key in ("field", "ref", "at"):
             if problem := _field(placed, key, f"{label} placed", required=True):
                 return problem
+        if problem := _field(placed, "volume", f"{label} placed"):  # the key inside each cue holding its own level (0 to 1)
+            return problem
         if (filt := placed.get("filter")) is not None and not (
             isinstance(filt, dict) and filt and all(_NAME.match(k) and isinstance(v, str) and v for k, v in filt.items())
         ):

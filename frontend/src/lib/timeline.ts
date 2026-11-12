@@ -114,7 +114,8 @@ export interface LaneSpec {
   /** The field on a lane entry that holds the view's entry's slug; required for `in` lanes, optional otherwise. */
   of?: string;
   in?: string;
-  placed?: { field: string; ref: string; at: string };
+  /** `volume`: the key inside each cue holding its own level (0 to 1), which replaces the sound's own for that cue. */
+  placed?: { field: string; ref: string; at: string; volume?: string };
   bed?: BedSpec;
   cover?: CoverSpec;
   order?: string;
@@ -469,7 +470,10 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
           if (!target) continue;
           const at = Math.max(0, num((ref as Record<string, unknown>)[lane.placed!.at]) ?? 0);
           const length = pieceSeconds(target, lane);
-          pieces.push(pieceOf(target, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + at, at));
+          const piece = pieceOf(target, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + at, at);
+          const own = lane.placed!.volume ? level((ref as Record<string, unknown>)[lane.placed!.volume]) : null;
+          if (own !== null) piece.volume = own; // the cue's own loudness replaces the sound's, as in the render
+          pieces.push(piece);
           // A sound with no take yet has a width to show it needs filling in (its text, as a line has), but nothing plays, so it never lengthens its item.
           const plays = !!length && (!length.estimated || !!assetUrl(target, lane.audio, "audio/"));
           reach = Math.max(reach, at + (plays ? length!.seconds : 0));
