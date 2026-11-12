@@ -522,6 +522,47 @@ test("layered ambience: a beat's own sound replaces its scene's for that beat, u
   assert.deepEqual(amb.map((b) => [b.slug, b.start, b.seconds, b.muffled]), [["hum", 0, 20, false], ["sea", 0, 8, false], ["gull", 8, 4, false], ["sea", 12, 4, true]]);
 });
 
+// ── the story's bed turned down or muffled by a scene or a beat, and who set each stretch ────────────────────────────────────────────
+const adjustSpec = {
+  ...layerSpec,
+  lanes: layerSpec.lanes.map((l) =>
+    l.id === "ambience" ? { ...l, bed: { ...l.bed, entry_item_volume: "story_ambience_volume", entry_via_volume: "story_ambience_volume", entry_via_muffled: "story_ambience_muffled" } } : l,
+  ),
+};
+const adjusted = (sceneRows, beatData = [], story = { ambience: "hum", ambience_volume: 0.2 }) =>
+  layout(adjustSpec, {
+    entry: row("s", story),
+    spine: bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, ambience_volume: undefined, ...(beatData[i] ?? {}) } })),
+    groups: chapters,
+    lanes: { lines: [], sounds: [], ambience: [...bedSounds, row("hum", { volume: 0.5, loop: true }, { assets: [tune] })], music: bedSounds },
+    via: { ambience: sceneRows },
+  }).beds.ambience[0];
+
+test("the story's bed: a scene turns it down and mutes it, a beat's own level wins, and each stretch says who set it", () => {
+  const bed = adjusted([
+    row("deck", { ambience: "sea", story_ambience_volume: 0.1, story_ambience_muffled: true }, { title: "On deck" }),
+    row("hold", { ambience: "sea", story_ambience_volume: 0.03, story_ambience_muffled: true }, { title: "The hold" }),
+  ], [undefined, undefined, { story_ambience_volume: 0.05 }]);
+  assert.equal(bed.slug, "hum");
+  assert.deepEqual(bed.steps.map((st) => [st.start, st.seconds, st.volume, st.source, st.by, st.muffled]), [
+    [0, 8, 0.1, "scene", "On deck", true],
+    [8, 4, 0.05, "beat", "b3", true], // the beat's own level, though its scene is heard from inside too
+    [12, 4, 0.03, "scene", "The hold", true],
+    [16, 4, 0.2, "story", undefined, false], // a beat in no known scene: the story's own level, not muffled
+  ]);
+});
+
+test("the story's bed: nothing adjusted draws no steps, as before; a scene with no level of its own keeps the story's level but can still muffle", () => {
+  assert.deepEqual(adjusted([row("deck", { ambience: "sea" }), row("hold", { ambience: "sea" })]).steps, []);
+  const quiet = adjusted([row("deck", { story_ambience_muffled: true }, { title: "On deck" })]);
+  assert.deepEqual(quiet.steps.map((st) => [st.start, st.seconds, st.volume, st.source, st.muffled]), [[0, 12, 0.2, "story", true], [12, 8, 0.2, "story", false]]);
+});
+
+test("the story's bed: a spec without the new keys is exactly what it was", () => {
+  const plain = layered({ ambience: "hum", ambience_volume: 0.2 }).beds.ambience[0];
+  assert.deepEqual(plain.steps, []);
+});
+
 test("layered ambience: a story that names none adds no block, and playback has every layer at once", () => {
   assert.deepEqual(layered({}).beds.ambience.map((b) => b.slug), ["sea", "sea", "sea"]);
   const over = overlays(layered({ ambience: "hum" }), layerSpec.lanes).filter((o) => o.lane === "ambience");
