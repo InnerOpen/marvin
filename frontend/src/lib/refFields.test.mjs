@@ -152,3 +152,11 @@ test("refScopeSplit: a required field always narrows, an optional one narrows to
   const actor = { fields: [{ key: "world", type: "text", required: true }] };
   assert.deepEqual(refScopeSplit(actor, { world: "w", story: "s" }), { fixed: { world: "w" }, open: {} });
 });
+
+test("an option carries the entry's id when it has one, so the field can open the entry", () => {
+  const options = refOptions([{ id: "11111111-1111-1111-1111-111111111111", slug: "a-line", title: "A line" }, { slug: "no-id", title: "No id" }]);
+  assert.deepEqual(options, [
+    { slug: "a-line", title: "A line", id: "11111111-1111-1111-1111-111111111111" },
+    { slug: "no-id", title: "No id" },
+  ]);
+});

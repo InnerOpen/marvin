@@ -32,6 +32,8 @@ const selected = value || field.defaultValue || "";
 // A pick list of things that can be heard (a sound's recording) puts a play button beside it for the one chosen.
 const listens = options.some((o) => o.audio);
 const heardNow = options.find((o) => o.slug === selected)?.audio;
+// The chosen entry opens from the field: its page is reached by its id.
+const openId = options.find((o) => o.slug === selected)?.id;
 // `ref_match`: the list is narrowed in the browser to the entries that belong with this entry's own field (a beat's chapters: those of its story).
 const match = refMatchOf(field);
 const matched = Object.keys(match).length > 0;
@@ -56,12 +58,13 @@ const groups = (list: RefOption[]): [string, RefOption[]][] => {
     <option value="">— none —</option>
     {groups(withCurrent(options, selected)).map(([heading, list]) =>
       heading ? (
-        <optgroup label={heading}>{list.map((o) => <option value={o.slug} data-audio={o.audio} selected={o.slug === selected}>{o.title}</option>)}</optgroup>
+        <optgroup label={heading}>{list.map((o) => <option value={o.slug} data-audio={o.audio} data-id={o.id} selected={o.slug === selected}>{o.title}</option>)}</optgroup>
       ) : (
-        list.map((o) => <option value={o.slug} data-audio={o.audio} selected={o.slug === selected}>{o.title}</option>)
+        list.map((o) => <option value={o.slug} data-audio={o.audio} data-id={o.id} selected={o.slug === selected}>{o.title}</option>)
       ),
     )}
   </select>
+  <a class="ref-open" data-ref-open href={openId ? `/workspace/entries/${openId}` : undefined} hidden={!openId} title="Open the chosen entry" aria-label="Open the chosen entry">Open ↗</a>
   {listens && (
     <span class="ref-listen" hidden={!heardNow}>
       <PlayButton src={heardNow ?? ""} label="Listen to the one chosen" />
@@ -87,6 +90,7 @@ const groups = (list: RefOption[]): [string, RefOption[]][] => {
     const option = (o: RefOption) => {
       const el = new Option(o.title, o.slug);
       if (o.audio) el.dataset.audio = o.audio;
+      if (o.id) el.dataset.id = o.id;
       return el;
     };
     const apply = () => {
@@ -109,6 +113,18 @@ const groups = (list: RefOption[]): [string, RefOption[]][] => {
     apply();
   });
 
+  // The Open link follows the chosen option: that entry's page, or hidden when none (or an id is not known).
+  document.querySelectorAll<HTMLElement>(".ref-row").forEach((row) => {
+    const select = row.querySelector("select");
+    const link = row.querySelector<HTMLAnchorElement>("[data-ref-open]");
+    if (!select || !link) return;
+    select.addEventListener("change", () => {
+      const id = select.selectedOptions[0]?.dataset.id;
+      link.hidden = !id;
+      if (id) link.href = `/workspace/entries/${id}`;
+    });
+  });
+
   // The play button follows the chosen option: its recording, or hidden when the chosen one has none.
   document.querySelectorAll<HTMLElement>("[data-ref-listen]").forEach((row) => {
     const select = row.querySelector("select");
@@ -126,6 +142,7 @@ const groups = (list: RefOption[]): [string, RefOption[]][] => {
 <style>
   .ref-row { display: flex; align-items: center; gap: 8px; }
   .ref-row select { flex: 1 1 auto; min-width: 0; }
+  .ref-open { flex: none; font-size: 0.8125rem; white-space: nowrap; }
   .field-group { display: grid; gap: 0.5rem; }
   label { font-weight: 600; font-size: 0.875rem; color: var(--ink); }
   .required { color: var(--color-error); margin-left: 2px; }
