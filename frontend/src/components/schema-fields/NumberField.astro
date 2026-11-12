@@ -16,15 +16,23 @@ export interface Props {
     min?: number;
     max?: number;
     step?: number;
+    /** Also a drag slider beside the box (needs min and max): the box stays, and empty still means not set. */
+    slider?: boolean;
   };
   value?: number;
   error?: string;
 }
 
 import { numberStep } from "@/lib/numberStep";
+import { sliderState, sliderStep } from "@/lib/numberSlider";
 
 const { field, value, error } = Astro.props;
 const inputId = `field-${field.key}`;
+const shown = value !== undefined ? value : field.defaultValue;
+// A slider needs both ends; without them the field is the plain box it always was.
+const slider = field.slider === true && typeof field.min === "number" && typeof field.max === "number" && field.max > field.min;
+const rest = typeof field.defaultValue === "number" ? field.defaultValue : (field.min ?? 0);
+const thumb = slider ? sliderState(shown === undefined || shown === null ? "" : String(shown), field.min!, field.max!, rest) : null;
 ---
 
 <div class="field-group">
@@ -33,19 +41,50 @@ const inputId = `field-${field.key}`;
     {field.required && <span class="required">*</span>}
   </label>
 
-  <input
-    type="number"
-    id={inputId}
-    name={`dataJson.${field.key}`}
-    value={value !== undefined ? value : field.defaultValue}
-    placeholder={field.placeholder}
-    required={field.required}
-    readonly={field.readOnly}
-    min={field.min}
-    max={field.max}
-    step={numberStep(field.step)}
-    class:list={['field-input', { error }]}
-  />
+  {slider ? (
+    <div class:list={["number-slider", { "is-set": thumb!.set }]} data-number-slider>
+      <input
+        type="range"
+        class="slider-range"
+        min={field.min}
+        max={field.max}
+        step={sliderStep(field.step, field.min!, field.max!)}
+        value={thumb!.position}
+        disabled={field.readOnly}
+        aria-label={`${field.label}: drag`}
+        data-slider-range
+      />
+      <input
+        type="number"
+        id={inputId}
+        name={`dataJson.${field.key}`}
+        value={shown}
+        placeholder={field.placeholder ?? "not set"}
+        required={field.required}
+        readonly={field.readOnly}
+        min={field.min}
+        max={field.max}
+        step={numberStep(field.step)}
+        class:list={["field-input", "slider-number", { error }]}
+        data-slider-number
+      />
+      <button type="button" class="slider-clear" data-slider-clear aria-label="Clear: not set" title="Clear: not set" hidden={!thumb!.set || field.readOnly}>×</button>
+    </div>
+  ) : (
+    <input
+      type="number"
+      id={inputId}
+      name={`dataJson.${field.key}`}
+      value={shown}
+      placeholder={field.placeholder}
+      required={field.required}
+      readonly={field.readOnly}
+      min={field.min}
+      max={field.max}
+      step={numberStep(field.step)}
+      class:list={['field-input', { error }]}
+    />
+  )}
 
   {field.helpText && <p class="field-help">{field.helpText}</p>}
   {error && <p class="field-error">{error}</p>}
@@ -104,3 +143,55 @@ const inputId = `field-${field.key}`;
     color: var(--color-error);
   }
 </style>
+
+<script>
+  import { boxText, sliderState, sliderStep } from "@/lib/numberSlider";
+
+  // Each slider and its number box are one value: dragging writes the box (and tells the form it changed), typing moves the thumb, and × empties the box
+  // (not set: the field inherits). The box is the field that is saved; the slider has no name.
+  function wire(root: HTMLElement) {
+    if (root.dataset.wired) return;
+    root.dataset.wired = "1";
+    const range = root.querySelector<HTMLInputElement>("[data-slider-range]")!;
+    const box = root.querySelector<HTMLInputElement>("[data-slider-number]")!;
+    const clear = root.querySelector<HTMLButtonElement>("[data-slider-clear]")!;
+    const min = Number(range.min);
+    const max = Number(range.max);
+    const step = sliderStep(Number(range.step), min, max);
+    const rest = Number(range.value);
+    const show = () => {
+      const state = sliderState(box.value, min, max, rest);
+      range.value = String(state.position);
+      root.classList.toggle("is-set", state.set);
+      clear.hidden = !state.set || box.readOnly;
+    };
+    const told = () => box.dispatchEvent(new Event("input", { bubbles: true }));
+    range.addEventListener("input", () => {
+      box.value = boxText(Number(range.value), step);
+      show();
+      told();
+    });
+    box.addEventListener("input", show);
+    clear.addEventListener("click", () => {
+      box.value = "";
+      show();
+      told();
+      box.focus();
+    });
+  }
+  const wireAll = () => document.querySelectorAll<HTMLElement>("[data-number-slider]").forEach(wire);
+  wireAll();
+  document.addEventListener("astro:page-load", wireAll);
+</script>
+
+<style>
+  .number-slider { display: flex; align-items: center; gap: 0.75rem; }
+  .slider-range { flex: 1 1 auto; min-width: 0; accent-color: var(--color-primary); opacity: 0.45; cursor: pointer; }
+  .number-slider.is-set .slider-range { opacity: 1; }
+  .slider-range:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+  .slider-number { flex: 0 0 6.5rem; width: 6.5rem; }
+  .slider-clear { flex: none; border: 0; background: transparent; color: var(--muted); font-size: 1.25rem; line-height: 1; padding: 0 0.25rem; cursor: pointer; }
+  .slider-clear:hover { color: var(--ink); }
+  @media (max-width: 480px) { .number-slider { flex-wrap: wrap; } .slider-range { flex-basis: 100%; } }
+</style>
+
