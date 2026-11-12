@@ -92,10 +92,16 @@ class NumberFieldSchema(BaseFieldSchema):
         "an empty box means not set. Needs `min` and `max`.",
     )
 
+    meter: bool = Field(
+        default=False,
+        description="Also draw a meter bar above the box for a measured value (a level in dB): how far it is from `min` to `max`. "
+        "Needs `min` and `max`.",
+    )
+
     @model_validator(mode="after")
-    def _a_slider_needs_its_ends(self):
-        if self.slider and (self.min is None or self.max is None or self.max <= self.min):
-            raise ValueError("a slider needs a min and a max above it")
+    def _a_slider_or_meter_needs_its_ends(self):
+        if (self.slider or self.meter) and (self.min is None or self.max is None or self.max <= self.min):
+            raise ValueError("a slider or a meter needs a min and a max above it")
         return self
 
 
