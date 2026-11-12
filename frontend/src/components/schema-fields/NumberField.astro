@@ -18,13 +18,15 @@ export interface Props {
     step?: number;
     /** Also a drag slider beside the box (needs min and max): the box stays, and empty still means not set. */
     slider?: boolean;
+    /** Also a meter bar for a measured value (needs min and max): how far it is between the ends; a level in dB, say. */
+    meter?: boolean;
   };
   value?: number;
   error?: string;
 }
 
 import { numberStep } from "@/lib/numberStep";
-import { sliderState, sliderStep } from "@/lib/numberSlider";
+import { meterState, sliderState, sliderStep } from "@/lib/numberSlider";
 
 const { field, value, error } = Astro.props;
 const inputId = `field-${field.key}`;
@@ -32,6 +34,7 @@ const shown = value !== undefined ? value : field.defaultValue;
 // A slider needs both ends; without them the field is the plain box it always was.
 const slider = field.slider === true && typeof field.min === "number" && typeof field.max === "number" && field.max > field.min;
 const rest = typeof field.defaultValue === "number" ? field.defaultValue : (field.min ?? 0);
+const meter = field.meter === true && typeof field.min === "number" && typeof field.max === "number" && field.max > field.min ? meterState(shown, field.min, field.max) : null;
 const thumb = slider ? sliderState(shown === undefined || shown === null ? "" : String(shown), field.min!, field.max!, rest) : null;
 ---
 
@@ -40,6 +43,12 @@ const thumb = slider ? sliderState(shown === undefined || shown === null ? "" : 
     {field.label}
     {field.required && <span class="required">*</span>}
   </label>
+
+  {meter && (
+    <div class:list={["number-meter", `zone-${meter.zone}`, { "is-empty": !meter.has }]} role="meter" aria-label={`${field.label}: ${meter.has ? shown : "not measured"}`} aria-valuemin={field.min} aria-valuemax={field.max} aria-valuenow={meter.has ? Number(shown) : undefined}>
+      <span class="number-meter-fill" style={`width:${Math.round(meter.position * 1000) / 10}%`}></span>
+    </div>
+  )}
 
   {slider ? (
     <div class:list={["number-slider", { "is-set": thumb!.set }]} data-number-slider>
@@ -121,6 +130,13 @@ const thumb = slider ? sliderState(shown === undefined || shown === null ? "" : 
     border-color: var(--color-primary);
     box-shadow: 0 0 0 3px var(--color-primary-alpha);
   }
+
+  /* A measured value drawn as a bar between the field's ends: quiet green, amber near the top, red at it; nothing measured is an empty track. */
+  .number-meter { height: 10px; border-radius: 5px; background: var(--muted-bg); border: 1px solid var(--line); overflow: hidden; max-width: 32rem; }
+  .number-meter-fill { display: block; height: 100%; border-radius: 4px 0 0 4px; background: var(--color-success, #3a9d5d); }
+  .number-meter.zone-warn .number-meter-fill { background: var(--color-warning, #d99a1e); }
+  .number-meter.zone-hot .number-meter-fill { background: var(--color-error, #d1453b); }
+  .number-meter.is-empty .number-meter-fill { width: 0 !important; }
 
   .field-input:read-only {
     background: var(--muted-bg);

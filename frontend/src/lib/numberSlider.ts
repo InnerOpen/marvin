@@ -19,3 +19,12 @@ export function boxText(position: number, step: number): string {
 export function sliderStep(step: number | null | undefined, min: number, max: number): number {
   return typeof step === "number" && Number.isFinite(step) && step > 0 ? step : Number(((max - min) / 100).toPrecision(2));
 }
+
+/** A meter's fill for a measured value: how far along from `min` to `max` (0 to 1), whether it is nearing the top (`warn`) or at it (`hot`), and
+ *  whether there is a reading at all (an empty or unreadable value draws an empty bar, not a full or a zero one). */
+export function meterState(value: unknown, min: number, max: number): { has: boolean; position: number; zone: "ok" | "warn" | "hot" } {
+  const n = value === null || value === undefined || value === "" ? NaN : Number(value);
+  if (!Number.isFinite(n) || !(max > min)) return { has: false, position: 0, zone: "ok" };
+  const position = Math.min(1, Math.max(0, (n - min) / (max - min)));
+  return { has: true, position, zone: position >= 0.95 ? "hot" : position >= 0.8 ? "warn" : "ok" };
+}

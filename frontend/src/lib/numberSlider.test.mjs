@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { boxText, sliderState, sliderStep } from "./numberSlider.ts";
+import { boxText, sliderState, sliderStep, meterState } from "./numberSlider.ts";
 
 test("the thumb stands where the box says, and a box with nothing in it is not set", () => {
   assert.deepEqual(sliderState("0.25", 0, 1, 0.5), { set: true, position: 0.25 });
@@ -30,4 +30,15 @@ test("the slider moves in the field's step, else a hundredth of its range", () =
   assert.equal(sliderStep(undefined, 0, 1), 0.01);
   assert.equal(sliderStep(null, 0, 30), 0.3);
   assert.equal(sliderStep(0, 0, 10), 0.1);
+});
+
+test("a meter fills from the low end to the high end, goes amber near the top and red at it, and is empty when nothing was measured", () => {
+  assert.deepEqual(meterState(-30, -60, 0), { has: true, position: 0.5, zone: "ok" });
+  assert.equal(meterState(-9, -60, 0).zone, "warn"); // 0.85 of the way
+  assert.equal(meterState(-1, -60, 0).zone, "hot");
+  assert.equal(meterState(-90, -60, 0).position, 0); // below the floor draws nothing more than the floor
+  assert.equal(meterState(6, -60, 0).position, 1); // above the top is the top
+  for (const none of [undefined, null, "", "abc"]) assert.equal(meterState(none, -60, 0).has, false);
+  assert.equal(meterState(0, -60, 0).has, true); // a measured zero is a reading
+  assert.equal(meterState(1, 5, 5).has, false); // no range, no meter
 });
