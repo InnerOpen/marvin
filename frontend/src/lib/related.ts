@@ -5,6 +5,8 @@
  * The pure part; relatedApi.ts asks the entries API.
  */
 
+import { naturalByTitle } from "./wizard.ts";
+
 export interface RelatedSpec {
   title: string;
   entry_type: string;
@@ -33,4 +35,14 @@ export interface RelatedGroup {
   entryType: string;
   total: number;
   rows: { id: string; title: string; status: string | null }[];
+}
+
+/** How many of a lookup's entries the page lists. */
+export const SHOWN = 30;
+/** How many it asks for before choosing the first ones: the server cannot sort "Beat 9" before "Beat 10", so the page does, and it needs more than it shows. */
+export const FETCHED = 200;
+
+/** The first `shown` of a lookup's entries as people count them (Beat 2 before Beat 10), chosen from everything fetched: the list's start, not an arbitrary few. */
+export function firstShown<T extends { title?: string | null }>(rows: T[], shown = SHOWN): T[] {
+  return naturalByTitle(rows).slice(0, shown);
 }
