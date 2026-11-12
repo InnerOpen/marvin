@@ -7,6 +7,8 @@
 export interface RefOption {
   slug: string;
   title: string;
+  /** The entry's id, so the field can link to it (an entry's page is opened by its id). */
+  id?: string;
   /** A heading the option is listed under, when the list is split (the voices cast in this story, then the rest). */
   group?: string;
   /** A recording to hear before choosing it (the field's `ref_listen`: the asset role to play), when the entry has one. */
@@ -111,7 +113,7 @@ export function refTypesOf(schema: SchemaLike): string[] {
 
 /** Entries as pick-list options, by title (ignoring case); an entry without a slug cannot be referred to, so it is left out. */
 export function refOptions(
-  entries: { slug?: string | null; title?: string | null; dataJson?: Record<string, unknown> | null; assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null }[] | null }[],
+  entries: { id?: string | null; slug?: string | null; title?: string | null; dataJson?: Record<string, unknown> | null; assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null }[] | null }[],
   listenRole?: string | null,
   matchKeys: string[] = [],
 ): RefOption[] {
@@ -120,7 +122,7 @@ export function refOptions(
     .map((e) => {
       const heard = listenRole ? e.assets?.find((a) => a.role === listenRole && a.publicUrl && (a.mimeType ?? "").startsWith("audio/")) : undefined;
       const match = Object.fromEntries(matchKeys.flatMap((k) => (typeof e.dataJson?.[k] === "string" && e.dataJson[k] ? [[k, e.dataJson[k] as string]] : [])));
-      return { slug: e.slug, title: e.title?.trim() || e.slug, ...(heard?.publicUrl ? { audio: heard.publicUrl } : {}), ...(matchKeys.length ? { match } : {}) };
+      return { slug: e.slug, title: e.title?.trim() || e.slug, ...(e.id ? { id: e.id } : {}), ...(heard?.publicUrl ? { audio: heard.publicUrl } : {}), ...(matchKeys.length ? { match } : {}) };
     })
     .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
 }

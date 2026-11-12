@@ -6,7 +6,7 @@ import { type RefOption, tiered, refFieldsOf, refOptions, refScopeSplit, type Re
 
 const MAX_OPTIONS = 500;
 
-type Found = { slug?: string; title?: string; dataJson?: Record<string, unknown>; assets?: { role?: string; publicUrl?: string; mimeType?: string }[] };
+type Found = { id?: string; slug?: string; title?: string; dataJson?: Record<string, unknown>; assets?: { role?: string; publicUrl?: string; mimeType?: string }[] };
 
 /**
  * The entries of a type, narrowed by `fields`; `open` are fields the type may leave empty (a sound's story): the entries that hold that value, and the
