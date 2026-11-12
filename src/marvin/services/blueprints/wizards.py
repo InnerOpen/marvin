@@ -146,7 +146,7 @@ MAX_BUTTONS = 3
 
 
 def _check_buttons(spec: Any, entries: set[str], steps: set[str], slug: str) -> str | None:
-    """``button`` is one button, or a list of up to three when the setup is offered on several types of entry (a speech line's Takes and a story's)."""
+    """``button`` is one button, or a list of up to three when the setup is offered on several types of entry (a line's Takes and a story's)."""
     if not isinstance(spec, list):
         return _check_button(spec, entries, steps, slug)
     if not 1 <= len(spec) <= MAX_BUTTONS:
@@ -154,7 +154,7 @@ def _check_buttons(spec: Any, entries: set[str], steps: set[str], slug: str) -> 
     for item in spec:
         if item is None:
             return f"wizard {slug!r}: button is one button or a list of 1 to {MAX_BUTTONS}"
-        if (problem := _check_button(item, entries, steps, slug)):
+        if problem := _check_button(item, entries, steps, slug):
             return problem
     types = [b.get("entry_type") for b in spec if isinstance(b, dict)]
     if len(set(types)) != len(types):
