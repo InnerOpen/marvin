@@ -419,9 +419,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   // Beds that run together (the story's ambience under a scene's) stack the same way.
                   const bedList = lane.bed ? bedsIn(lane, track) : [];
                   const bedRows = stackRows(bedList.map((b) => ({ start: clip(b, track).from, seconds: clip(b, track).seconds })), 0);
-                  const laneHeight = 44 + Math.max(0, ...laneRows, ...bedRows) * 28;
+                  // A bed is taller than a piece: its title on top and the level labels in a band of their own below, so one never sits on the other.
+                  const laneHeight = (lane.bed ? 62 : 44) + Math.max(0, ...laneRows, ...bedRows) * (lane.bed ? 44 : 28);
                   return (
-                  <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title} style={laneRows.some((r) => r > 0) || bedRows.some((r) => r > 0) ? `height:${laneHeight}px` : undefined}>
+                  <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title} style={lane.bed || laneRows.some((r) => r > 0) || bedRows.some((r) => r > 0) ? `height:${laneHeight}px` : undefined}>
                     <span class="tl-lane-name">
                       {!lane.cover && <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>}
                       {lane.title}
@@ -431,13 +432,13 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     {lane.bed &&
                       bedList.map((b, n) => (
                         <a
-                          class:list={["tl-bed", { silent: !b.audio }]}
+                          class:list={["tl-bed", "has-levels", { silent: !b.audio }]}
                           role="listitem"
                           href={open(b.id)}
                           data-bed={b.id}
                           data-start={b.start}
                           data-end={b.start + b.seconds}
-                          style={`left:${pctIn(track, clip(b, track).from)};width:${pctIn(track, track.start + clip(b, track).seconds)}${bedRows[n] ? `;top:${18 + bedRows[n] * 28}px` : ""}`}
+                          style={`left:${pctIn(track, clip(b, track).from)};width:${pctIn(track, track.start + clip(b, track).seconds)}${bedRows[n] ? `;top:${18 + bedRows[n] * 44}px` : ""}`}
                           title={`${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)} · level ${Math.round(b.volume * 100)}%${b.loop ? ", loops" : ""}${b.muffled ? ", muffled" : ""}${b.fadeIn > 0 ? `\nfades in over ${b.fadeIn.toFixed(1)} s` : ""}${b.fadeOut > 0 ? `\nfades out over ${b.fadeOut.toFixed(1)} s` : ""}${b.audio ? "" : "\nno take yet"}`}
                         >
                           {fadeRamps(b, track).inPct > 0 && <i class="tl-fade in" aria-hidden="true" style={`width:${fadeRamps(b, track).inPct}%`} title={`fades in over ${b.fadeIn.toFixed(1).replace(/\.0$/, "")} s`} />}
@@ -1054,6 +1055,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece.placed.recorded { border-color: var(--ink); }
   .tl-piece.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-bed { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 8%, var(--panel)); color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-decoration: none; }
+  .tl-bed.has-levels { height: 40px; align-items: flex-start; padding-top: 4px; }
   .tl-bed small { color: var(--muted); font-size: 11px; }
   .tl-bed > span, .tl-bed > small { position: relative; z-index: 1; }
   /* A bed's level over time: bars rising from the foot of the block, a silent stretch hatched. */
