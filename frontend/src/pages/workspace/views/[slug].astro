@@ -271,6 +271,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
             />
             <span class="tl-clock-beat" data-clock-beat title={`How far into the ${spec.spine.entry_type.replace(/-/g, " ")} the playhead is: the "at" a sound placed in it needs`}></span>
           </span>
+          <button type="button" class="button secondary tl-fold" data-fold aria-expanded="true" aria-label="Fold the controls down to Play and the clock" title="Fold the controls down to Play and the clock, to see more of the timeline">⌄</button>
           <span class="tl-zoom" role="group" aria-label="Zoom" title="How wide the timeline is: Fit is the page, 2× is two pages. Also + and −.">
             {ZOOM_LEVELS.map((z) => (
               <button type="button" data-zoom={z} aria-pressed={z === 1 ? "true" : "false"}>{z === 1 ? "Fit" : `${z}×`}</button>
@@ -594,6 +595,34 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     const audio = new Audio();
     const zoomButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-zoom]")];
     const zoomKey = `tl-zoom:${location.pathname}`;
+    // On a phone the controls are one bar fixed to the screen: it folds down to Play and the clock (and a button to open it again), so the
+    // timeline has the room. Remembered, for the next visit.
+    const foldKey = "tl-controls-folded";
+    const bar = root.querySelector<HTMLElement>(".tl-actions");
+    const foldButton = root.querySelector<HTMLButtonElement>("[data-fold]");
+    const setFolded = (on: boolean) => {
+      bar?.classList.toggle("is-folded", on);
+      root.classList.toggle("controls-folded", on);
+      if (!foldButton) return;
+      foldButton.setAttribute("aria-expanded", on ? "false" : "true");
+      foldButton.textContent = on ? "⌃" : "⌄";
+      foldButton.setAttribute("aria-label", on ? "Show all the controls" : "Fold the controls down to Play and the clock");
+      foldButton.title = on ? "Show all the controls" : "Fold the controls down to Play and the clock, to see more of the timeline";
+    };
+    foldButton?.addEventListener("click", () => {
+      const on = !bar?.classList.contains("is-folded");
+      setFolded(on);
+      try {
+        localStorage.setItem(foldKey, on ? "1" : "0");
+      } catch {
+        /* a private window forgets it, nothing more */
+      }
+    });
+    try {
+      setFolded(localStorage.getItem(foldKey) === "1");
+    } catch {
+      /* same */
+    }
     let zoom = 1;
     // Zoom: the strip is `zoom` pages wide (never under the floor the shortest beat needs); what sits under the middle of the box stays there.
     const setZoom = (level: number) => {
@@ -966,6 +995,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   /* The transport: Play between the four jumps, one joined group; the jump buttons are small and mono so the pair of signs stay narrow. */
   .tl-nav { display: inline-flex; gap: 4px; align-items: center; }
   .tl-nav [data-jump] { min-width: 2.6em; padding-inline: 0.55em; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem; letter-spacing: -0.04em; }
+  .tl-fold { display: none; }
   .tl-zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
   .tl-zoom button { margin: 0; padding: 7px 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
   .tl-zoom button:first-child { border-left: 0; }
@@ -1095,6 +1125,14 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     .tl-actions { position: fixed; left: 72px; right: 72px; bottom: 0; z-index: 20; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; gap: 6px; box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08); }
     .tl-actions .tl-play { flex: 1 1 100%; justify-content: center; }
     .tl-actions .tl-zoom { flex: 1 1 100%; justify-content: center; }
+    /* Folded: just Play, the clock and the button to open it again. */
+    .tl-fold { display: inline-flex; margin-left: auto; min-width: 2.6em; justify-content: center; }
+    .tl-actions.is-folded { flex-wrap: nowrap; }
+    .tl-actions.is-folded [data-jump], .tl-actions.is-folded .tl-zoom, .tl-actions.is-folded .tl-clock-beat { display: none; }
+    .tl-actions.is-folded .tl-nav, .tl-actions.is-folded .tl-play { flex: 0 0 auto; }
+    .tl-actions.is-folded .tl-clock { flex: 1 1 auto; min-width: 0; }
+    .tl-actions.is-folded .tl-clock-input { width: 100%; min-width: 0; }
+    .tl.controls-folded { padding-bottom: 76px; }
     .tl-actions .tl-zoom a, .tl-actions .tl-zoom button { flex: 1 1 auto; text-align: center; padding: 6px 4px; font-size: 12px; }
     .tl-links .button { flex: 1 1 45%; text-align: center; font-size: 13px; padding: 6px 8px; }
     .tl { padding-bottom: 150px; }
