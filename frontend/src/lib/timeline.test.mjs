@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aspectOf, canReview, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { aspectOf, canReview, jumpTo, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -696,3 +696,30 @@ test("review: Keep and Redo show only on an item whose status is one of the wait
   assert.equal(canReview("made", undefined), false);
   assert.equal(canReview("made", null), false);
 });
+
+test("transport: |< goes to the start and >| to the end", () => {
+  const starts = [0, 4, 9.5, 13];
+  assert.equal(jumpTo(starts, 20, 11, "start"), 0);
+  assert.equal(jumpTo(starts, 20, 3, "end"), 20);
+});
+
+test("transport: >> goes to the next item's start, and to the end after the last", () => {
+  const starts = [0, 4, 9.5, 13];
+  assert.equal(jumpTo(starts, 20, 0, "next"), 4);
+  assert.equal(jumpTo(starts, 20, 4, "next"), 9.5, "at an item's start, the next is the one after it");
+  assert.equal(jumpTo(starts, 20, 5, "next"), 9.5);
+  assert.equal(jumpTo(starts, 20, 13.01, "next"), 20);
+  assert.equal(jumpTo([], 20, 3, "next"), 20);
+});
+
+test("transport: << restarts the item you are in, and from near its start goes to the one before", () => {
+  const starts = [0, 4, 9.5, 13];
+  assert.equal(jumpTo(starts, 20, 6, "back"), 4, "well into an item: its own start");
+  assert.equal(jumpTo(starts, 20, 4.5, "back"), 0, "within a second of its start: the one before");
+  assert.equal(jumpTo(starts, 20, 4, "back"), 0);
+  assert.equal(jumpTo(starts, 20, 0.5, "back"), 0, "at the first item: the very start");
+  assert.equal(jumpTo(starts, 20, 19, "back"), 13, "in the last item: its start");
+  assert.equal(jumpTo([], 20, 7, "back"), 0);
+  assert.equal(jumpTo([4, 4, 9.5], 20, 2, "back"), 0, "before the first start: the very start; duplicates are one");
+});
+

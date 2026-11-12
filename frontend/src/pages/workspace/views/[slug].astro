@@ -238,7 +238,13 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           </p>
         </div>
         <div class="tl-actions">
-          <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>
+          <span class="tl-nav" role="group" aria-label="Move through the story">
+            <button type="button" class="button secondary" data-jump="start" aria-label="Back to the start" title="Back to the start (Home)" disabled={laid.items.length === 0}>|&lt;</button>
+            <button type="button" class="button secondary" data-jump="back" aria-label="Previous beat" title="Previous beat: the start of this one first (←)" disabled={laid.items.length === 0}>&lt;&lt;</button>
+            <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>
+            <button type="button" class="button secondary" data-jump="next" aria-label="Next beat" title="Next beat (→)" disabled={laid.items.length === 0}>&gt;&gt;</button>
+            <button type="button" class="button secondary" data-jump="end" aria-label="On to the end" title="On to the end (End)" disabled={laid.items.length === 0}>&gt;|</button>
+          </span>
           <span class="tl-zoom" role="group" aria-label="Zoom" title="How wide the timeline is: Fit is the page, 2× is two pages. Also + and −.">
             {ZOOM_LEVELS.map((z) => (
               <button type="button" data-zoom={z} aria-pressed={z === 1 ? "true" : "false"}>{z === 1 ? "Fit" : `${z}×`}</button>
@@ -469,7 +475,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   // The player: walks the cues (each a stretch of time, with a take to play or silence to wait), moves the playhead and lights the item and
   // piece under it. Nothing is stitched: a story plays from its takes as they are, and improves as takes land.
   interface Cue { item: string; piece: string | null; lane: string | null; start: number; seconds: number; audio: string | null }
-  import { gainAt, type Overlay } from "@/lib/timeline";
+  import { gainAt, jumpTo, type Jump, type Overlay } from "@/lib/timeline";
   import { fetchApi } from "@/lib/api/client";
   import { jobFor, runState, type JobRow } from "@/lib/timelineRun";
   const root = document.querySelector<HTMLElement>(".tl");
@@ -795,12 +801,29 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         if (was) play();
       }),
     );
+    // |< << >> >|: the start, the previous beat, the next beat, the end. Playing carries on from where it lands (but not past the end).
+    const itemStarts = Array.from(root.querySelectorAll<HTMLElement>("[data-item][data-start]"), (item) => Number(item.dataset.start));
+    const jump = (action: Jump) => {
+      const was = playing;
+      stop();
+      show(jumpTo(itemStarts, total, at, action));
+      if (was && action !== "end") play();
+    };
+    root.querySelectorAll<HTMLButtonElement>("[data-jump]").forEach((b) => b.addEventListener("click", () => jump(b.dataset.jump as Jump)));
     applyMutes();
     document.addEventListener("keydown", (e) => {
       const target = e.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
       if (e.key === "+" || e.key === "=") return stepZoom(1);
       if (e.key === "-") return stepZoom(-1);
+      // Home, End and the arrows move through the story from the page itself or from a button just pressed (Play keeps the focus); a scrolling box or a slider keeps its own arrows.
+      if ((!target || target === document.body || target.closest("button, a")) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const key: Record<string, Jump> = { Home: "start", End: "end", ArrowLeft: "back", ArrowRight: "next" };
+        if (key[e.key]) {
+          e.preventDefault();
+          return jump(key[e.key]);
+        }
+      }
       if (e.code !== "Space" || target?.closest("button, a")) return;
       e.preventDefault();
       toggle();
@@ -828,6 +851,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-run[hidden] { display: none; }
   .tl-run-close { flex: none; border: 0; background: transparent; color: var(--muted); font-size: 1.25rem; line-height: 1; padding: 0 2px; cursor: pointer; }
   .tl-actions, .tl-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* The transport: Play between the four jumps, one joined group; the jump buttons are small and mono so the pair of signs stay narrow. */
+  .tl-nav { display: inline-flex; gap: 4px; align-items: center; }
+  .tl-nav [data-jump] { min-width: 2.6em; padding-inline: 0.55em; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem; letter-spacing: -0.04em; }
   .tl-zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
   .tl-zoom button { margin: 0; padding: 7px 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
   .tl-zoom button:first-child { border-left: 0; }
