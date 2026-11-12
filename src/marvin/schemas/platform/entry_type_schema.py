@@ -11,7 +11,7 @@ different field types, following Marvin's existing pattern from scheduled tasks
 
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field, StringConstraints, field_validator
+from pydantic import ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
@@ -86,6 +86,17 @@ class NumberFieldSchema(BaseFieldSchema):
     min: float | None = None
     max: float | None = None
     step: float | None = Field(default=None, description="Increment step for number input")
+    slider: bool = Field(
+        default=False,
+        description="Also show a drag slider beside the number box (a level from 0 to 1, a length of time). The box stays: type a value or drag; "
+        "an empty box means not set. Needs `min` and `max`.",
+    )
+
+    @model_validator(mode="after")
+    def _a_slider_needs_its_ends(self):
+        if self.slider and (self.min is None or self.max is None or self.max <= self.min):
+            raise ValueError("a slider needs a min and a max above it")
+        return self
 
 
 class BooleanFieldSchema(BaseFieldSchema):
