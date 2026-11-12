@@ -4,6 +4,7 @@ import FileDrop from "@/components/FileDrop.astro";
 import WizardCreate from "@/components/WizardCreate.astro";
 import PlayButton from "@/components/PlayButton.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
+import NumberField from "@/components/schema-fields/NumberField.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { acceptKind, acceptsAudio } from "@/lib/acceptKind";
 import { getAuthToken } from "@/lib/api/client";
@@ -386,8 +387,10 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       <div class="row-head"><a href={`/workspace/entries/${r.id}`}>{r.title}</a></div>
                       <input type="hidden" name={`row.${r.id}.__was`} value={JSON.stringify(Object.fromEntries(columns.map((c) => [c.key, r.dataJson?.[c.key] ?? null])))} />
                       <div class="cols">
-                        {columns.map((c) => (
-                          <label class="col" title={c.label}>
+                        {columns.map((c) => {
+                          const Cell = c.type === "number" ? "div" : "label"; // a number is a box and a slider: not one label's one control
+                          return (
+                          <Cell class="col" title={c.label}>
                             <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
                             {refs[c.key] ? (
                               <select class="input" name={`row.${r.id}.${c.key}`}>
@@ -401,11 +404,14 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                               </select>
                             ) : c.type === "textarea" || c.type === "markdown" ? (
                               <textarea class="input" rows="2" name={`row.${r.id}.${c.key}`}>{r.dataJson?.[c.key] ?? ""}</textarea>
+                            ) : c.type === "number" ? (
+                              <NumberField bare field={c} value={r.dataJson?.[c.key] ?? undefined} name={`row.${r.id}.${c.key}`} id={`row-${r.id}-${c.key}`} />
                             ) : (
-                              <input class="input" type={c.type === "number" ? "number" : "text"} name={`row.${r.id}.${c.key}`} value={r.dataJson?.[c.key] ?? ""} />
+                              <input class="input" type="text" name={`row.${r.id}.${c.key}`} value={r.dataJson?.[c.key] ?? ""} />
                             )}
-                          </label>
-                        ))}
+                          </Cell>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -417,8 +423,10 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                           <span>Name <span class="req" title="Required">*</span></span>
                           <input class:list={["input", bad("new.title")]} name="new.title" />
                         </label>
-                        {columns.map((c) => (
-                          <label class="col" title={c.label}>
+                        {columns.map((c) => {
+                          const Cell = c.type === "number" ? "div" : "label";
+                          return (
+                          <Cell class="col" title={c.label}>
                             <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
                             {refs[c.key] ? (
                               <select class:list={["input", bad(`new.${c.key}`)]} name={`new.${c.key}`}>
@@ -432,11 +440,14 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                               </select>
                             ) : c.type === "textarea" || c.type === "markdown" ? (
                               <textarea class:list={["input", bad(`new.${c.key}`)]} rows="2" name={`new.${c.key}`} />
+                            ) : c.type === "number" ? (
+                              <NumberField bare field={c} name={`new.${c.key}`} id={`new-${c.key}`} />
                             ) : (
-                              <input class:list={["input", bad(`new.${c.key}`)]} type={c.type === "number" ? "number" : "text"} name={`new.${c.key}`} />
+                              <input class:list={["input", bad(`new.${c.key}`)]} type="text" name={`new.${c.key}`} />
                             )}
-                          </label>
-                        ))}
+                          </Cell>
+                          );
+                        })}
                       </div>
                       <div class="actions"><button class="button secondary" type="submit" name="again" value="1">Add {typeName.toLowerCase()}</button></div>
                     </div>

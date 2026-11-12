@@ -86,10 +86,11 @@ class NumberFieldSchema(BaseFieldSchema):
     min: float | None = None
     max: float | None = None
     step: float | None = Field(default=None, description="Increment step for number input")
-    slider: bool = Field(
-        default=False,
-        description="Also show a drag slider beside the number box (a level from 0 to 1, a length of time). The box stays: type a value or drag; "
-        "an empty box means not set. Needs `min` and `max`.",
+    slider: bool | None = Field(
+        default=None,
+        description="A drag slider beside the number box (a level from 0 to 1, a length of time). By default (left out) any field with both "
+        "`min` and `max` gets one; false opts out; true asks for one where it would not come by itself (a read-only field) and needs `min` "
+        "and `max`. The box and its up and down arrows stay: type a value, step it or drag; an empty box means not set.",
     )
 
     meter: bool = Field(
@@ -100,7 +101,7 @@ class NumberFieldSchema(BaseFieldSchema):
 
     @model_validator(mode="after")
     def _a_slider_or_meter_needs_its_ends(self):
-        if (self.slider or self.meter) and (self.min is None or self.max is None or self.max <= self.min):
+        if (self.slider is True or self.meter) and (self.min is None or self.max is None or self.max <= self.min):
             raise ValueError("a slider or a meter needs a min and a max above it")
         return self
 

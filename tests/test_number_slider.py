@@ -15,9 +15,12 @@ def test_a_number_field_with_both_ends_may_have_a_slider():
     assert parsed.fields[0].slider is True
 
 
-def test_a_slider_is_off_unless_asked_for():
-    assert EntryTypeSchemaDefinition.model_validate(_schema(min=0, max=1)).fields[0].slider is False
-    assert EntryTypeSchemaDefinition.model_validate(_schema()).fields[0].slider is False
+def test_a_slider_is_left_to_the_ends_unless_a_field_says_so():
+    """Not asked for is None: the page then gives a slider to any field with both ends. false opts out; true insists."""
+    assert EntryTypeSchemaDefinition.model_validate(_schema(min=0, max=1)).fields[0].slider is None
+    assert EntryTypeSchemaDefinition.model_validate(_schema()).fields[0].slider is None
+    assert EntryTypeSchemaDefinition.model_validate(_schema(min=0, max=1, slider=False)).fields[0].slider is False
+    assert EntryTypeSchemaDefinition.model_validate(_schema(slider=False)).fields[0].slider is False  # opting out needs no ends
 
 
 @pytest.mark.parametrize("ends", [{}, {"min": 0}, {"max": 1}, {"min": 1, "max": 1}, {"min": 2, "max": 1}])

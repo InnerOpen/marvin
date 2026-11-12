@@ -573,9 +573,26 @@ try {
       );
     }
     if (field.type === 'number') {
+      const slider = field.slider === true ? 'on' : field.slider === false ? 'off' : '';
       body.append(
-        formGroup('', 'Min Value', inputEl('field-min', field.min ?? '', 'Optional', { type: 'number' })),
-        formGroup('', 'Max Value', inputEl('field-max', field.max ?? '', 'Optional', { type: 'number' })),
+        formGroup('', 'Min Value', inputEl('field-min', field.min ?? '', 'Optional', { type: 'number', step: 'any' })),
+        formGroup('', 'Max Value', inputEl('field-max', field.max ?? '', 'Optional', { type: 'number', step: 'any' })),
+        formGroup(
+          '',
+          ['Step ', labelHint('— how much the arrows and the slider move it by, e.g. 0.1')],
+          inputEl('field-step', field.step ?? '', 'Optional', { type: 'number', step: 'any', min: 0 }),
+        ),
+        formGroup(
+          '',
+          ['Slider ', labelHint('— a drag slider beside the number box and its arrows')],
+          el(
+            'select',
+            { className: 'field-slider' },
+            new Option('Automatic: when both Min and Max are set', '', !slider, !slider),
+            new Option('Always (even when it cannot be edited)', 'on', slider === 'on', slider === 'on'),
+            new Option('Never', 'off', slider === 'off', slider === 'off'),
+          ),
+        ),
       );
     }
     body.append(
@@ -645,7 +662,7 @@ try {
     });
 
     // Update field on other input changes (placeholder, help text, type, required, etc.)
-    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-role, .field-accept, .field-group-name, .field-providers, .field-auto-embed, .field-ref').forEach(input => {
+    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-step, .field-slider, .field-role, .field-accept, .field-group-name, .field-providers, .field-auto-embed, .field-ref').forEach(input => {
       input.addEventListener('input', () => updateField(index, div));
     });
 
@@ -742,10 +759,20 @@ try {
     }
 
     if (field.type === 'number') {
-      const minInput = fieldEl.querySelector('.field-min');
-      const maxInput = fieldEl.querySelector('.field-max');
-      if (minInput && minInput.value) field.min = parseFloat(minInput.value);
-      if (maxInput && maxInput.value) field.max = parseFloat(maxInput.value);
+      // Each setting is written when the box has a number and dropped when it is emptied (a limit can be taken away again).
+      for (const [key, selector] of [['min', '.field-min'], ['max', '.field-max'], ['step', '.field-step']]) {
+        const input = fieldEl.querySelector(selector);
+        if (!input) continue;
+        const value = parseFloat(input.value);
+        if (Number.isFinite(value)) field[key] = value;
+        else delete field[key];
+      }
+      const sliderChoice = fieldEl.querySelector('.field-slider');
+      if (sliderChoice) {
+        if (sliderChoice.value === 'on') field.slider = true;
+        else if (sliderChoice.value === 'off') field.slider = false;
+        else delete field.slider;
+      }
     }
 
     // Update the card header title live

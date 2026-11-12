@@ -16,33 +16,42 @@ export interface Props {
     min?: number;
     max?: number;
     step?: number;
-    /** Also a drag slider beside the box (needs min and max): the box stays, and empty still means not set. */
-    slider?: boolean;
+    /** A drag slider beside the box: by default any field with both min and max has one; false opts out, true asks for one on a read-only field.
+     *  The box and its up and down arrows stay, and empty still means not set. */
+    slider?: boolean | null;
     /** Also a meter bar for a measured value (needs min and max): how far it is between the ends; a level in dB, say. */
     meter?: boolean;
   };
   value?: number;
   error?: string;
+  /** The form control's name and id, when it is not an entry's own field (a row of a guided step's list: `row.<id>.<key>`). */
+  name?: string;
+  id?: string;
+  /** Just the control (box, arrows, slider): the caller draws the label, the help and the error. */
+  bare?: boolean;
 }
 
 import { numberStep } from "@/lib/numberStep";
-import { meterState, sliderState, sliderStep } from "@/lib/numberSlider";
+import { meterState, sliderState, sliderStep, sliderWanted } from "@/lib/numberSlider";
 
-const { field, value, error } = Astro.props;
-const inputId = `field-${field.key}`;
+const { field, value, error, name, id, bare = false } = Astro.props;
+const inputId = id ?? `field-${field.key}`;
+const inputName = name ?? `dataJson.${field.key}`;
 const shown = value !== undefined ? value : field.defaultValue;
-// A slider needs both ends; without them the field is the plain box it always was.
-const slider = field.slider === true && typeof field.min === "number" && typeof field.max === "number" && field.max > field.min;
+// A field with both ends gets a slider by itself (slider: false opts out); without them it is the plain box it always was.
+const slider = sliderWanted(field);
 const rest = typeof field.defaultValue === "number" ? field.defaultValue : (field.min ?? 0);
 const meter = field.meter === true && typeof field.min === "number" && typeof field.max === "number" && field.max > field.min ? meterState(shown, field.min, field.max) : null;
 const thumb = slider ? sliderState(shown === undefined || shown === null ? "" : String(shown), field.min!, field.max!, rest) : null;
 ---
 
 <div class="field-group">
-  <label for={inputId}>
-    {field.label}
-    {field.required && <span class="required">*</span>}
-  </label>
+  {!bare && (
+    <label for={inputId}>
+      {field.label}
+      {field.required && <span class="required">*</span>}
+    </label>
+  )}
 
   {meter && (
     <div class:list={["number-meter", `zone-${meter.zone}`, { "is-empty": !meter.has }]} role="meter" aria-label={`${field.label}: ${meter.has ? shown : "not measured"}`} aria-valuemin={field.min} aria-valuemax={field.max} aria-valuenow={meter.has ? Number(shown) : undefined}>
@@ -66,7 +75,7 @@ const thumb = slider ? sliderState(shown === undefined || shown === null ? "" : 
       <input
         type="number"
         id={inputId}
-        name={`dataJson.${field.key}`}
+        name={inputName}
         value={shown}
         placeholder={field.placeholder ?? "not set"}
         required={field.required}
@@ -83,7 +92,7 @@ const thumb = slider ? sliderState(shown === undefined || shown === null ? "" : 
     <input
       type="number"
       id={inputId}
-      name={`dataJson.${field.key}`}
+      name={inputName}
       value={shown}
       placeholder={field.placeholder}
       required={field.required}
@@ -95,8 +104,8 @@ const thumb = slider ? sliderState(shown === undefined || shown === null ? "" : 
     />
   )}
 
-  {field.helpText && <p class="field-help">{field.helpText}</p>}
-  {error && <p class="field-error">{error}</p>}
+  {!bare && field.helpText && <p class="field-help">{field.helpText}</p>}
+  {!bare && error && <p class="field-error">{error}</p>}
 </div>
 
 <style>
