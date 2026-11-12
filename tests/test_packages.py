@@ -755,3 +755,25 @@ def test_the_update_routes_exist_and_need_a_login(client):
     assert (("POST",), "/api/groups/packages/update/preview") in paths
     assert client.post("/api/groups/packages/update", json=_manifest()).status_code in (401, 403)
     assert client.post("/api/groups/packages/update/preview", json=_manifest()).status_code in (401, 403)
+
+
+def test_an_update_adds_a_setting_an_existing_field_lacks_and_never_changes_one_it_has(db_session, workspace):
+    _installed(db_session, workspace)
+    beat = db_session.query(EntryTypes).filter_by(group_id=workspace.id, slug="beat").one()
+    beat.schema_json = {"fields": [{"key": "level", "label": "My own label", "type": "number", "min": 0, "max": 5}]}
+    db_session.commit()
+    newer = _manifest(version="3")
+    newer["blueprints"][0]["payload"]["schema_json"] = {
+        "fields": [{"key": "level", "label": "Their label", "type": "number", "min": 0, "max": 1, "slider": True, "step": 0.1}]
+    }
+
+    result = service.update(db_session, workspace.id, service.parse_manifest(newer), actor_id=workspace.user_id)
+    db_session.commit()
+
+    db_session.expire_all()
+    field = db_session.query(EntryTypes).filter_by(group_id=workspace.id, slug="beat").one().schema_json["fields"][0]
+    assert field["label"] == "My own label" and field["max"] == 5  # what the workspace set stays
+    assert field["slider"] is True and field["step"] == 0.1  # what it lacked is added
+    assert "level: slider, step" in next(i for i in result.items if i.kind == "entry_type").detail
+    again = service.update(db_session, workspace.id, service.parse_manifest(newer), actor_id=workspace.user_id)
+    assert next(i for i in again.items if i.kind == "entry_type").status == "current"
