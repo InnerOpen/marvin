@@ -202,7 +202,7 @@ if (pastEnd) return Astro.redirect(pastEnd);
           {collectionEntries.map((entry, idx) => {
             const junction = (entry.collections || []).find((c: any) => c.id === id);
             return (
-              <div class="attachment-card" data-entry-id={entry.id} data-entry-title={entry.title} data-entry-status={entry.status}>
+              <div class="attachment-card" data-entry-id={entry.id} data-entry-title={entry.title} data-entry-status={entry.status} data-sort-order={junction?.sortOrder ?? ''}>
                 <div class="attachment-header">
                   <div class="drag-handle" draggable="true">⋮⋮</div>
                   <div class="sortable-order">{offset + idx + 1}</div>
@@ -397,6 +397,10 @@ if (pastEnd) return Astro.redirect(pastEnd);
     entriesDirty = true;
     if (saveEntriesBtn) saveEntriesBtn.style.display = 'inline-block';
   }
+  // Unsaved order or junction edits are lost on leaving (e.g. to another page of the list): ask first.
+  window.addEventListener('beforeunload', (event) => {
+    if (entriesDirty) event.preventDefault();
+  });
 
   function updateEntryOrderNumbers() {
     entriesContainer?.querySelectorAll('.attachment-card').forEach((card, index) => {
@@ -657,6 +661,16 @@ if (pastEnd) return Astro.redirect(pastEnd);
 
       try {
         const orderEntries: Array<{ entryId: string; sortOrder: number }> = [];
+        // The page's cards trade the positions they already hold, so a reorder stays within this page: positions aren't
+        // dense (adding and removing entries renumbers them), and page-relative numbers could jump past another page's.
+        // A card without one (just added) goes after them.
+        const held = Array.from(cards)
+          .map((c) => (c as HTMLElement).dataset.sortOrder ?? '')
+          .filter((v) => v !== '')
+          .map(Number)
+          .filter(Number.isFinite)
+          .sort((x, y) => x - y);
+        const positionAt = (i: number) => (i < held.length ? held[i]! : (held.length ? held[held.length - 1]! : pageOffset - 1) + (i - held.length + 1));
 
         for (const [index, card] of Array.from(cards).entries()) {
           const el = card as HTMLElement;
@@ -681,12 +695,12 @@ if (pastEnd) return Astro.redirect(pastEnd);
             metadataJson,
           });
 
-          // Places in the whole collection: page 2's first card comes after page 1's last.
-          orderEntries.push({ entryId, sortOrder: pageOffset + index });
+          orderEntries.push({ entryId, sortOrder: positionAt(index) });
         }
 
         await sdk.collections.reorderEntries(collectionId, orderEntries);
 
+        orderEntries.forEach(({ sortOrder }, i) => { ((cards[i] as HTMLElement).dataset.sortOrder = String(sortOrder)); });
         saveEntriesBtn.textContent = 'Saved';
         saveEntriesBtn.style.display = 'none';
         entriesDirty = false;

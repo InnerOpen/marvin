@@ -96,7 +96,8 @@ const needsAttention = {
   // Counted as the list counts (no Trash): a type with none has no key.
   emptyEntryTypes: entryTypes.filter((et) => !countsByType[et.id]),
   // A smart collection fills itself. entryCount counts whatever the collection holds (entries, assets or resources).
-  emptyCollections: collections.filter((c) => !c.isSmart && (c.entryCount ?? 0) === 0),
+  // System collections (the Trash, the workflow ones) fill themselves: an empty one needs nothing.
+  emptyCollections: collections.filter((c: any) => !c.isSmart && !c.isSystem && (c.entryCount ?? 0) === 0),
   unusedClients: siteClients.filter((c) => !c.lastUsedAt && c.enabled),
 };
 
