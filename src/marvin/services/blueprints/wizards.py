@@ -24,6 +24,10 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   a field under the name, ``badges`` fields shown as pills. Actions, each optional: ``add`` ({fields, data?}: a form), ``upload`` ({field,
   accept?}: a file becomes a new entry, named for the file; ``accept`` is the file input's accept, ``image/*`` unless it says, e.g.,
   ``audio/*``), ``generate`` ({workflow, inputs, button, prompt?: {name, label}}: a run, as a run step, with a text the person types).
+  ``card_actions`` (1 to 4 buttons on each card: ``{label, set: {field: value}, when?, file?}``) change the card's entry; with ``file`` ({field,
+  accept?, assets?}) the button first asks for a file, an upload or, with ``assets`` true, one of the workspace's assets that fits ``accept``, puts
+  it in the asset field ``file.field`` and then sets the ``set`` fields. ``add.file`` takes ``assets`` the same way: choose a file already there
+  instead of uploading one.
 - ``run``: a button that starts the workflow ``workflow`` (by slug, one the same package brings) with ``inputs`` ({name: "${key}" | literal}),
   e.g. cutting the beats of a script once it is uploaded. ``requires`` ({entry, field}) keeps the button off until that field holds something.
   A workflow that is off is never turned on from here: the page says so.
@@ -281,6 +285,8 @@ def _check_upload_spec(s: _Step, upload: Any, what: str) -> str | None:
         return f"{s.label}: {what} needs the asset field the file goes into"
     if upload.get("accept") is not None and not (isinstance(upload["accept"], str) and _ACCEPT.match(upload["accept"])):
         return f"{s.label}: {what}.accept is a file input's accept, like audio/* or image/png,.webp"
+    if upload.get("assets") is not None and not isinstance(upload["assets"], bool):
+        return f"{s.label}: {what}.assets is true or false: whether the person may also choose a file already in the workspace's assets"
     if upload.get("seconds") is not None and not _is_field(upload["seconds"]):
         return f"{s.label}: {what}.seconds is the number field that takes the sound's length, measured in the browser"
     if (script := upload.get("script")) is not None and not (
@@ -435,8 +441,8 @@ def _check_gallery_extras(s: _Step) -> str | None:
     if step.get("sort") not in (None, "natural"):
         return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
     if (acts := step.get("card_actions")) is not None:
-        if not isinstance(acts, list) or not 1 <= len(acts) <= 3:
-            return f"{s.label}: card_actions is a list of 1 to 3 buttons shown on each card"
+        if not isinstance(acts, list) or not 1 <= len(acts) <= 4:
+            return f"{s.label}: card_actions is a list of 1 to 4 buttons shown on each card"
         for a in acts:
             if not isinstance(a, dict) or not isinstance(a.get("label"), str) or not a["label"].strip():
                 return f"{s.label}: each card action needs a label"
@@ -445,6 +451,8 @@ def _check_gallery_extras(s: _Step) -> str | None:
                 isinstance(setting, dict) and setting and all(_is_field(k) and isinstance(v, str | int | float | bool) for k, v in setting.items())
             ):
                 return f"{s.label}: a card action's set maps field keys to text, numbers or true/false"
+            if a.get("file") is not None and (problem := _check_upload_spec(s, a["file"], "a card action's file")):
+                return problem
             when = a.get("when")
             if when is not None and not (
                 isinstance(when, dict) and _is_field(when.get("field")) and when.get("op") in ("eq", "neq") and isinstance(when.get("value"), str)

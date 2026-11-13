@@ -127,15 +127,17 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
     return numberedTitle(parent?.title ?? "", from.noun, count);
   };
   if (action === "add") {
-    const add = step.add as { buttons?: { label: string; data?: Record<string, unknown>; file?: string }[]; file?: { field: string; accept?: string; seconds?: string } } | undefined;
+    const add = step.add as { buttons?: { label: string; data?: Record<string, unknown>; file?: string }[]; file?: { field: string; accept?: string; seconds?: string; assets?: boolean } } | undefined;
     const button = add?.buttons ? add.buttons[Number(text(form, "do")) || 0] : undefined; // which way of saving was pressed
     const file = form.get("file");
     const given = add?.file && file instanceof File && file.size > 0 ? file : null;
-    if (button?.file === "required" && !given) throw new StepError("Record or upload the take first, or use the other button.", ["file"]);
-    if (button?.file === "none" && given) throw new StepError("A recording is attached. Use the button that saves it, or remove it to have one made.", ["file"]);
+    const picked = add?.file?.assets && !given ? text(form, "asset_id") : ""; // a file already in the workspace's assets, when none was uploaded
+    if (button?.file === "required" && !given && !picked) throw new StepError(add?.file?.assets ? "Upload one or choose one from your assets first, or use the other button." : "Record or upload the take first, or use the other button.", ["file"]);
+    if (button?.file === "none" && (given || picked)) throw new StepError("A recording is attached. Use the button that saves it, or remove it to have one made.", ["file"]);
     const title = text(form, "add_title") || (await named());
     if (!title) throw new StepError("Give it a name.", ["add_title"]);
     const fromFile: Record<string, unknown> = {};
+    if (add?.file && picked) fromFile[add.file.field] = picked;
     if (add?.file && given) {
       const words = UPLOAD_WORDS[acceptKind(add.file.accept ?? "audio/*")];
       if (!isKind(given, acceptKind(add.file.accept ?? "audio/*"))) throw new StepError(words.notOne, ["file"]);
@@ -154,11 +156,29 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
   if (action === "card") {
     // A button on a card sets fields on that entry (Use this one: status in_use). The entry must be one this gallery lists, and the button
     // one the step declares: nothing else is taken from the form.
-    const acts = (step.card_actions ?? []) as { set: Record<string, unknown> }[];
+    const acts = (step.card_actions ?? []) as { set: Record<string, unknown>; file?: { field: string; accept?: string; assets?: boolean } }[];
     const chosen = acts[Number(text(form, "card_do"))];
     const entry = (await findEntries(listSpec(step, ctx), authToken)).entries.find((e) => e.id === text(form, "card_id"));
     if (!chosen || !entry) throw new Error("That one is not in this list any more.");
-    await setData(entry, chosen.set, authToken);
+    const attached: Record<string, unknown> = {};
+    if (chosen.file) {
+      // A button that asks for a file: an upload (kept as the asset field's value, named for the card) or, where the step allows, an asset already in the workspace.
+      const kind = acceptKind(chosen.file.accept ?? "audio/*");
+      const words = UPLOAD_WORDS[kind];
+      const given = form.get("file");
+      const assetId = chosen.file.assets ? text(form, "asset_id") : "";
+      if (given instanceof File && given.size > 0) {
+        if (!isKind(given, kind)) throw new Error(words.notOne);
+        if (given.size > MAX_UPLOAD_BYTES) throw new Error(`That ${words.noun} is too big (25 MB at most).`);
+        const ending = /\.[a-z0-9]{1,5}$/i.exec(given.name)?.[0] ?? "";
+        attached[chosen.file.field] = await uploadAsset(given, `${step.entry_type}-${entry.title}`, authToken, `${entry.title}${ending}`);
+      } else if (assetId) {
+        attached[chosen.file.field] = assetId;
+      } else {
+        throw new Error(`Choose a ${words.noun} to upload${chosen.file.assets ? " or pick one from your assets" : ""}.`);
+      }
+    }
+    await setData(entry, { ...attached, ...chosen.set }, authToken);
     return { ctx, stay: true, notice: "changed" };
   }
   if (action === "trash") {
