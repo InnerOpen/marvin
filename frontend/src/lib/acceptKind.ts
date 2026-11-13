@@ -36,3 +36,10 @@ export function isKind(file: { type?: string; name?: string }, kind: FileKind): 
   if (kind === "file") return true;
   return (file.type ?? "").startsWith(`${kind}/`) || EXTENSIONS[kind].test(file.name ?? "");
 }
+
+/** Whether an asset already in the library is of a kind: by its type, or by the ending of its name or of its file's address (an upload
+ *  kept under a typed name has no ending of its own, and a recorded .webm reads as video/webm). */
+export function assetIsKind(asset: { mimeType?: string | null; name?: string | null; publicUrl?: string | null }, kind: FileKind): boolean {
+  const path = String(asset.publicUrl ?? "").split(/[?#]/)[0];
+  return isKind({ type: asset.mimeType ?? "", name: asset.name ?? "" }, kind) || isKind({ name: path }, kind);
+}

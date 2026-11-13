@@ -50,3 +50,9 @@ test("the upload dialog of a sound field talks about sounds, not pictures or the
   assert.match(uploadWords("image", true, "hero").intro, /cropper/);
   assert.match(uploadWords("any", false, "file").drop, /picture, sound, video or document/);
 });
+
+test("a field that is not an entry's own (no role) does not promise an attachment on save", () => {
+  const sound = uploadWords("audio", false, null);
+  assert.match(sound.intro, /uploaded to your assets now and chosen here/);
+  assert.doesNotMatch(sound.intro, /attached|when you save/);
+});

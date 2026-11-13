@@ -4,6 +4,10 @@
  * cards (an image asset with its thumbnail); "Choose…" opens a searchable list of the workspace's assets or resources,
  * which the page loads and passes down (lib/linkedItems.ts has the pure parts). The hidden input posts the ids joined by
  * commas; coerceDataJsonValue turns a list field's string back into an array.
+ *
+ * Another kind of form can use it as its file box (a guided setup's gallery): `name` gives the hidden input a form name of its own, and
+ * the field then says nothing about roles, since only an entry's save attaches under one. When an upload from the dialog is done the
+ * field sends `linked-field:uploaded` ({ id, file }, bubbling) before it takes the id, for a page that wants the file itself.
  */
 import PlayButton from "@/components/PlayButton.astro";
 import { matchesAccept, uploadAccept, kindOfAccept, uploadWords } from "@/lib/assetAccept";
@@ -29,9 +33,21 @@ export interface Props {
   value?: unknown;
   error?: string;
   items: LinkedItem[];
+  /** The hidden input's form name; `dataJson.<key>` (an entry's own field) unless given. */
+  name?: string;
+  /** False leaves out "Choose…": the field takes an upload (or a recording) only. */
+  pick?: boolean;
+  /** A field of the same form whose text names an upload: the dialog's Name box starts with it, and a recording is named from it
+   *  (a recording goes by the entry's `title` box when this is not given). */
+  nameFrom?: string;
+  /** Fields of the same form (`dataJson.<field>` inputs) whose text the recorder shows large to read from, as they stand when it opens. */
+  script?: { label: string; field: string }[];
+  /** The line in the drop box, in place of the usual one for the kind of file. */
+  hint?: string;
 }
 
-const { field, value, error, items } = Astro.props;
+const { field, value, error, items, name, pick = true, nameFrom, script, hint } = Astro.props;
+const own = name === undefined; // an entry's own field: its value is attached under a role when the entry is saved
 const isAsset = field.type.startsWith("asset");
 const multiple = field.type.endsWith("-list");
 const max = multiple ? (field.max ?? field.maxItems ?? null) : 1;
@@ -46,18 +62,18 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
 const accept = isAsset ? (field.accept ?? "").trim() : "";
 const offType = (item: LinkedItem) => !!accept && !matchesAccept(accept, item);
 const kind = isAsset ? kindOfAccept(accept) : "any";
-const words = uploadWords(kind, multiple, role);
+const words = uploadWords(kind, multiple, own ? role : null);
 const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id)).length : 0;
 ---
 
-<div class="field-group li-field" data-linked-field data-label={field.label} data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-role={role} data-accept={accept || undefined} data-readonly={field.readOnly ? "1" : ""}>
+<div class="field-group li-field" data-linked-field data-label={field.label} data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-role={role} data-accept={accept || undefined} data-readonly={field.readOnly ? "1" : ""} data-name-from={nameFrom} data-script={script?.length ? JSON.stringify(script) : undefined}>
   <label for={inputId}>
     {field.label}
     {field.required && <span class="required">*</span>}
     {multiple && (min || max) && <span class="count-hint">({min ?? 0}{max ? `–${max}` : "+"} {noun}s)</span>}
   </label>
 
-  <input type="hidden" id={inputId} name={`dataJson.${field.key}`} value={serialize(ids)} data-linked-value />
+  <input type="hidden" id={inputId} name={name ?? `dataJson.${field.key}`} value={serialize(ids)} data-linked-value />
 
   <ul class="li-chosen" data-linked-chosen>
     {picked.map((item) => (
@@ -71,7 +87,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
 
   {!field.readOnly && (
     <div class="li-actions">
-    <details class="li-picker" data-linked-picker>
+    <details class="li-picker" data-linked-picker hidden={!pick}>
       <summary class:list={["button", "secondary", "li-choose", { "li-hidden": !addable }]} data-linked-choose>Choose {multiple ? `${noun}s` : `an ${noun}`}…</summary>
       <div class="li-panel">
         <input type="search" class="li-search" placeholder={`Search ${noun}s…`} aria-label={`Search ${noun}s`} data-linked-search />
@@ -111,7 +127,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
               <line x1="12" y1="3" x2="12" y2="15"></line>
             </svg>
             <p><strong>Click to upload or drag and drop</strong></p>
-            <p class="field-help">{words.drop}</p>
+            <p class="field-help">{hint ?? words.drop}</p>
           </div>
           <div class="li-upload-preview" data-linked-upload-preview hidden>
             <img alt="" />
@@ -143,9 +159,11 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
   )}
 
   {field.helpText && <p class="field-help">{field.helpText}</p>}
-  <p class="field-help li-role-note">
-    Attached as <code>{role}</code>. The sidebar's {noun}s in that role are these same ones: give one the role there and it appears here; change its role there and it leaves.
-  </p>
+  {own && (
+    <p class="field-help li-role-note">
+      Attached as <code>{role}</code>. The sidebar's {noun}s in that role are these same ones: give one the role there and it appears here; change its role there and it leaves.
+    </p>
+  )}
   {error && <p class="field-error">{error}</p>}
 </div>
 
@@ -171,6 +189,9 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
   .li-field .li-upload { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(480px, calc(100vw - 32px)); background: var(--panel); color: var(--ink); }
   .li-field .li-upload::backdrop { background: rgb(0 0 0 / 0.35); }
   .li-field .li-upload-body { display: grid; gap: 12px; padding: 20px; }
+  /* The parts of the dialog that are off (no file yet: no preview, no "Crop again", no "keep the original"; a sound: no alt text) carry
+     `hidden`, and the display their own rules give them would show them anyway. */
+  .li-field .li-upload [hidden] { display: none; }
   .li-field .li-upload-body h3 { margin: 0; font-size: 1.1rem; }
   .li-field .li-upload-label { display: grid; gap: 4px; font-size: 0.875rem; font-weight: 600; }
   .li-field .li-upload-label small { font-weight: 400; color: var(--muted); }
@@ -209,7 +230,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
   import { uploadTooBig } from "@/lib/uploadLimit";
 
   type AudioRecorderApi = {
-    open: (o: { suggestedName?: string }) => Promise<File | null>;
+    open: (o: { suggestedName?: string; script?: { label: string; text: string }[] }) => Promise<File | null>;
     metadataOf: (f: File) => Record<string, unknown> | null;
   };
   /** The page's recorder (components/AudioRecorder.astro), looked up when needed: its script may run after this one. */
@@ -305,6 +326,12 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
     search.addEventListener("input", refresh);
     picker.querySelector("[data-linked-showall]")?.addEventListener("change", refresh);
     picker.addEventListener("toggle", () => picker.open && search.focus());
+    // Enter in the search box, or in a box of the upload dialog, is not a request to save the form the field sits in.
+    root.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.target as HTMLElement).matches('input[type="search"], input[type="text"]')) e.preventDefault();
+    });
+    /** What the form's naming box holds now: the entry's title, or the box a page named (`nameFrom`). */
+    const named = () => root.closest("form")?.querySelector<HTMLInputElement>(`[name="${root.dataset.nameFrom || "title"}"]`)?.value.trim() || "";
 
     // Upload from here: a dialog like the Upload page, without leaving the form. A raster picture goes through the page's cropper first
     // (crop, rotate, brightness, contrast). The new asset becomes an option and is chosen at once; saving the entry attaches it in this
@@ -415,6 +442,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
       };
       openUpload.addEventListener("click", () => {
         reset();
+        if (root.dataset.nameFrom) name.value = named(); // named for what it is for (a card, the one being added), not for the file
         picker.open = false;
         dialog.showModal();
       });
@@ -455,9 +483,14 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
       dialog.querySelector<HTMLButtonElement>("[data-linked-record]")?.addEventListener("click", async () => {
         const recorder = audioRecorder();
         if (!recorder) return;
-        const entryTitle = root.closest("form")?.querySelector<HTMLInputElement>('[name="title"]')?.value.trim();
-        const label = `${entryTitle || root.dataset.label || "Recording"} · take ${ids().length + 1}`;
-        const recorded = await recorder.open({ suggestedName: label });
+        const label = `${named() || root.dataset.label || "Recording"} · take ${ids().length + 1}`;
+        // What the form says now (the words or the direction may have changed for this take) is what the recorder shows to read from.
+        const form = root.closest("form");
+        const script = (JSON.parse(root.dataset.script || "[]") as { label: string; field: string }[]).map(({ label, field }) => ({
+          label,
+          text: form?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="dataJson.${field}"]`)?.value ?? "",
+        }));
+        const recorded = await recorder.open({ suggestedName: label, ...(script.length ? { script } : {}) });
         if (!recorded) return;
         if (!name.value.trim()) name.value = label;
         file.value = ""; // "Change file" and the rest now mean the take, not an earlier pick
@@ -490,7 +523,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
           return send(r.send, uploadSlug(title), title, meta);
         }
       };
-      const chooseMade = (made: Made) => {
+      const chooseMade = (made: Made, sent: File) => {
         const item = assetItem(made);
         const option = document.createElement("li");
         option.className = "li-card li-option";
@@ -503,6 +536,8 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
         option.hidden = true;
         picker.querySelector("[data-linked-options]")!.append(option);
         options.push(option);
+        // Told before the id is taken, so a page that wants the file (a sound's length) knows whose file the coming change is about.
+        root.dispatchEvent(new CustomEvent("linked-field:uploaded", { bubbles: true, detail: { id: item.id, file: sent } }));
         const current = ids();
         if (canAdd(current.length, multiple, max)) {
           chosenEl.append(card(option));
@@ -518,7 +553,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
           go.textContent = ready.length > 1 ? `Uploading ${i + 1} of ${ready.length}…` : "Uploading…";
           const title = ready.length === 1 ? name.value.trim() || nameFromFile(r.send.name) : nameFromFile(r.send.name);
           try {
-            chooseMade(await uploadOne(r, title));
+            chooseMade(await uploadOne(r, title), r.send);
           } catch (e) {
             failed.push(`${r.send.name}: ${e instanceof Error ? e.message : "the upload failed"}`);
           }

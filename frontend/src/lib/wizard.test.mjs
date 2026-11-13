@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalsOf, buttonHref, cardActionShown, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf } from "./wizard.ts";
+import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -279,4 +279,27 @@ test("a step's subtitle is one field or up to three joined, with empty ones left
   assert.equal(subtitleOf(["a", "b", "c", "text"], { a: "1", b: "2", c: "3", text: "4" }), "1 · 2 · 3"); // three at most
   for (const none of [undefined, null, "", [], 5]) assert.equal(subtitleOf(none, line), "");
   assert.equal(subtitleOf("status", null), "");
+});
+
+test("a file box says how it can be filled: the assets only where the step offers them, a recording only for a sound", () => {
+  assert.equal(fileWays(true, true), "Choose, upload or record");
+  assert.equal(fileWays(false, true), "Upload or record");
+  assert.equal(fileWays(true, false), "Choose or upload");
+  assert.equal(fileWays(false, false), "Upload");
+});
+
+test("a save button that needs the file is off until there is one, and one that must have none goes off once there is", () => {
+  assert.equal(fileButtonOff("required", false), true);
+  assert.equal(fileButtonOff("required", true), false);
+  assert.equal(fileButtonOff("none", false), false);
+  assert.equal(fileButtonOff("none", true), true);
+  assert.equal(fileButtonOff(undefined, false), false);
+  assert.equal(fileButtonOff(undefined, true), false);
+});
+
+test("the add form says why a save button is off", () => {
+  const buttons = [{ label: "Use my own sound", needs: "required" }, { label: "Have it made", needs: "none" }, { label: "Save for later" }];
+  assert.equal(fileButtonNote(buttons, false, "sound", "Choose, upload or record"), "Choose, upload or record a sound to use “Use my own sound”.");
+  assert.equal(fileButtonNote(buttons, true, "sound", "Choose, upload or record"), "A sound is chosen. Remove it to use “Have it made”.");
+  assert.equal(fileButtonNote([{ label: "Add" }], false, "sound", "Upload"), "");
 });

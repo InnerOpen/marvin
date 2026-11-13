@@ -1,6 +1,8 @@
 ---
 import AudioRecorder from "@/components/AudioRecorder.astro";
 import FileDrop from "@/components/FileDrop.astro";
+import ImageCropper from "@/components/ImageCropper.astro";
+import LinkedItemsField from "@/components/schema-fields/LinkedItemsField.astro";
 import WizardCreate from "@/components/WizardCreate.astro";
 import PlayButton from "@/components/PlayButton.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
@@ -8,15 +10,16 @@ import SchemaFormField from "@/components/SchemaFormField.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { acceptKind, acceptsAudio } from "@/lib/acceptKind";
 import { getAuthToken } from "@/lib/api/client";
-import { getAssets } from "@/lib/api/platform";
-import { matchesAccept } from "@/lib/assetAccept";
+import { type MarvinAsset, getAssets } from "@/lib/api/platform";
+import { kindOfAccept, matchesAccept } from "@/lib/assetAccept";
+import { assetItem } from "@/lib/linkedItems";
 import { type RefOption, withCurrent } from "@/lib/refFields";
 import { refOptionsFor } from "@/lib/refFieldsApi";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  StepError, cardAudio, cardPicture, fieldRole, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, shownLines, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -26,7 +29,7 @@ const slug = Astro.params.slug ?? "";
 
 let wizard: WizardRead | null = null;
 let problem: string | null = authToken ? null : "Sign in to use this guided setup.";
-let pickerAssets: { id: string; name: string; mimeType?: string | null }[] = []; // the workspace's assets, when a gallery lets the person choose one instead of uploading
+let pickerAssets: MarvinAsset[] = []; // the workspace's assets, when a gallery lets the person choose one instead of uploading
 let galleryFields: { key?: string; accept?: string | null }[] = []; // the gallery entry type's fields: what its file field takes is what an upload takes
 let stepProblem: string | null = null; // what went wrong with the step just posted: shown inside its card
 let badFields: string[] = []; // the inputs it is about
@@ -236,9 +239,22 @@ const uploadNoun = { audio: "sound", image: "picture", file: "file" }[acceptKind
 // A gallery's add form may hold a file box of its own (`add.file`): it takes recordings too.
 const lengthField: string | undefined = step?.upload?.seconds ?? step?.add?.file?.seconds; // where a card's sound length lives
 const addAccept = step?.kind === "gallery" && step.add?.file ? galleryAccept({ upload: step.add.file } as any, galleryFields) : null;
-// The assets a file box may offer to choose from: those whose type fits its accept.
-const assetsFor = (accept: string | null | undefined) => pickerAssets.filter((a) => matchesAccept(accept ?? "audio/*", a));
-const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept) || acceptsAudio(addAccept);
+// A file box (a card action's `file`, the add form's `add.file`) is the control an entry's asset field has: choose one of the workspace's
+// assets that fit its accept, where the step offers them, or upload one (drop it, or record a sound) in a dialog.
+const fileNoun = (accept: string | null | undefined) => ({ audio: "sound", image: "picture", file: "file" })[acceptKind(accept)];
+const assetsFor = (accept: string) => pickerAssets.filter((a) => matchesAccept(accept, a)).map(assetItem);
+// One box for each card action that takes a file, shared by every card (a story has dozens of cards and the list is long): the card's
+// button opens it under that card.
+const cardFiles = (step?.kind === "gallery" ? ((step.card_actions ?? []) as { label: string; file?: { accept?: string; assets?: boolean } }[]) : []).flatMap((a, n) =>
+  a.file ? [{ n, label: a.label, accept: a.file.accept ?? "audio/*", choose: !!a.file.assets }] : [],
+);
+// The page has the recorder once when a box takes a sound, and the cropper when one takes a picture, as an entry's page does.
+const boxKinds = [...cardFiles.map((c) => c.accept), ...(addAccept ? [addAccept] : [])].map(kindOfAccept);
+const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept) || boxKinds.some((k) => k === "audio" || k === "any");
+const takesPicture = boxKinds.some((k) => k === "image" || k === "any");
+// The add form's save buttons, and how its file box can be filled: a button that needs the file says what it is waiting for.
+const addButtons = ((step?.add?.buttons ?? [{ label: "Add" }]) as { label: string; file?: string; skip_required?: boolean }[]).map((b) => ({ ...b, needs: b.file }));
+const addWays = fileWays(!!step?.add?.file?.assets, acceptKind(addAccept) === "audio");
 // What the recorder shows to read from (`add.file.script`: field keys of the add form, labelled as the form labels them): a take's words and direction.
 const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?? []) as string[]).map((key) => ({
   field: key,
@@ -488,26 +504,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       {(step.card_actions ?? []).some((a: any) => cardActionShown(a, r.dataJson)) && (
                         <div class="gacts">
                           {(step.card_actions as { label: string; when?: any; file?: { accept?: string; assets?: boolean } }[]).map((a, n) => cardActionShown(a, r.dataJson) && (a.file ? (
-                            <details class="gfile">
-                              <summary class="button secondary small">{a.label}</summary>
-                              <form method="post" class="form gform" enctype="multipart/form-data">
-                                <input type="hidden" name="action" value="card" />
-                                <input type="hidden" name="card_id" value={r.id} />
-                                <input type="hidden" name="card_do" value={String(n)} />
-                                <label>Upload one</label>
-                                <input type="file" name="file" accept={a.file.accept ?? "audio/*"} />
-                                {a.file.assets && (
-                                  <>
-                                    <label>Or choose one already in your assets</label>
-                                    <select class="input" name="asset_id">
-                                      <option value="">{assetsFor(a.file.accept).length ? "Choose…" : "No sounds in your assets yet"}</option>
-                                      {assetsFor(a.file.accept).map((x) => <option value={x.id}>{x.name}</option>)}
-                                    </select>
-                                  </>
-                                )}
-                                <button class="button small" type="submit">{a.label}</button>
-                              </form>
-                            </details>
+                            <button type="button" class="button secondary small" data-card-file={String(n)} data-card-id={r.id} data-card-title={r.title} aria-expanded="false">{a.label}</button>
                           ) : (
                             <form method="post" class="gact">
                               <input type="hidden" name="action" value="card" />
@@ -530,6 +527,23 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                     );
                   })}
                   {cards.length === 0 && <p class="muted none">{step.empty ?? `No ${typeName.toLowerCase()} yet.`}</p>}
+                  {/* A card action's file box, once for the step: the script puts it under the card whose button was pressed and posts it as soon as it holds an asset. */}
+                  {cards.length > 0 && cardFiles.map((c) => (
+                    <form method="post" class="gfile-panel" data-card-file-panel={String(c.n)} hidden>
+                      <input type="hidden" name="action" value="card" />
+                      <input type="hidden" name="card_id" value="" />
+                      <input type="hidden" name="card_do" value={String(c.n)} />
+                      <input type="hidden" name="card_title" value="" />
+                      <p class="gfile-for"><strong>{c.label}</strong> <span class="muted">for <span data-card-file-title></span></span></p>
+                      <LinkedItemsField
+                        field={{ key: `card_file_${c.n}`, label: `Your own ${fileNoun(c.accept)}`, type: "asset", accept: c.accept }}
+                        name="asset_id"
+                        nameFrom="card_title"
+                        pick={c.choose}
+                        items={c.choose ? assetsFor(c.accept) : []}
+                      />
+                    </form>
+                  ))}
                 </div>
               )}
 
@@ -538,7 +552,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   {step.add && (
                     <details class="gaction" open={step.add.open === true || undefined}>
                       <summary class="button secondary">＋ {step.add.title ?? `Add ${typeName.toLowerCase()}`}</summary>
-                      <form method="post" class="form gform" enctype={step.add.file ? "multipart/form-data" : undefined} data-measure={step.add.file?.seconds ? "1" : undefined}>
+                      <form method="post" class="form gform" data-file-box={step.add.file ? fileNoun(addAccept) : undefined} data-ways={step.add.file ? addWays : undefined}>
                         <input type="hidden" name="action" value="add" />
                         {step.add.file?.seconds && <input type="hidden" name="upload_seconds" value="" />}
                         <div class="form-group">
@@ -547,26 +561,22 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                         </div>
                         <SchemaForm schema={{ fields: addFields }} values={addValues} refs={refs} />
                         {step.add.file && (
-                          <div class="form-group">
-                            <label>{step.add.file.label ?? "Your own take"}</label>
-                            <p class="muted">{step.add.file.help ?? "Record or upload one, then use the first button. Leave it empty to have ElevenLabs make it from the words above."}</p>
-                            <FileDrop accept={addAccept ?? undefined} hint={step.add.file.hint ?? "Record or upload one take."} nameFrom="add_title" required={false} script={readFrom} />
-                            {step.add.file.assets && (
-                              <>
-                                <label for="add_asset" class="gchoose">Or choose one already in your assets</label>
-                                <select class="input" id="add_asset" name="asset_id" data-asset-choice>
-                                  <option value="">{assetsFor(addAccept).length ? "Choose…" : "No sounds in your assets yet"}</option>
-                                  {assetsFor(addAccept).map((a) => <option value={a.id}>{a.name}</option>)}
-                                </select>
-                              </>
-                            )}
-                          </div>
+                          <LinkedItemsField
+                            field={{ key: "add_file", label: step.add.file.label ?? "Your own take", type: "asset", accept: addAccept, helpText: step.add.file.help ?? "Record or upload one, then use the first button. Leave it empty to have ElevenLabs make it from the words above." }}
+                            name="asset_id"
+                            nameFrom="add_title"
+                            script={readFrom}
+                            hint={step.add.file.hint ?? "Record or upload one take."}
+                            pick={!!step.add.file.assets}
+                            items={step.add.file.assets ? assetsFor(addAccept ?? "audio/*") : []}
+                          />
                         )}
                         <div class="actions">
-                          {(step.add.buttons ?? [{ label: "Add" }]).map((b: { label: string; file?: string; skip_required?: boolean }, n: number) => (
-                            <button class:list={["button", n > 0 && "secondary"]} type="submit" name="do" value={String(n)} data-needs-file={b.file} disabled={b.file === "required" || undefined} formnovalidate={b.skip_required || undefined}>{b.label}</button>
+                          {addButtons.map((b, n) => (
+                            <button class:list={["button", n > 0 && "secondary"]} type="submit" name="do" value={String(n)} data-needs-file={b.file} disabled={(!!step.add.file && fileButtonOff(b.file, false)) || undefined} formnovalidate={b.skip_required || undefined}>{b.label}</button>
                           ))}
                         </div>
+                        {step.add.file && <p class="muted gneeds" data-file-note>{fileButtonNote(addButtons, false, fileNoun(addAccept), addWays)}</p>}
                       </form>
                     </details>
                   )}
@@ -709,26 +719,121 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
     )
   }
   {def && takesRecording && <AudioRecorder />}
+  {def && takesPicture && <ImageCropper />}
 </AppLayout>
 
 <script>
-  // A button that needs a recording stays off until there is one, and a button that must have none goes off once there is: neither can post an error.
-  document.querySelectorAll<HTMLFormElement>("form").forEach((form) => {
-    const buttons = [...form.querySelectorAll<HTMLButtonElement>("button[data-needs-file]")];
-    if (!buttons.length) return;
-    // A file from the drop zone, or an asset chosen from the list, counts as having one.
-    const choice = form.querySelector<HTMLSelectElement>("select[data-asset-choice]");
-    let dropped = false;
+  import { fileButtonNote, fileButtonOff } from "@/lib/wizard";
+
+  /** A sound's length in seconds: what its recorder counted, else by decoding the file; null when it cannot be told. */
+  async function soundSeconds(file: File): Promise<number | null> {
+    const facts = (window as unknown as { AudioRecorder?: { metadataOf?: (f: File) => { recording?: { duration_seconds?: number } } | null } }).AudioRecorder?.metadataOf?.(file);
+    const counted = facts?.recording?.duration_seconds;
+    if (typeof counted === "number" && counted > 0) return counted;
+    try {
+      const Audio = window.AudioContext || (window as any).webkitAudioContext;
+      const context = new Audio();
+      const seconds = (await context.decodeAudioData(await file.arrayBuffer())).duration;
+      void context.close?.();
+      return seconds;
+    } catch {
+      return null; // the length stays unknown: the entry is still made
+    }
+  }
+
+  // The add form's file box (the asset control: choose, upload or record). A button that needs the file stays off until the box holds one,
+  // and a button that must have none goes off once it does: neither can post an error, and the line under them says what is missing.
+  document.querySelectorAll<HTMLFormElement>("form[data-file-box]").forEach((form) => {
+    const held = form.querySelector<HTMLInputElement>("[data-linked-value]");
+    if (!held) return;
+    const buttons = [...form.querySelectorAll<HTMLButtonElement>('button[name="do"]')];
+    const note = form.querySelector<HTMLElement>("[data-file-note]");
     const refresh = () => {
-      const has = dropped || !!choice?.value;
-      for (const b of buttons) b.disabled = b.dataset.needsFile === "required" ? !has : b.dataset.needsFile === "none" ? has : false;
+      const has = !!held.value;
+      for (const b of buttons) b.disabled = fileButtonOff(b.dataset.needsFile, has);
+      const why = fileButtonNote(buttons.map((b) => ({ label: b.textContent?.trim() ?? "", needs: b.dataset.needsFile })), has, form.dataset.fileBox ?? "file", form.dataset.ways ?? "Upload");
+      if (note) {
+        note.textContent = why;
+        note.hidden = !why;
+      }
     };
-    form.addEventListener("filedrop:change", (e) => {
-      dropped = (e as CustomEvent<{ hasFile: boolean }>).detail.hasFile;
+    // A sound's length is not stored anywhere when it is uploaded or recorded: it is measured here as the box's dialog sends the file up,
+    // and posted with the form, so the new entry knows how long it is. It belongs to that upload only: another choice clears it.
+    const seconds = form.querySelector<HTMLInputElement>('input[name="upload_seconds"]');
+    let measured = ""; // the asset the length is of
+    let measuring: Promise<void> | null = null;
+    form.addEventListener("linked-field:uploaded", (e) => {
+      const { id, file } = (e as CustomEvent<{ id: string; file: File }>).detail;
+      if (!seconds) return;
+      measured = id;
+      seconds.value = "";
+      const mine = soundSeconds(file).then((length) => {
+        if (measured === id && length) seconds.value = String(length);
+      });
+      measuring = mine;
+      void mine.finally(() => {
+        if (measuring === mine) measuring = null;
+      });
+    });
+    held.addEventListener("change", () => {
+      if (seconds && held.value !== measured) {
+        measured = "";
+        seconds.value = "";
+      }
       refresh();
     });
-    choice?.addEventListener("change", refresh);
+    // Saved while a long sound is still being measured: wait for the length, then go on with the button that was pressed.
+    form.addEventListener("submit", async (e) => {
+      if (!measuring) return;
+      e.preventDefault();
+      await measuring;
+      form.requestSubmit(e.submitter);
+    });
+    refresh();
   });
+
+  // A card's file button ("Use my own sound") opens the step's one file box under that card, emptied of what the last card left in it.
+  // Choosing an asset there, or finishing an upload, is the answer: the form posts at once for that card.
+  const filePanels = [...document.querySelectorAll<HTMLFormElement>("form[data-card-file-panel]")];
+  const fileButtons = [...document.querySelectorAll<HTMLButtonElement>("button[data-card-file]")];
+  const closePanel = (panel: HTMLFormElement) => {
+    panel.hidden = true;
+    panel.querySelector<HTMLInputElement>('input[name="card_id"]')!.value = "";
+    panel.querySelector<HTMLDetailsElement>("[data-linked-picker]")?.removeAttribute("open");
+  };
+  for (const panel of filePanels) {
+    panel.addEventListener("change", (e) => {
+      const held = e.target as HTMLInputElement;
+      if (held.matches("[data-linked-value]") && held.value && panel.querySelector<HTMLInputElement>('input[name="card_id"]')!.value) panel.submit();
+    });
+  }
+  for (const button of fileButtons) {
+    button.addEventListener("click", () => {
+      const panel = filePanels.find((p) => p.dataset.cardFilePanel === button.dataset.cardFile);
+      const card = button.closest<HTMLElement>(".gwrap");
+      if (!panel || !card) return;
+      const wasOpen = button.getAttribute("aria-expanded") === "true";
+      filePanels.forEach(closePanel);
+      fileButtons.forEach((b) => b.setAttribute("aria-expanded", "false"));
+      if (wasOpen) return; // pressed again: put away
+      // Emptied the way the entry editor's sidebar drops an attachment from the field, so the field redraws its list and buttons itself.
+      const field = panel.querySelector<HTMLElement>("[data-linked-field]");
+      const held = panel.querySelector<HTMLInputElement>("[data-linked-value]");
+      for (const id of (held?.value ?? "").split(",").filter(Boolean)) field?.dispatchEvent(new CustomEvent("linked-field:drop", { detail: { id } }));
+      const search = panel.querySelector<HTMLInputElement>("[data-linked-search]");
+      if (search?.value) {
+        search.value = "";
+        search.dispatchEvent(new Event("input"));
+      }
+      panel.querySelector<HTMLInputElement>('input[name="card_id"]')!.value = button.dataset.cardId ?? "";
+      panel.querySelector<HTMLInputElement>('input[name="card_title"]')!.value = button.dataset.cardTitle ?? "";
+      panel.querySelector<HTMLElement>("[data-card-file-title]")!.textContent = `“${button.dataset.cardTitle ?? ""}”`;
+      card.after(panel);
+      panel.hidden = false;
+      button.setAttribute("aria-expanded", "true");
+      panel.scrollIntoView({ block: "nearest" });
+    });
+  }
   // A form that moves something to the Trash asks first.
   document.querySelectorAll<HTMLFormElement>("form[data-confirm]").forEach((form) => {
     form.addEventListener("submit", (e) => {
@@ -748,14 +853,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
         return;
       }
       e.preventDefault();
-      try {
-        const Audio = window.AudioContext || (window as any).webkitAudioContext;
-        const context = new Audio();
-        out.value = String((await context.decodeAudioData(await file.arrayBuffer())).duration);
-        void context.close?.();
-      } catch {
-        /* the length stays unknown: the entry is still made */
-      }
+      out.value = String((await soundSeconds(file)) ?? "");
       form.submit();
     });
   });
@@ -873,10 +971,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .gbar .gtrash { margin-left: auto; }
   .gacts { display: flex; flex-wrap: wrap; gap: 6px; }
   .gact { margin: 0; }
-  .gfile { margin: 0; }
-  .gfile summary { cursor: pointer; list-style: none; }
-  .gfile form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); min-width: 220px; }
-  .gfile label, .gchoose { font-size: 12px; color: var(--muted); }
+  /* A card's file box: one for the step, put under the card whose button was pressed; it takes the whole row of the cards' grid. */
+  .gfile-panel { grid-column: 1 / -1; display: grid; gap: 10px; margin: 0; padding: 14px 16px; border-left: 4px solid var(--color-primary); border-radius: var(--radius); background: var(--panel-2); }
+  .gfile-panel[hidden] { display: none; }
+  .gfile-for { margin: 0; font-size: 14px; }
+  .gneeds { margin: 0; font-size: 13px; }
+  .gneeds[hidden] { display: none; }
   .gwrap { display: grid; gap: 4px; align-content: start; }
   .gtrash { display: flex; justify-content: flex-end; margin: 0; }
   .gtrash button { background: none; border: 0; padding: 2px 4px; color: var(--muted); font-size: 12px; cursor: pointer; }

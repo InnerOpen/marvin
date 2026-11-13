@@ -37,8 +37,9 @@ export function kindOfAccept(accept: string | null | undefined): AcceptKind {
 }
 
 /** The words of an asset field's upload dialog for a kind of file: what it is called, the line under the title, and the line in the drop box. */
-export function uploadWords(kind: AcceptKind, multiple: boolean, role: string): { noun: string; open: string; intro: string; drop: string } {
-  const attached = `It is uploaded now, chosen here, and attached as ${role} when you save.`;
+export function uploadWords(kind: AcceptKind, multiple: boolean, role: string | null): { noun: string; open: string; intro: string; drop: string } {
+  // No role: the field is not an entry's own (a guided setup's file box), so nothing is attached on a save.
+  const attached = role ? `It is uploaded now, chosen here, and attached as ${role} when you save.` : "It is uploaded to your assets now and chosen here.";
   if (kind === "audio") {
     return {
       noun: "sound",

@@ -1,8 +1,8 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
-import { acceptKind, isKind } from "./acceptKind";
-import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, fieldRole, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
-import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, createOf, entryBySlug, entryOfType, findEntries, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
+import { acceptKind, assetIsKind, isKind } from "./acceptKind";
+import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
+import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, entryOfType, findEntries, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
   ctx: Ctx;
@@ -112,6 +112,18 @@ const UPLOAD_WORDS = {
   file: { noun: "file", notOne: "That file cannot go here." },
 } as const;
 
+/** The asset a file box holds, by the id its form posts (`asset_id`: one chosen from the workspace's assets, or one uploaded or recorded in
+ *  the box's own dialog). It must be in this workspace and of the kind the box takes; "" when the box is empty. */
+async function heldAsset(form: FormData, accept: string | undefined, authToken: string): Promise<string> {
+  const id = text(form, "asset_id");
+  if (!id) return "";
+  const asset = await assetById(id, authToken);
+  if (!asset) throw new StepError("That file is not in your assets any more. Choose another.", ["asset_id"]);
+  const kind = acceptKind(accept ?? "audio/*");
+  if (!assetIsKind(asset, kind)) throw new StepError(UPLOAD_WORDS[kind].notOne, ["asset_id"]);
+  return id;
+}
+
 /** A gallery's actions: add (a form), upload (a picture or a sound becomes a new entry named for the file), generate (a run with a typed prompt). */
 async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
   const action = text(form, "action");
@@ -129,22 +141,17 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
   if (action === "add") {
     const add = step.add as { buttons?: { label: string; data?: Record<string, unknown>; file?: string }[]; file?: { field: string; accept?: string; seconds?: string; assets?: boolean } } | undefined;
     const button = add?.buttons ? add.buttons[Number(text(form, "do")) || 0] : undefined; // which way of saving was pressed
-    const file = form.get("file");
-    const given = add?.file && file instanceof File && file.size > 0 ? file : null;
-    const picked = add?.file?.assets && !given ? text(form, "asset_id") : ""; // a file already in the workspace's assets, when none was uploaded
-    if (button?.file === "required" && !given && !picked) throw new StepError(add?.file?.assets ? "Upload one or choose one from your assets first, or use the other button." : "Record or upload the take first, or use the other button.", ["file"]);
-    if (button?.file === "none" && (given || picked)) throw new StepError("A recording is attached. Use the button that saves it, or remove it to have one made.", ["file"]);
+    // The file box holds an asset by now (chosen, uploaded or recorded there): the form posts its id, never the file.
+    const held = add?.file ? await heldAsset(form, add.file.accept, authToken) : "";
+    const kind = acceptKind(add?.file?.accept ?? "audio/*");
+    if (button?.file === "required" && !held) throw new StepError(`${fileWays(!!add?.file?.assets, kind === "audio")} a ${UPLOAD_WORDS[kind].noun} first, or use the other button.`, ["asset_id"]);
+    if (button?.file === "none" && held) throw new StepError(`A ${UPLOAD_WORDS[kind].noun} is chosen. Use the button that saves it, or remove it to have one made.`, ["asset_id"]);
     const title = text(form, "add_title") || (await named());
     if (!title) throw new StepError("Give it a name.", ["add_title"]);
     const fromFile: Record<string, unknown> = {};
-    if (add?.file && picked) fromFile[add.file.field] = picked;
-    if (add?.file && given) {
-      const words = UPLOAD_WORDS[acceptKind(add.file.accept ?? "audio/*")];
-      if (!isKind(given, acceptKind(add.file.accept ?? "audio/*"))) throw new StepError(words.notOne, ["file"]);
-      if (given.size > MAX_UPLOAD_BYTES) throw new StepError(`That ${words.noun} is too big (25 MB at most).`, ["file"]);
-      const ending = /\.[a-z0-9]{1,5}$/i.exec(given.name)?.[0] ?? "";
-      // The file is named for the entry it belongs to ("… · take 2.webm"), never left as "recording".
-      fromFile[add.file.field] = await uploadAsset(given, `${step.entry_type}-${title}`, authToken, `${title}${ending}`);
+    if (add?.file && held) {
+      fromFile[add.file.field] = held;
+      // A sound's length is measured in the browser as it is uploaded there (nothing else stores it) and kept on the new entry.
       const seconds = add.file.seconds ? measuredSeconds(text(form, "upload_seconds")) : null;
       if (add.file.seconds && seconds !== null) fromFile[add.file.seconds] = seconds;
     }
@@ -162,21 +169,12 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
     if (!chosen || !entry) throw new Error("That one is not in this list any more.");
     const attached: Record<string, unknown> = {};
     if (chosen.file) {
-      // A button that asks for a file: an upload (kept as the asset field's value, named for the card) or, where the step allows, an asset already in the workspace.
+      // A button that asks for a file: the card's file box posts the id of an asset, one chosen from the workspace's (where the step offers
+      // them) or one uploaded or recorded there. An upload is an asset before the form posts, so its id is taken either way.
       const kind = acceptKind(chosen.file.accept ?? "audio/*");
-      const words = UPLOAD_WORDS[kind];
-      const given = form.get("file");
-      const assetId = chosen.file.assets ? text(form, "asset_id") : "";
-      if (given instanceof File && given.size > 0) {
-        if (!isKind(given, kind)) throw new Error(words.notOne);
-        if (given.size > MAX_UPLOAD_BYTES) throw new Error(`That ${words.noun} is too big (25 MB at most).`);
-        const ending = /\.[a-z0-9]{1,5}$/i.exec(given.name)?.[0] ?? "";
-        attached[chosen.file.field] = await uploadAsset(given, `${step.entry_type}-${entry.title}`, authToken, `${entry.title}${ending}`);
-      } else if (assetId) {
-        attached[chosen.file.field] = assetId;
-      } else {
-        throw new Error(`Choose a ${words.noun} to upload${chosen.file.assets ? " or pick one from your assets" : ""}.`);
-      }
+      const held = await heldAsset(form, chosen.file.accept, authToken);
+      if (!held) throw new Error(`${fileWays(!!chosen.file.assets, kind === "audio")} a ${UPLOAD_WORDS[kind].noun} first.`);
+      attached[chosen.file.field] = held;
     }
     await setData(entry, { ...attached, ...chosen.set }, authToken);
     return { ctx, stay: true, notice: "changed" };
