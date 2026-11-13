@@ -63,7 +63,9 @@ A timeline definition::
   (not timed, drawn or played: tried out and set aside); ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and
   ``loop`` the lane entry's own level and whether it repeats, and ``estimate_from`` a text field whose length stands in for the seconds
   while there is no recording (drawn hatched). On a bed that runs under the whole story, ``bed.item_volume`` *replaces* the level while that
-  spine item plays (a beat that takes the music to silence) and shows as steps in the block. ``cover`` is a video laid over each item's
+  spine item plays (a beat that takes the music to silence) and shows as steps in the block, and the level eases between two steps over
+  ``bed.ramp`` seconds (0 to 30, default 0: a hard edge), or over the later step's first item's ``bed.item_ramp_in`` field, else the earlier
+  step's last item's ``bed.item_ramp_out``, as the render does: the block draws the slope. ``cover`` is a video laid over each item's
   picture: ``field`` is the asset field, ``blend`` and ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with
   ``entry_type``) names, then the view's entry itself, and a blend of ``none`` at one of them switches the overlay off from there up;
   ``cover.card`` ({title, text?, delay?, default_delay?, name?}) adds a card the item writes itself (an info card): it is drawn as a block
@@ -309,6 +311,8 @@ def _check_bed(bed: Any, label: str) -> str | None:
             "entry_fade_out",
             "item_fade_in",
             "item_fade_out",
+            "item_ramp_in",
+            "item_ramp_out",
             "duck",
             "item_field",
             "entry_field",
@@ -324,7 +328,7 @@ def _check_bed(bed: Any, label: str) -> str | None:
         return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"
     if bed.get("entry_type") is not None and (problem := _slug(bed, "entry_type", f"{label} bed")):
         return problem
-    for key in ("default_fade_in", "default_fade_out"):
+    for key in ("default_fade_in", "default_fade_out", "ramp"):
         if not _number_between(bed, key, 0, 30):
             return f"{label}: bed.{key} must be a number of seconds from 0 to 30"
     if not _number_between(bed, "default_volume", 0, 1):

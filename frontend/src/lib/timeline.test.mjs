@@ -288,6 +288,29 @@ test("music: a beat that sets its own level shows as steps; one at zero is a sil
   assert.equal(bed.volume, 0.3); // the block itself is still the story's level
 });
 
+const rampLaid = (levels, extra, fades = []) => {
+  const spec = { ...bedSpec, lanes: bedSpec.lanes.map((l) => (l.id === "music" ? { ...l, bed: { field: "music", item_volume: "music_volume", ...extra } } : l)) };
+  const spine = bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, ...(levels[i] === undefined ? {} : { music_volume: levels[i] }), ...(fades[i] ?? {}) } }));
+  return layout(spec, { entry: row("s", { music: "waltz" }), spine, groups: chapters, lanes: { lines: [], sounds: [], ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } }).beds.music[0].steps;
+};
+
+test("music: a level change eases over the lane's ramp, or over the later beat's own fade in, else the earlier beat's fade out", () => {
+  const levels = [undefined, undefined, 0, undefined, undefined]; // steps: 0-8 s, 8-12 s (silent), 12-20 s
+  assert.deepEqual(rampLaid(levels, {}).map((s) => s.ramp), [undefined, undefined, undefined], "no ramp set: hard edges, as before");
+  assert.deepEqual(rampLaid(levels, { ramp: 0.5 }).map((s) => s.ramp), [undefined, 0.5, 0.5]);
+  const own = { item_ramp_in: "music_fade_in", item_ramp_out: "music_fade_out" };
+  const fades = [{}, {}, { music_fade_in: 2 }, { music_fade_out: 1.5 }, {}]; // b3 fades the music out over 2 s; b4 (the step after) says 1.5 s going out of the silence, b3 is the earlier one's last
+  assert.deepEqual(rampLaid(levels, { ramp: 0.5, ...own }, fades).map((s) => s.ramp), [undefined, 2, 0.5], "b3's own fade in 2 s for its step; the later step has no fade in of its own and the silent b3 has no fade out: the lane's");
+  const out = [{}, { music_fade_out: 3 }, { music_fade_out: 1 }, {}, {}];
+  assert.deepEqual(rampLaid(levels, { ramp: 0.5, ...own }, out).map((s) => s.ramp), [undefined, 3, 1], "else the earlier step's last beat's fade out");
+});
+
+test("music: an ease never lasts longer than the shorter step beside it (the render's rule), and a step that does not change the level has none", () => {
+  const levels = [undefined, undefined, 0, undefined, undefined];
+  assert.deepEqual(rampLaid(levels, { ramp: 10 }).map((s) => s.ramp), [undefined, 4, 4], "the silent beat is 4 s: no ease is longer");
+  assert.equal(rampLaid([undefined, 0.3, 0.3, undefined, undefined], { ramp: 1 }).length, 0, "no step at all when nothing differs from the story's level: nothing to ease");
+});
+
 test("music: neighbouring beats at one level are one step, and a level equal to the story's is no change", () => {
   const [bed] = musicLaid([0.3, 0.3, 0.1, 0.1, undefined]).beds.music;
   assert.deepEqual(bed.steps.map((s) => [s.start, s.seconds, s.volume]), [[0, 8, 0.3], [8, 8, 0.1], [16, 4, 0.3]]);
