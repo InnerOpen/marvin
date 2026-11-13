@@ -118,6 +118,9 @@ export interface MarksSpec {
   labels?: Record<string, string>;
   icons?: Record<string, string>;
   other?: { field: string; label: string };
+  /** Values whose effect carries on across a cut (a ship's rocking runs on the film's clock), so consecutive items with the same one set by the same
+   * scene or story are drawn as one block instead of one chip each. A value that starts afresh at every item (a push in) is not listed. */
+  merge?: string[];
 }
 
 export interface LaneSpec {
@@ -752,6 +755,10 @@ export interface Mark {
   start: number;
   seconds: number;
   item: string;
+  /** The entry the choice came from (its slug: the scene's or the story's, "" for the item's own), so two scenes that both choose it stay two blocks. */
+  source: string;
+  /** How many consecutive items this block covers (1 unless merged). */
+  count: number;
 }
 
 /** The file name of a published address, without its query: only for an asset with no title, since a published name is often just an id. */
@@ -814,13 +821,19 @@ function marksOf(spec: MarksSpec, view: TimelineSpec, items: Item[], rows: Rows,
     const row = spine.get(item.id);
     const own = { start: item.start, seconds: item.seconds, item: item.id };
     const named = row && spec.via ? via.get(str(field(row, spec.via))) : undefined;
-    const choice = (owner: Row | undefined, from: string): Mark | null => {
+    const choice = (owner: Row | undefined, from: string, inherited: boolean): Mark | null => {
       const value = owner ? str(field(owner, spec.field)).trim() : "";
-      return value ? { value, label: wordsOf(value, spec.labels), icon: spec.icons?.[value] ?? "", from, custom: false, ...own } : null;
+      return value ? { value, label: wordsOf(value, spec.labels), icon: spec.icons?.[value] ?? "", from, custom: false, source: inherited && owner ? owner.slug : "", count: 1, ...own } : null;
     };
-    const written: Mark | null = row && spec.other && filled(field(row, spec.other.field)) ? { value: "", label: spec.other.label, icon: "", from: "", custom: true, ...own } : null;
-    const found = choice(row, view.spine.entry_type) ?? written ?? choice(named, spec.entry_type ?? "") ?? choice(rows.entry, view.entry_type);
-    if (found) out.push(found);
+    const written: Mark | null = row && spec.other && filled(field(row, spec.other.field)) ? { value: "", label: spec.other.label, icon: "", from: "", custom: true, source: "", count: 1, ...own } : null;
+    const found = choice(row, view.spine.entry_type, false) ?? written ?? choice(named, spec.entry_type ?? "", true) ?? choice(rows.entry, view.entry_type, true);
+    if (!found) continue;
+    const last = out[out.length - 1];
+    const runs = !found.custom && spec.merge?.includes(found.value);
+    if (runs && last && !last.custom && last.value === found.value && last.from === found.from && last.source === found.source && last.start + last.seconds >= found.start - 1e-6) {
+      last.seconds = found.start + found.seconds - last.start; // the same choice, from the same place, on the next item: one block
+      last.count += 1;
+    } else out.push(found);
   }
   return out;
 }

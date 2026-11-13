@@ -70,7 +70,9 @@ A timeline definition::
   time of day): ``field`` holds the choice (a select's value), read from the item, else the entry ``via`` (with ``entry_type``) names, else
   the view's entry, so a scene or a story can set it for the beats that do not; ``labels`` and ``icons`` ({value: text}) say how a value
   reads, and ``other`` ({field, label}) names what the item shows when it has no choice of its own but that other field holds something of
-  its own (an exact camera move written out): it wins over what the scene or the story chose, not over the item's own choice.
+  its own (an exact camera move written out): it wins over what the scene or the story chose, not over the item's own choice. ``merge`` lists the
+  values whose effect carries on across a cut (a ship's rocking): consecutive items with the same one from the same scene or story are drawn as
+  one block, not a chip each.
 - ``spine.review`` ({ready, keep, redo}) puts Keep and Redo buttons on each item whose ``spine.status`` is one of ``ready`` (a still that was
   made and waits to be looked at): Keep writes the status ``keep``, Redo the status ``redo`` into the item's status field, and the page shows
   the new status at once. What the package does with those statuses (a redo made again) is its own workflows' business.
@@ -409,6 +411,10 @@ def _check_marks(marks: Any, label: str) -> str | None:
             and all(isinstance(k, str) and k and isinstance(v, str) and v.strip() and len(v) <= _MARK_TEXT for k, v in words.items())
         ):
             return f"{label}: marks.{key} is {{value: text}}, at most {MAX_MARK_WORDS} values and {_MARK_TEXT} characters each"
+    if (merge := marks.get("merge")) is not None and not (
+        isinstance(merge, list) and 0 < len(merge) <= MAX_MARK_WORDS and all(isinstance(v, str) and v and len(v) <= _MARK_TEXT for v in merge)
+    ):
+        return f"{label}: marks.merge is a list of the values whose blocks run together, at most {MAX_MARK_WORDS}"
     if (other := marks.get("other")) is not None:
         if not isinstance(other, dict) or not isinstance(other.get("label"), str) or not other["label"].strip() or len(other["label"]) > _MARK_TEXT:
             return f"{label}: marks.other is {{field, label}}, what an item shows when that field holds something of its own"

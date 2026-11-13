@@ -925,3 +925,33 @@ test("lane order: lines play by their order number, those with none after them i
   ]);
   assert.deepEqual(laid.items[0].lanes.lines.map((p) => p.text), ["first", "between", "second", "no number a", "no number b"]);
 });
+
+// ── marks that run together across a cut ───────────────────────────────────────────────────────────────────────────────────────────────────────
+const mergeLane = { ...marksLane, marks: { ...marksLane.marks, merge: ["rocking"] } };
+const mergeLaid = (args) => marksLaid({ ...args, lane: mergeLane });
+
+test("marks merge: consecutive items with the same listed choice from the same scene are one block", () => {
+  const laid = mergeLaid({ sceneData: { camera: "rocking" } }); // b1, b2, b3 are in the deck
+  const [first, ...rest] = laid.marks.camera;
+  assert.deepEqual([first.value, first.from, first.start, first.seconds, first.count], ["rocking", "scene", 0, 12, 3]);
+  assert.equal(rest.length, 0, "b4 and b5 are not in the deck and choose nothing");
+});
+
+test("marks merge: a value not listed stays one chip per item, and so does a choice each item made itself", () => {
+  assert.equal(mergeLaid({ sceneData: { camera: "push-in" } }).marks.camera.length, 3);
+  const own = mergeLaid({ beatsData: [{ camera: "rocking" }, { camera: "rocking" }] });
+  assert.deepEqual(own.marks.camera.map((m) => m.count), [2], "the same listed choice on the next beat itself joins too, since rocking carries on");
+});
+
+test("marks merge: two different scenes with the same choice stay two blocks, and a break in time or in the choice splits a block", () => {
+  const spine = [row("b1", { story: "s", number: 1, scene: "deck", chapter: "c1" }), row("b2", { story: "s", number: 2, scene: "hold", chapter: "c1" }), row("b3", { story: "s", number: 3, scene: "hold", chapter: "c1" })];
+  const laid = layout({ ...spec, lanes: [...spec.lanes, mergeLane] }, { entry: row("s", {}), spine, groups: chapters, lanes: { lines: [], sounds: [] }, via: { camera: [row("deck", { camera: "rocking" }), row("hold", { camera: "rocking" })] } });
+  assert.deepEqual(laid.marks.camera.map((m) => [m.source, m.count]), [["deck", 1], ["hold", 2]]);
+  const mixed = mergeLaid({ sceneData: { camera: "rocking" }, beatsData: [{}, { camera: "push-in" }, {}] });
+  assert.deepEqual(mixed.marks.camera.map((m) => [m.label, m.count]), [["Rocking", 1], ["Push in", 1], ["Rocking", 1]]);
+});
+
+test("marks merge: a custom (written out) move is never merged", () => {
+  const laid = mergeLaid({ beatsData: [{ move: { from: { x: 0.5 }, to: { x: 0.6 } } }, { move: { from: { x: 0.5 }, to: { x: 0.6 } } }] });
+  assert.deepEqual(laid.marks.camera.slice(0, 2).map((m) => [m.custom, m.count]), [[true, 1], [true, 1]]);
+});
