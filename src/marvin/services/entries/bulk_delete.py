@@ -247,6 +247,7 @@ def _trash_chunk(session, group_id, ids: list, actor_id, smart: tuple[list, list
             "trashed_at": when,
             "trashed_by": str(actor_id) if actor_id else None,
             "slug": e.slug,
+            "bulk": True,  # emptying the Trash deletes it set-based too (purge), with no entry_deleted of its own
         }
         e.metadata_json = meta
         e.status = TRASHED
@@ -283,6 +284,29 @@ def _delete_chunk(session, group_id, ids: list) -> list:
     if rows:
         session.query(Entries).filter(Entries.group_id == group_id, Entries.id.in_([r[0] for r in rows])).delete(synchronize_session=False)
     return rows
+
+
+def purge(session, group_id, ids: list, *, chunk_size: int = CHUNK_SIZE, pause: float = PAUSE_SECONDS) -> int:
+    """Delete for good these entries that a bulk delete put in the Trash (the Trash's Empty, Delete forever and auto-empty
+    call this for them): set-based, a chunk per transaction, no ``entry_deleted`` each, as none sent ``entry_trashed``. Only
+    rows still in the Trash go. Returns how many."""
+    from marvin.db.models.platform.entries import Entries
+
+    gone = 0
+    for start in range(0, len(ids), max(1, chunk_size)):
+        part = [
+            r[0]
+            for r in session.query(Entries.id).filter(
+                Entries.group_id == group_id, Entries.id.in_(ids[start : start + chunk_size]), Entries.status == TRASHED
+            )
+        ]
+        went = _delete_chunk(session, group_id, part) if part else []
+        _forget_embeddings(session, group_id, [r[0] for r in went])
+        session.commit()
+        gone += len(went)
+        if pause and start + chunk_size < len(ids):
+            time.sleep(pause)
+    return gone
 
 
 def _forget_embeddings(session, group_id, ids: list) -> None:

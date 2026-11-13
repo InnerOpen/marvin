@@ -580,3 +580,32 @@ def test_the_step_passes_the_definition_schema_at_the_top_but_not_inside_a_repea
     assert structural_issues(ok) == []
     inside = {"trigger": {"type": "manual"}, "actions": [{"kind": "repeat", "for_each": "a,b", "steps": [look]}]}
     assert structural_issues(inside)
+
+
+def test_emptying_the_trash_takes_bulk_trashed_entries_set_based_and_the_rest_one_by_one(ws):
+    from marvin.services.entries import trash as T
+
+    ids = ws.seed("onion", 30)
+    single = ws.one("one-by-one", "note")
+    EntryService(ws.session, ws.gid, actor_id=ws.users["editor"], event_bus=ws.bus).trash(single)
+    B.execute(ws.session, ws.gid, story_spec("onion"), mode="trash", confirm_total=30, chunk_size=7)
+    ws.session.add(
+        AIEmbeddingModel(
+            session=ws.session,
+            group_id=ws.gid,
+            entity_type="entry",
+            entity_id=ids[0],
+            chunk_index=0,
+            chunk_text="x",
+            embedding=[0.0],
+            model_id="m",
+            dimensions=1,
+        )
+    )
+    ws.session.commit()
+    _Spy.last = []
+    assert T.empty_trash(ws.session, ws.gid, event_bus=ws.bus) == 31
+    assert [e[0] for e in _Spy.last] == ["entry_deleted"]  # the one trashed one by one, and none for the 30
+    ws.session.expire_all()
+    assert ws.session.query(Entries).filter(Entries.group_id == ws.gid, Entries.status == "trashed").count() == 0
+    assert ws.session.query(AIEmbeddingModel).filter(AIEmbeddingModel.group_id == ws.gid).count() == 0
