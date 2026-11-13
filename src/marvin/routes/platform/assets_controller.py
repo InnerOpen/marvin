@@ -63,8 +63,8 @@ def library_page(
     order = getattr(Assets, column)
     page = paged(query.order_by(order.desc() if descending else order, Assets.name, Assets.id), response, limit, offset)
     rows = page.options(selectinload(Assets.tags)).all()
-    if not rows:
-        return []
+    if not rows or spec.get("trashed"):  # a trashed original's versions aren't listed under it: no count, no link
+        return [AssetRead.model_validate(r) for r in rows]
     counts = dict(
         session.query(Assets.source_asset_id, sa.func.count(Assets.id))
         .filter(

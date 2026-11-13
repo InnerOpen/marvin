@@ -62,7 +62,7 @@ def lib(db_session):
         a.id = uuid.uuid4()
         a.scope = scope
         a.created_at = BASE + timedelta(minutes=n)
-        a.trashed_at = datetime(2026, 6, 1) if trashed else None
+        a.trashed_at = datetime(2026, 6, 1, tzinfo=UTC) if trashed else None
         a.tags = [red, blue]
         db_session.add(a)
         db_session.commit()
@@ -74,7 +74,7 @@ def lib(db_session):
             external_id=external_id, description=description, created_by=w.users["editor"],
         )  # fmt: skip
         r.id = uuid.uuid4()
-        r.trashed_at = datetime(2026, 6, 1) if trashed else None
+        r.trashed_at = datetime(2026, 6, 1, tzinfo=UTC) if trashed else None
         r.tags = [red] if tag else []
         db_session.add(r)
         db_session.commit()
@@ -170,6 +170,17 @@ def test_the_trash_pages_with_the_filters_and_keeps_ask_files_and_versions(lib):
     assert _ids(client.get(A, params={"trashed": "true", "q": "A006"})) == [gone[1]]
     assert _ids(client.get(A, params={"trashed": "true", "sort": "newest", "limit": 1})) == [gone[-1]]
     assert _total(client.get(A, params={"limit": 1})) == 2  # the library leaves the Trash out
+
+
+def test_a_trashed_original_shows_no_versions_count_in_the_trash(lib):
+    """Its versions stay in the library, not under it in the Trash: a "1 version" badge there would link to nothing."""
+    original = lib.asset(1, trashed=True)
+    lib.asset(2, source=original)
+    client = lib.sign_in()
+    assert [a["versionsCount"] for a in client.get(A, params={"trashed": "true"}).json()] == [0]
+    live = lib.asset(3)
+    lib.asset(4, source=live)
+    assert {a["id"]: a["versionsCount"] for a in client.get(A, params={"versions": "false"}).json()}[live] == 1
 
 
 def test_the_trash_lists_page_and_answer_as_before_without_params(lib):
