@@ -133,6 +133,8 @@ export interface LaneSpec {
   cover?: CoverSpec;
   marks?: MarksSpec;
   order?: string;
+  /** A boolean field on a lane entry that leaves it out when it is on: not timed, not drawn, not played (a line tried out and set aside, not deleted). */
+  off?: string;
   text?: string;
   who?: string;
   audio?: string;
@@ -410,7 +412,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   const inLanes = lanes.filter((l) => l.in);
   const placedLanes = lanes.filter((l) => l.placed);
   const bedLanes = lanes.filter((l) => l.bed);
-  const laneRows = (lane: LaneSpec) => [...(rows.lanes[lane.id] ?? [])].sort(byOrder(lane.order));
+  const laneRows = (lane: LaneSpec) => [...(rows.lanes[lane.id] ?? [])].filter((r) => !isOff(r, lane)).sort(byOrder(lane.order));
   const bySlug = (lane: LaneSpec) => new Map(laneRows(lane).map((r) => [r.slug, r] as const));
 
   const items: Item[] = [];
@@ -783,6 +785,12 @@ function coversOf(spec: CoverSpec, view: TimelineSpec, items: Item[], rows: Rows
   }
   return out;
 }
+
+/** Whether a lane entry is set aside by the lane's `off` field (a checked box; "true" and "yes" read the same, as a form may store them). */
+const isOff = (row: Row, lane: LaneSpec): boolean => {
+  const v = lane.off ? field(row, lane.off) : null;
+  return v === true || v === "true" || v === "yes";
+};
 
 const filled = (value: unknown): boolean => value !== null && value !== undefined && value !== "" && !(typeof value === "object" && Object.keys(value as object).length === 0);
 

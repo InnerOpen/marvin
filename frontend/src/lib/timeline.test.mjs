@@ -875,3 +875,42 @@ test("marks lane: a view without one has no marks, and a lane with no via reads 
   const laid = marksLaid({ story: { camera: "drift" }, sceneData: { camera: "tilt-up" }, beatsData: [{ camera: "pan-left" }], lane: plain });
   assert.deepEqual(laid.marks.camera.map((m) => m.value).slice(0, 3), ["pan-left", "drift", "drift"]); // no scene tier
 });
+
+// ── a lane's `off` field leaves an entry out ────────────────────────────────────────────────────────────────────────────────────────────────────
+const lineLane = { id: "lines", title: "Lines", entry_type: "line", of: "story", in: "beat", order: "order", off: "leave_out", seconds: "duration_seconds", text: "text" };
+const lineSpec = { ...spec, lanes: [lineLane] };
+const lineBeats = [row("b1", { story: "s", number: 1, chapter: "c1" })];
+const linesOf = (lines) => layout(lineSpec, { entry: row("s", {}), spine: lineBeats, groups: chapters, lanes: { lines } });
+
+test("lane off: a line with its box ticked is not timed, drawn or counted, and the beat is as long as the others need", () => {
+  const laid = linesOf([
+    row("l1", { beat: "b1", order: 1, duration_seconds: 2, text: "one" }),
+    row("l2", { beat: "b1", order: 2, duration_seconds: 5, text: "two", leave_out: true }),
+    row("l3", { beat: "b1", order: 3, duration_seconds: 1, text: "three" }),
+  ]);
+  const [item] = laid.items;
+  assert.deepEqual(item.lanes.lines.map((p) => p.text), ["one", "three"]);
+  assert.equal(item.seconds, 0.3 + 2 + 0.25 + 1 + 0.35); // lead, one, gap, three, tail: the left-out line is not there
+});
+
+test("lane off: \"true\" and \"yes\" read as ticked, and false, empty or missing leave the line in", () => {
+  const laid = linesOf([
+    row("a", { beat: "b1", order: 1, duration_seconds: 1, text: "a", leave_out: "true" }),
+    row("b", { beat: "b1", order: 2, duration_seconds: 1, text: "b", leave_out: "yes" }),
+    row("c", { beat: "b1", order: 3, duration_seconds: 1, text: "c", leave_out: false }),
+    row("d", { beat: "b1", order: 4, duration_seconds: 1, text: "d", leave_out: "" }),
+    row("e", { beat: "b1", order: 5, duration_seconds: 1, text: "e" }),
+  ]);
+  assert.deepEqual(laid.items[0].lanes.lines.map((p) => p.text), ["c", "d", "e"]);
+});
+
+test("lane order: lines play by their order number, those with none after them in slug order", () => {
+  const laid = linesOf([
+    row("l-b", { beat: "b1", duration_seconds: 1, text: "no number b" }),
+    row("l-a", { beat: "b1", duration_seconds: 1, text: "no number a" }),
+    row("l-z", { beat: "b1", order: 2, duration_seconds: 1, text: "second" }),
+    row("l-y", { beat: "b1", order: 1.5, duration_seconds: 1, text: "between" }),
+    row("l-x", { beat: "b1", order: 1, duration_seconds: 1, text: "first" }),
+  ]);
+  assert.deepEqual(laid.items[0].lanes.lines.map((p) => p.text), ["first", "between", "second", "no number a", "no number b"]);
+});
