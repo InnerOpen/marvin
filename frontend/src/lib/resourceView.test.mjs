@@ -1,36 +1,31 @@
-// The Resources page's URL ↔ filters (resourceView.ts).
+// The Resources page's URL <-> filters <-> the list API's query (resourceView.ts).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { filterResources, isFiltered, readResourceView, resourceHref } from "./resourceView.ts";
+import { isFiltered, readResourceView, resourceHref, resourceListParams } from "./resourceView.ts";
 
 const view = (qs) => readResourceView(new URLSearchParams(qs));
-const items = [
-  { name: "Wickett & Craig", resourceType: "supplier", url: "https://wickett.example", tags: ["leather"] },
-  { name: "Awl", resourceType: "tool", description: "A stitching awl from Wickett", externalId: "T-1" },
-  { name: "Bridle", resourceType: "material", tags: ["leather"] },
-];
-const names = (rs) => rs.map((r) => r.name);
 
 test("no filters: everything, by name", () => {
-  assert.deepEqual(names(filterResources(items, view(""))), ["Awl", "Bridle", "Wickett & Craig"]);
+  assert.deepEqual(resourceListParams(view("")), { sort: "name" });
   assert.equal(isFiltered(view("")), false);
   assert.equal(resourceHref(view("")), "/workspace/resources");
 });
 
-test("the name search also reads the description", () => {
-  assert.deepEqual(names(filterResources(items, view("q=wickett"))), ["Awl", "Wickett & Craig"]);
+test("the search, type, tag, link and external id become the API's query", () => {
+  assert.deepEqual(resourceListParams(view("q=wickett&type=tool&tag=leather&link=no&external=yes")), {
+    sort: "name",
+    q: "wickett",
+    resource_type: "tool",
+    tag: "leather",
+    has_url: false,
+    has_external_id: true,
+  });
 });
 
-test("type, tag, link and external id each narrow", () => {
-  assert.deepEqual(names(filterResources(items, view("type=tool"))), ["Awl"]);
-  assert.deepEqual(names(filterResources(items, view("tag=leather&link=no"))), ["Bridle"]);
-  assert.deepEqual(names(filterResources(items, view("external=yes"))), ["Awl"]);
-});
-
-test("sort by type, then name", () => {
-  assert.deepEqual(names(filterResources(items, view("sort=type"))), ["Bridle", "Wickett & Craig", "Awl"]);
+test("sort by type, and the Trash, reach the API", () => {
+  assert.deepEqual(resourceListParams(view("sort=type&status=trashed")), { sort: "type", trashed: true });
 });
 
 test("junk in the URL reads as none; a type button toggles", () => {
@@ -38,6 +33,7 @@ test("junk in the URL reads as none; a type button toggles", () => {
   assert.equal(v.link, "");
   assert.equal(v.sort, "name");
   assert.equal(v.status, "");
+  assert.deepEqual(resourceListParams(v), { sort: "name", resource_type: "tool" });
   assert.equal(resourceHref(v, { type: "" }), "/workspace/resources");
   assert.equal(resourceHref(v, { type: "supplier" }), "/workspace/resources?type=supplier");
 });

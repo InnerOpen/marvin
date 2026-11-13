@@ -1,10 +1,13 @@
 """Resource routes."""
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import UUID4
 
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor
+from marvin.routes._base.paging import paged
 from marvin.schemas.platform import ResourceCreate, ResourceRead, ResourceUpdate
 from marvin.schemas.platform.assets import TypeCount
 from marvin.schemas.platform.resources import ResourceUsage
@@ -24,9 +27,45 @@ class ResourcesController(BaseUserController):
     shows its `trashed_at`. Only a trashed resource can be deleted forever."""
 
     @router.get("", response_model=list[ResourceRead], summary="List Resources")
-    def list_resources(self) -> list[ResourceRead]:
-        """Every resource but those in the Trash."""
-        return [r for r in self.repos.resources.get_all(order_by="name") if r.trashed_at is None]
+    def list_resources(
+        self,
+        response: Response,
+        q: str | None = Query(None, description="Name, slug or description contains"),
+        resource_type: list[str] = Query(default_factory=list, description="Of any of these types"),
+        tag: list[str] = Query(default_factory=list, description="Carrying any of these tags (slug or name)"),
+        has_url: bool | None = Query(None, description="true: has a link; false: has none"),
+        has_external_id: bool | None = Query(None, description="true: has an external ID; false: has none"),
+        trashed: bool = Query(False, description="true: the Trash's resources instead, with the same filters"),
+        sort: Literal["name", "type"] | None = Query(None, description="name (A first), or type (then name); left out: by name, Z first, as always"),
+        limit: int | None = Query(None, ge=1, description="At most this many (default: all of them)"),
+        offset: int = Query(0, ge=0, description="Skip this many first (with `limit`, one page)"),
+    ) -> list[ResourceRead]:
+        """Every resource but those in the Trash (`trashed` lists those instead), in `sort`'s order. The filters narrow it (a tag
+        the workspace doesn't have matches nothing); `limit`/`offset` page it, and the `X-Total-Count` header says how
+        many match in all."""
+        import sqlalchemy as sa
+        from sqlalchemy.orm import selectinload
+
+        from marvin.db.models.platform.resources import Resources
+        from marvin.services import item_query
+
+        # A tag the workspace doesn't have (a stale link) matches nothing: the query that comes back with the note is empty.
+        spec = {"resource_types": resource_type, "tags": tag}
+        query, _note = item_query.build(self.session, self.group_id, item_query.RESOURCE, spec, trashed=trashed)
+        if q:
+            like = f"%{q}%"
+            query = query.filter(Resources.name.ilike(like) | Resources.slug.ilike(like) | Resources.description.ilike(like))
+        for column, wanted in ((Resources.url, has_url), (Resources.external_id, has_external_id)):
+            if wanted is not None:
+                present = sa.func.coalesce(column, "") != ""
+                query = query.filter(present if wanted else ~present)
+        order = {
+            "name": (Resources.name, Resources.id),
+            "type": (Resources.resource_type, Resources.name, Resources.id),
+            None: (Resources.name.desc(), Resources.id.desc()),  # what this list has always answered
+        }[sort]
+        page = paged(query.order_by(*order), response, limit, offset)
+        return [ResourceRead.model_validate(r) for r in page.options(selectinload(Resources.tags)).all()]
 
     @router.post("", response_model=ResourceRead, status_code=status.HTTP_201_CREATED, summary="Create Resource")
     def create_resource(self, data: ResourceCreate) -> ResourceRead:

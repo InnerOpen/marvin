@@ -5,10 +5,11 @@ something to the Trash, restoring it or deleting one item forever stays on its o
 POST /{id}/restore, DELETE ?permanent=true); emptying the whole Trash is here, ADMIN/OWNER only.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query, Response
 
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_admin
+from marvin.routes._base.paging import paged
 from marvin.schemas.platform import AssetRead, ResourceRead
 from marvin.services import trash
 from marvin.services.entries import trash as entry_trash
@@ -25,12 +26,36 @@ class TrashController(BaseUserController):
         return {**trash.counts(self.session, self.group_id), **entry_trash.auto_empty_status(self.session, self.group_id)}
 
     @router.get("/assets", response_model=list[AssetRead], summary="List Trashed Assets")
-    def trashed_assets(self) -> list[AssetRead]:
-        return [a for a in self.repos.assets.get_all(order_by="name") if a.trashed_at is not None]
+    def trashed_assets(
+        self,
+        response: Response,
+        limit: int | None = Query(None, ge=1, description="At most this many (default: all of them)"),
+        offset: int = Query(0, ge=0, description="Skip this many first (with `limit`, one page)"),
+    ) -> list[AssetRead]:
+        """The assets in the Trash (Ask files too), by name (Z first, as always). `limit`/`offset` page it; `X-Total-Count` says how many in
+        all. The library's `GET /assets?trashed=true` lists them with its filters and orders."""
+        from marvin.db.models.platform import Assets
+
+        return [AssetRead.model_validate(a) for a in self._trashed(Assets, response, limit, offset)]
 
     @router.get("/resources", response_model=list[ResourceRead], summary="List Trashed Resources")
-    def trashed_resources(self) -> list[ResourceRead]:
-        return [r for r in self.repos.resources.get_all(order_by="name") if r.trashed_at is not None]
+    def trashed_resources(
+        self,
+        response: Response,
+        limit: int | None = Query(None, ge=1, description="At most this many (default: all of them)"),
+        offset: int = Query(0, ge=0, description="Skip this many first (with `limit`, one page)"),
+    ) -> list[ResourceRead]:
+        """The resources in the Trash, by name (Z first, as always). `limit`/`offset` page it; `X-Total-Count` says how many in all."""
+        from marvin.db.models.platform.resources import Resources
+
+        return [ResourceRead.model_validate(r) for r in self._trashed(Resources, response, limit, offset)]
+
+    def _trashed(self, model, response: Response, limit: int | None, offset: int) -> list:
+        """The workspace's trashed rows of ``model`` (assets or resources), by name Z to A, one page of them, tags loaded up front."""
+        from sqlalchemy.orm import selectinload
+
+        query = self.session.query(model).filter(model.group_id == self.group_id, model.trashed_at.isnot(None))
+        return paged(query.order_by(model.name.desc(), model.id.desc()), response, limit, offset).options(selectinload(model.tags)).all()
 
     @router.post("/empty", summary="Empty the Trash")
     def empty(self) -> dict:

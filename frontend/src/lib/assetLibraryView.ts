@@ -12,7 +12,7 @@ export interface LibraryView {
   collection: string;
   /** "" any, "yes" on an entry, "no" on no entry */
   attached: string;
-  /** "no": only pictures search can't find yet (no alt text or description). Filtered on the page, not by the API. */
+  /** "no": only pictures search can't find yet (no alt text or description). */
   searchable: string;
   sort: string;
   /** Show versions as their own rows (else folded under their original). */
@@ -66,9 +66,12 @@ export function readLibraryView(params: URLSearchParams): LibraryView {
   };
 }
 
-/** What to ask GET /api/platform/assets for. Versions fold away unless shown, filtered to, or asked for by source. */
+/** What to ask GET /api/platform/assets for. Versions fold away unless shown, filtered to, or asked for by source; the
+ *  Trash lists every trashed asset (a trashed version of a live original too), so it never folds them. */
 export function listParams(view: LibraryView): Record<string, string | boolean | string[]> {
   const out: Record<string, string | boolean | string[]> = { sort: view.sort };
+  if (view.status === "trashed") out.trashed = true;
+  if (view.searchable === "no") out.searchable = false;
   if (view.q) out.q = view.q;
   if (view.type) out.asset_type = [view.type];
   if (view.origin) out.origin = [view.origin];
@@ -77,7 +80,7 @@ export function listParams(view: LibraryView): Record<string, string | boolean |
   if (view.collection) out.collection = view.collection;
   if (view.attached) out.unattached = view.attached === "no";
   if (view.source) out.source = view.source;
-  else if (!view.versions && view.origin !== "derived") out.versions = false;
+  else if (!view.versions && view.origin !== "derived" && view.status !== "trashed") out.versions = false;
   return out;
 }
 
