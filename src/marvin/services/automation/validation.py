@@ -300,7 +300,32 @@ def validate_definition(definition: dict | None, max_steps: int | None = None) -
         {**issue, "level": "warning"} for issue in query_issues(definition) + item_target_issues(definition) + entry_link_issues(definition)
     )
     issues.extend(unattended_trash_issues(definition))
+    issues.extend(unasked_delete_issues(definition))
     issues.extend(when_issues(definition))
+    return issues
+
+
+def unasked_delete_issues(definition: dict | None) -> list[dict]:
+    """A delete_entries step that deletes for good with no approval for admins before it: deleting for good stays a
+    person's decision (an admin's, as emptying the Trash is), never a run's alone. One that moves to the Trash with no
+    approval before it is said too, under a trigger that fires on its own."""
+    definition = definition or {}
+    ttype = (definition.get("trigger") or {}).get("type", "event")
+    issues, asked, admin_asked = [], False, False
+    for i, step in enumerate(definition.get("actions") or []):
+        if not isinstance(step, dict):
+            continue
+        if step.get("kind") == "approval":
+            asked, admin_asked = True, admin_asked or step.get("approvers") == "admin"
+        if step.get("kind") != "delete_entries":
+            continue
+        mode = step.get("mode") or "preview"
+        if mode == "permanent" and not admin_asked:
+            message = "This step deletes entries for good with no approval for admins before it: add an approval step with approvers admin first."
+            issues.append(_issue("error", message, "action", i))
+        elif mode == "trash" and not asked and ttype != "manual":
+            message = f"This step moves entries to the Trash every time the {_pretty(ttype)} trigger fires, without asking: add an approval first."
+            issues.append(_issue("warning", message, "action", i))
     return issues
 
 
@@ -502,6 +527,8 @@ def query_issues(definition: dict | None) -> list[dict]:
                 # read against that kind here, so a query written for a resource is answered in resource terms.
                 kind = step.get("entity_type") if step.get("entity_type") in ITEM_KINDS else "entry"
                 issues += _one_query_issues(step["entity_query"], kind, f"{list_key}[{i}].entity_query", where)
+            elif isinstance(step, dict) and step.get("kind") == "delete_entries" and isinstance(step.get("query"), dict):
+                issues += _one_query_issues(step["query"], "entry", f"{list_key}[{i}].query", where)
             elif isinstance(step, dict) and step.get("kind") == "collect" and isinstance(step.get("query"), dict):
                 kind = step.get("entity") if step.get("entity") in ("entry", *ITEM_KINDS) else "entry"
                 issues += _one_query_issues(step["query"], kind, f"{list_key}[{i}].query", where)

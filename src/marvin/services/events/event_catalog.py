@@ -875,6 +875,24 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("how", "emptied (Empty trash) or auto_empty", "emptied"),
         ],
     ),
+    CatalogEntry(
+        event_type="entries_bulk_deleted",
+        name="Entries Deleted in Bulk",
+        description=(
+            "Many entries chosen by a search were moved to the Trash (mode: trash) or deleted for good (mode: permanent) in one "
+            "go: a bulk delete from the API or a workflow's Delete entries in bulk step. Says how many went and of which types; "
+            "the entries send no entry_trashed or entry_deleted of their own."
+        ),
+        category="Content",
+        triggerable=True,
+        sent_by=["Bulk delete (API: POST /entries/bulk-delete)", "A workflow's Delete entries in bulk step"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("total", "How many entries went", "1889", type="count"),
+            EventVariable("mode", "trash (restorable) or permanent", "trash"),
+            EventVariable("description", "What the entries were", "what the import made for “The Last Onion”"),
+        ],
+    ),
     # ── Assets ──────────────────────────────────────────────────────────────
     CatalogEntry(
         event_type="asset_uploaded",

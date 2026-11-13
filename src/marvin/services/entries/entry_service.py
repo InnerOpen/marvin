@@ -270,7 +270,8 @@ class EntryService:
     def _trash_bookkeeping(self, old, data):
         """Record where an entry came from as it enters the Trash (metadata_json.trash), and drop that
         record as it leaves. Entering also clears a scheduled publish, so the Publish Scheduled Entries
-        task can't put a trashed (or later restored) entry live. Returns `data` unchanged otherwise."""
+        task can't put a trashed (or later restored) entry live. Leaving gives back the slug a bulk delete moved aside,
+        when it is still free (_slug_back). Returns `data` unchanged otherwise."""
         from datetime import UTC, datetime
 
         pending = data if isinstance(data, dict) else data.model_dump(exclude_unset=True)
@@ -289,8 +290,23 @@ class EntryService:
                 "trashed_by": str(self.actor_id) if self.actor_id else None,
             }
             pending["publish_at"] = None
+        elif (slug := self._slug_back(old, pending)) is not None:
+            pending["slug"] = slug
         pending["metadata_json"] = meta
         return pending
+
+    def _slug_back(self, old, pending: dict) -> str | None:
+        """Leaving the Trash: the slug a bulk delete moved aside (metadata_json.trash.slug, services/entries/bulk_delete.py),
+        when the entry still carries the aside one, the caller names no other and no other entry has taken it since (an
+        import made again). None to leave the slug as it is."""
+        from marvin.db.models.platform.entries import Entries
+
+        record = (getattr(old, "metadata_json", None) or {}).get(TRASH_KEY)
+        original = record.get("slug") if isinstance(record, dict) else None
+        if not original or original == old.slug or pending.get("slug") not in (None, "", old.slug):
+            return None
+        taken = self.session.query(Entries.id).filter(Entries.group_id == self.group_id, Entries.slug == original, Entries.id != old.id).first()
+        return None if taken else str(original)
 
     def _gate_publish(self, entry_id, old, data) -> None:
         """Block an inbox/draft → published transition when the entry doesn't satisfy its type's

@@ -18,8 +18,9 @@ since each matched entry is bound to `$event.entry_id` for its fan-out row. Coll
 `collection_slug` (or `collection_id`), which may itself be a `$event.*` template.
 
 `entry.delete` is deliberately NOT offered here, and neither is emptying the Trash: `trash` is reversible,
-permanent deletion stays a person's action. "Move every X to the Trash" is a `target` + a `trash` action;
-entries already in the Trash are skipped (a no-op, nothing emitted).
+permanent deletion stays a person's action. (The `delete_entries` step's permanent mode, actions/delete_entries.py,
+is that person's action in a workflow: an ADMIN author, and an approval for admins before it, which validation asks for.)
+"Move every X to the Trash" is a `target` + a `trash` action; entries already in the Trash are skipped (a no-op, nothing emitted).
 
 `trash` and `restore` also act on an asset or a resource, with `entity_type: asset | resource` (services/trash.py:
 `asset_trashed` / `asset_restored`, `resource_trashed` / `resource_restored`). The target is `entity_slug` or

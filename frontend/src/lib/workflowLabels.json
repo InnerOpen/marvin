@@ -35,6 +35,7 @@
     "alert": "Send an alert",
     "metric": "Record a metric",
     "snapshot": "Save or restore a version",
+    "delete_entries": "Delete entries in bulk",
     "automation_result": "Record an automation result",
     "wait": "Wait",
     "repeat": "Repeat for each",
