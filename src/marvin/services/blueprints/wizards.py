@@ -27,7 +27,8 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   ``card_actions`` (1 to 4 buttons on each card: ``{label, set: {field: value}, when?, file?}``) change the card's entry; with ``file`` ({field,
   accept?, assets?}) the button first asks for a file, an upload or, with ``assets`` true, one of the workspace's assets that fits ``accept``, puts
   it in the asset field ``file.field`` and then sets the ``set`` fields. ``add.file`` takes ``assets`` the same way: choose a file already there
-  instead of uploading one.
+  instead of uploading one. An ``add.buttons`` item with ``skip_required`` true is not stopped by the form's required fields (the browser's check is
+  skipped; the entry still needs a name): a button that saves a person's own file needs no description of how to make one.
 - ``run``: a button that starts the workflow ``workflow`` (by slug, one the same package brings) with ``inputs`` ({name: "${key}" | literal}),
   e.g. cutting the beats of a script once it is uploaded. ``requires`` ({entry, field}) keeps the button off until that field holds something.
   A workflow that is off is never turned on from here: the page says so.
@@ -432,6 +433,8 @@ def _check_add_extras(s: _Step, add: Any) -> str | None:
                 return f"{s.label}: a button's data maps field keys to text, numbers or true/false"
             if b.get("file") not in (None, "required", "none"):
                 return f"{s.label}: a button's file is required or none"
+            if b.get("skip_required") is not None and not isinstance(b["skip_required"], bool):
+                return f"{s.label}: a button's skip_required is true or false: whether the form's required fields stop it"
     return None
 
 

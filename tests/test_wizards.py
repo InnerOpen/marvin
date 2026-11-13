@@ -460,6 +460,14 @@ def test_a_card_action_may_ask_for_a_file_and_an_add_form_may_offer_the_workspac
     )
 
 
+def test_an_add_button_may_skip_the_forms_required_fields():
+    own = {"label": "Save my own", "file": "required", "skip_required": True}
+    assert payload_problem(_takes_wizard(add={"fields": ["text"], "buttons": [own]}), "takes") is None
+    assert "skip_required is true or false" in (
+        payload_problem(_takes_wizard(add={"fields": ["text"], "buttons": [{**own, "skip_required": "yes"}]}), "takes") or ""
+    )
+
+
 def _add_wizard(**add) -> dict:
     return _takes_wizard(
         add={
