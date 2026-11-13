@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, wavePolygon, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, canReview } from "@/lib/timeline";
+import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, wavePolygon, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -400,6 +400,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                 <div class="tl-ruler" aria-hidden="true">
                   {tickLevels(track.seconds, Math.max(3, Math.round(10 * share(track)))).map(({ t, levels }) => (
                     <span class:list={["tl-tick", ...levels.map((z) => `z${z}`)]} style={`left:${pctIn(track, track.start + t)}`}><i /><b>{timecode(track.start + t)}</b></span>
+                  ))}
+                  {minorTickLevels(track.seconds, Math.max(3, Math.round(10 * share(track)))).map(({ t, levels }) => (
+                    <span class:list={["tl-tick", "minor", ...levels.map((z) => `z${z}`)]} style={`left:${pctIn(track, track.start + t)}`}><i /></span>
                   ))}
                 </div>
 
@@ -1193,6 +1196,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   /* The ruler carries the ticks of every zoom level; the strip's zoom says which show (finer ticks only once there is room for them). */
   .tl-inner[data-zoom="1"] .tl-tick:not(.z1), .tl-inner[data-zoom="2"] .tl-tick:not(.z2), .tl-inner[data-zoom="4"] .tl-tick:not(.z4), .tl-inner[data-zoom="8"] .tl-tick:not(.z8) { display: none; }
   .tl-tick i { display: block; width: 1px; height: 6px; background: var(--muted); }
+  .tl-tick.minor i { height: 3px; opacity: 0.6; } /* a mark between the numbered ticks: shorter, softer, no number */
   .tl-tick b { display: block; font-weight: 400; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; transform: translateX(-50%); margin-top: 1px; }
   .tl-tick:first-child b { transform: none; }
 
