@@ -453,10 +453,18 @@ def _source_picture(session, group_id, action: dict, context: dict, keeps_images
 
 
 def _reference_list(raw) -> list:
-    """`references` as a list of asset refs: a list, or text of refs separated by commas (what a field like
-    `${entry.data.references}` gives). Blank ones are dropped, so a beat with one character in frame simply lists one master."""
-    items = raw if isinstance(raw, list) else str(raw).split(",")
-    return [item for item in items if str(item).strip()]
+    """`references` as a list of asset refs: a list, or text of refs separated by commas (what a field like `${entry.data.references}` gives). An
+    item of the list may itself be a list or comma text (`["${entry.data.references}", "${scene.anchor}"]`: a field's pictures, then one more), so
+    they are flattened in order. Blank ones are dropped, so a beat with one character in frame simply lists one master."""
+    out: list = []
+    for item in raw if isinstance(raw, list) else [raw]:
+        if isinstance(item, list):
+            out.extend(_reference_list(item))
+        elif isinstance(item, str):
+            out.extend(part.strip() for part in item.split(",") if part.strip())
+        elif item is not None and str(item).strip():
+            out.append(item)
+    return out
 
 
 def _reference_pictures(session, group_id, action: dict, context: dict, keeps_images: bool) -> list:
