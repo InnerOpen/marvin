@@ -7,7 +7,7 @@ import { requireAdmin } from "@/lib/auth";
 import { createSdkClient } from "@/lib/sdk";
 
 // Require admin authentication
-const user = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const user = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 // The product name, footer line and accent colour every email's wrapper shows (services/platform_policy.py).

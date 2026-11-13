@@ -14,7 +14,7 @@ import { createSdkClient } from "@/lib/sdk";
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
 // Everyone views; editing an asset is EDITOR+.
-const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const { canEdit } = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 
 let asset: PlatformAsset | null = null;
 let error: string | null = null;

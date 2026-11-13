@@ -16,7 +16,7 @@ import { type BackupHealth, type BackupRun, getBackupHealth } from "@/lib/api/ad
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
 
-await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 const only = Astro.url.searchParams.get("target") || undefined;
 

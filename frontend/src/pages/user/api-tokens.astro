@@ -17,7 +17,7 @@ type ConnectedApp = { id: string; pinned?: boolean; clientName: string; redirect
 const connectedApps = await fetchApi<ConnectedApp[]>("/api/users/self/connected-apps", {}, authToken).catch(() => [] as ConnectedApp[]);
 // A pinned token carries its workspace's id; this names it. Unknown (workspace no longer visible) falls back to "one workspace".
 const workspaceNames = new Map<string, string>(
-  (await listWorkspaces(authToken).catch(() => [] as WorkspaceWithMembership[])).map((w) => [w.workspace.id, w.workspace.name]),
+  (await listWorkspaces(authToken, Astro.locals).catch(() => [] as WorkspaceWithMembership[])).map((w) => [w.workspace.id, w.workspace.name]),
 );
 const pinnedTo = (token: { groupId?: string | null }) => (token.groupId ? (workspaceNames.get(token.groupId) ?? "one workspace") : null);
 try {

@@ -35,7 +35,7 @@ if (!authToken) {
 }
 let workspaceSlug = "<workspace-slug>";
 try {
-  if (authToken) workspaceSlug = (await getCurrentWorkspace(authToken)).slug || workspaceSlug;
+  if (authToken) workspaceSlug = (await getCurrentWorkspace(authToken, Astro.locals)).slug || workspaceSlug;
 } catch {
   /* the placeholder stays */
 }

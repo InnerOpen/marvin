@@ -11,7 +11,7 @@ if (!authToken) {
   return Astro.redirect("/auth/login");
 }
 // Creating resources is EDITOR+ (the API answers others with 403).
-const access = await getContentAccess(authToken);
+const access = await getContentAccess(authToken, Astro.locals);
 
 let error: string | null = null;
 

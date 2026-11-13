@@ -22,7 +22,7 @@ if (!authToken) {
 } else {
   try {
     // The API refuses non-admins with a 403; skip the call and explain instead of showing the error.
-    canManage = await canManageCurrentWorkspace(authToken);
+    canManage = await canManageCurrentWorkspace(authToken, Astro.locals);
     if (canManage) clients = await getSiteClients(authToken);
   } catch (e) {
     console.error("[clients] Error loading:", e);

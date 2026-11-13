@@ -21,7 +21,7 @@ const currentTab = Astro.url.searchParams.get("tab") || "general";
 let workspace: any = null;
 
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
 } catch (e) {
   console.error("[workspace/settings] Error loading workspace:", e);
   // Continue anyway - workspace name is optional for this page
@@ -74,24 +74,7 @@ if (currentTab === "statistics" && workspace?.id) {
   }
 }
 
-// Social appears only once a connected network works with it (as in the sidebar).
-const socialSummary = await getSocialSummary(authToken!).catch(() => null);
-// Results is listed in the Automation tab only once a hand-off has happened (a member below editor gets a 403: no link).
-const resultsSummary = currentTab === "automation" ? await getResultsSummary(authToken!).catch(() => null) : null;
-
-// What needs a look in Automation, as a count on the tab (admins only: others get a 403, so no count).
-const automationAttention = await getAutomationAttention(authToken!).catch(() => null);
-// Approvals waiting for you count too, as they do in the sidebar's Settings badge (an editor sees them; anyone else gets a 403: none).
-const approvalsWaiting = (await listApprovals(authToken!).catch(() => [])).length;
-const automationCount = countBadge((automationAttention?.total ?? 0) + approvalsWaiting);
-// The same count on each kind's card, so the tab's number can be traced to its section: a pill by the title, the
-// description says it in words, and the card opens the list as it was left (no pinned filter: see plainPage).
-const kinds = automationAttention?.kinds ?? {};
-const lookText = (n: number | null | undefined) => ((n ?? 0) > 0 ? ` · ${n} need${n === 1 ? "s" : ""} a look` : "");
-const attentionHref = (id: string, _n?: number | null) => navHref(id);
-
-// Integrations: open alerts on connections (an admin sees them; anyone else gets a 403: none). Workers: failed, stuck or unattended jobs.
-const integrationAlerts = ((await getIntegrationHealth(authToken!).catch(() => [])) as { openAlerts?: number }[]).reduce((n, row) => n + (row.openAlerts ?? 0), 0);
+// The tabs' counts below are read all at once rather than one after another, each with its own fallback.
 const findRecords = (entryType: string, limit: number, sort = false): Promise<RecordRow[]> =>
   fetchApi<{ entries: RecordRow[] }>(
     "/api/platform/entries/query",
@@ -100,7 +83,32 @@ const findRecords = (entryType: string, limit: number, sort = false): Promise<Re
   )
     .then((r) => r.entries ?? [])
     .catch(() => []);
-const [workerJobs, workerKinds, workerBeats] = await Promise.all([findRecords("job", 40, true), findRecords("job-kind", 100), findRecords("worker", 20)]);
+const socialRead = getSocialSummary(authToken!, false, Astro.locals).catch(() => null);
+const resultsRead = currentTab === "automation" ? getResultsSummary(authToken!).catch(() => null) : Promise.resolve(null);
+const attentionRead = getAutomationAttention(authToken!).catch(() => null);
+const approvalsRead = listApprovals(authToken!).catch(() => []);
+const healthRead = getIntegrationHealth(authToken!).catch(() => []);
+const workersRead = Promise.all([findRecords("job", 40, true), findRecords("job-kind", 100), findRecords("worker", 20)]);
+
+// Social appears only once a connected network works with it (as in the sidebar).
+const socialSummary = await socialRead;
+// Results is listed in the Automation tab only once a hand-off has happened (a member below editor gets a 403: no link).
+const resultsSummary = await resultsRead;
+
+// What needs a look in Automation, as a count on the tab (admins only: others get a 403, so no count).
+const automationAttention = await attentionRead;
+// Approvals waiting for you count too, as they do in the sidebar's Settings badge (an editor sees them; anyone else gets a 403: none).
+const approvalsWaiting = (await approvalsRead).length;
+const automationCount = countBadge((automationAttention?.total ?? 0) + approvalsWaiting);
+// The same count on each kind's card, so the tab's number can be traced to its section: a pill by the title, the
+// description says it in words, and the card opens the list as it was left (no pinned filter: see plainPage).
+const kinds = automationAttention?.kinds ?? {};
+const lookText = (n: number | null | undefined) => ((n ?? 0) > 0 ? ` · ${n} need${n === 1 ? "s" : ""} a look` : "");
+const attentionHref = (id: string, _n?: number | null) => navHref(id);
+
+// Integrations: open alerts on connections (an admin sees them; anyone else gets a 403: none). Workers: failed, stuck or unattended jobs.
+const integrationAlerts = ((await healthRead) as { openAlerts?: number }[]).reduce((n, row) => n + (row.openAlerts ?? 0), 0);
+const [workerJobs, workerKinds, workerBeats] = await workersRead;
 const workersCount = needsLook(summarize(workerJobs, workerKinds, workerBeats));
 const tabCounts: Record<string, { text: string; title: string }> = {
   automation: { text: automationCount, title: "Automation items that need a look or a decision" },

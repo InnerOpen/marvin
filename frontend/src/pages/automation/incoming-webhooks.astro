@@ -23,13 +23,13 @@ let error: string | null = null;
 // "Delete all of these" (From a removed integration) is ADMIN only; the API refuses anyone else.
 let canManage = false;
 try {
-  canManage = canManageWorkspace(await listWorkspaces(authToken), (await sdk.user.getProfile()) as any);
+  canManage = canManageWorkspace(await listWorkspaces(authToken, Astro.locals), (await sdk.user.getProfile()) as any);
 } catch {
   // unknown role: no button
 }
 
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
   if (workspace) {
     let integrations: any[] | null = [];
     let providers: any[] = [];

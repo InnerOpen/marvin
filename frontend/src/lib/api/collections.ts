@@ -9,6 +9,7 @@ import type {
   PlatformCollectionUpdate,
   PlatformEntry,
 } from "@inneropen/marvin-sdk/platform";
+import { type RequestScope, readOnce } from "../requestCache";
 import { createSdkClient } from "../sdk";
 import { fetchApi } from "./client";
 import { getApiUrl } from "./config";
@@ -20,11 +21,10 @@ export type CollectionUpdate = PlatformCollectionUpdate;
 export type EntryRead = PlatformEntry;
 
 /**
- * List all collections in the current workspace
+ * List all collections in the current workspace; `scope` (the page's `Astro.locals`) reads them once per request.
  */
-export async function listCollections(authToken: string): Promise<CollectionRead[]> {
-  const sdk = createSdkClient(authToken);
-  return sdk.collections.list();
+export async function listCollections(authToken: string, scope?: RequestScope): Promise<CollectionRead[]> {
+  return readOnce(scope, "/api/platform/collections", authToken, () => createSdkClient(authToken).collections.list());
 }
 
 /**

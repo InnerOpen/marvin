@@ -32,7 +32,7 @@ let tags: { value: string; label: string }[] = [];
 let fieldKeys: { key: string; hint: string }[] = [];
 let vocabularyError = false;
 if (authToken) {
-  const [typesResult, tagsResult] = await Promise.allSettled([listEntryTypes(authToken), listTags(authToken)]);
+  const [typesResult, tagsResult] = await Promise.allSettled([listEntryTypes(authToken, Astro.locals), listTags(authToken)]);
   if (typesResult.status === "fulfilled") {
     entryTypes = typesResult.value.map((t) => ({ value: t.slug, label: t.name }));
     const seen = new Map<string, string>();

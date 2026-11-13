@@ -8,7 +8,7 @@ import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { requireAuth } from "@/lib/auth";
 import { isForbidden } from "@/lib/workspaceRole";
 
-const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 
 const authToken = getAuthToken(Astro.cookies);
 let workspace = null;
@@ -19,7 +19,7 @@ let initialBackups: { filename: string; size: number; created_at: string }[] = [
 let adminOnly = false;
 
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
 
   if (workspace) {
     const members = await listWorkspaceMembers(workspace.id, authToken);

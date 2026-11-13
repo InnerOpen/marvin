@@ -8,15 +8,17 @@ import type {
   WorkspaceUpdate,
   WorkspaceWithMembership,
 } from "@inneropen/marvin-sdk/platform";
+import type { RequestScope } from "../requestCache";
 import { createSdkClient } from "../sdk";
+import { readCurrentWorkspace, readProfile, readWorkspaces } from "./self";
 import { canAuthorContent, canEditContent, canEditEntry, canManageWorkspace } from "../workspaceRole";
 
 /**
  * Get the workspace the user is working in; null when they are in none (no home, no membership).
+ * `scope`: the page's `Astro.locals`, so the request reads it once (lib/api/self.ts) — the same for the helpers below.
  */
-export async function getCurrentWorkspace(authToken: string): Promise<Workspace | null> {
-  const sdk = createSdkClient(authToken);
-  return (await sdk.workspaces.getCurrent()) ?? null;
+export async function getCurrentWorkspace(authToken: string, scope?: RequestScope): Promise<Workspace | null> {
+  return (await readCurrentWorkspace(authToken, scope)) ?? null;
 }
 
 /**
@@ -24,18 +26,16 @@ export async function getCurrentWorkspace(authToken: string): Promise<Workspace 
  * For SUPER_ADMIN: Returns all workspaces
  * For regular users: Returns only workspaces they're members of
  */
-export async function listWorkspaces(authToken: string): Promise<WorkspaceWithMembership[]> {
-  const sdk = createSdkClient(authToken);
-  return sdk.workspaces.list();
+export async function listWorkspaces(authToken: string, scope?: RequestScope): Promise<WorkspaceWithMembership[]> {
+  return readWorkspaces(authToken, scope);
 }
 
 /**
  * Whether the caller may manage the active workspace's configuration (OWNER/ADMIN, super admin,
  * legacy admin) — the same gate the backend applies to API clients, webhooks and the like.
  */
-export async function canManageCurrentWorkspace(authToken: string): Promise<boolean> {
-  const sdk = createSdkClient(authToken);
-  const [memberships, user] = await Promise.all([sdk.workspaces.list(), sdk.user.getProfile()]);
+export async function canManageCurrentWorkspace(authToken: string, scope?: RequestScope): Promise<boolean> {
+  const [memberships, user] = await Promise.all([readWorkspaces(authToken, scope), readProfile(authToken, scope)]);
   return canManageWorkspace(memberships, user);
 }
 
@@ -63,10 +63,9 @@ export const FULL_CONTENT_ACCESS: ContentAccess = {
  * The caller's content access in the active workspace; FULL_CONTENT_ACCESS if it can't be read.
  * Without a token (in the browser) it reads with the session cookie.
  */
-export async function getContentAccess(authToken?: string): Promise<ContentAccess> {
+export async function getContentAccess(authToken?: string, scope?: RequestScope): Promise<ContentAccess> {
   try {
-    const sdk = createSdkClient(authToken);
-    const [memberships, user] = await Promise.all([sdk.workspaces.list(), sdk.user.getProfile()]);
+    const [memberships, user] = await Promise.all([readWorkspaces(authToken, scope), readProfile(authToken, scope)]);
     return {
       canManage: canManageWorkspace(memberships, user),
       canEdit: canEditContent(memberships, user),

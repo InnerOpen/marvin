@@ -7,7 +7,7 @@ import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; creating, reordering, editing and deleting collections is EDITOR+.
-const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const { canEdit } = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 
 let collections: CollectionRead[] = [];
 let error: string | null = null;
@@ -16,7 +16,7 @@ if (!authToken) {
   error = "Not authenticated";
 } else {
   try {
-    collections = await listCollections(authToken);
+    collections = await listCollections(authToken, Astro.locals);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[Collections] Failed to load:", error);

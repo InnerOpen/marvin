@@ -22,7 +22,7 @@ import { createSdkClient } from "@/lib/sdk";
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
 // Everyone reads; changing, deleting or applying a suggestion to an asset is EDITOR+.
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 
 let asset: PlatformAsset | null = null;
 let allTags: TagRead[] = [];
@@ -47,7 +47,7 @@ const inTrash = Boolean((asset as any)?.trashedAt);
 const canEdit = access.canEdit && !inTrash;
 const trashCollectionId =
   inTrash && authToken
-    ? ((await listCollections(authToken).catch(() => [])).find((c: any) => c.isSystem && c.slug === "trash")?.id ?? null)
+    ? ((await listCollections(authToken, Astro.locals).catch(() => [])).find((c: any) => c.isSystem && c.slug === "trash")?.id ?? null)
     : null;
 
 // asset.tags is a slug list; resolve to {id, name} via the workspace vocabulary for the chips.

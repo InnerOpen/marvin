@@ -4,6 +4,7 @@
  */
 
 import type { PlatformEntryType } from "@inneropen/marvin-sdk/platform";
+import { type RequestScope, readOnce } from "../requestCache";
 import { createSdkClient } from "../sdk";
 
 export interface EntryTypeCreate {
@@ -42,11 +43,10 @@ export interface EntryTypeUpdate {
 export type EntryTypeRead = PlatformEntryType & { pageUrlPattern?: string | null };
 
 /**
- * List all entry types in the current workspace
+ * List all entry types in the current workspace; `scope` (the page's `Astro.locals`) reads them once per request.
  */
-export async function listEntryTypes(authToken: string): Promise<EntryTypeRead[]> {
-  const sdk = createSdkClient(authToken);
-  return sdk.entryTypes.list();
+export async function listEntryTypes(authToken: string, scope?: RequestScope): Promise<EntryTypeRead[]> {
+  return readOnce(scope, "/api/platform/entry-types", authToken, () => createSdkClient(authToken).entryTypes.list());
 }
 
 /**

@@ -14,7 +14,7 @@ import { requireAuth } from "@/lib/auth";
 import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
 
 const { id } = Astro.params;
-const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 let canPublish = false;
 let entry: PlaybookEntry | null = null;
@@ -24,7 +24,7 @@ let files: PlaybookFileText[] = [];
 let error: string | null = null;
 let restricted = false;
 try {
-  canPublish = canManageWorkspace(await listWorkspaces(authToken), user);
+  canPublish = canManageWorkspace(await listWorkspaces(authToken, Astro.locals), user);
   const list = await listPlaybooks(authToken);
   if (id && list.items.some((item) => item.id === id)) {
     entry = await getPlaybook(id, authToken);

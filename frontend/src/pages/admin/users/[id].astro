@@ -11,7 +11,7 @@ if (!id) {
   return Astro.redirect("/admin/users");
 }
 
-const currentUser = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const currentUser = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);

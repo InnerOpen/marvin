@@ -6,7 +6,7 @@ import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; adding a tag is AUTHOR+, renaming or deleting one EDITOR+.
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 
 let tags: TagRead[] = [];
 let error: string | null = null;

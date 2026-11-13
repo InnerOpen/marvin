@@ -9,7 +9,7 @@ import { getCurrentWorkspace } from "@/lib/api/workspaces";
 let workspaceId = "";
 const authToken = getAuthToken(Astro.cookies);
 try {
-  if (authToken) workspaceId = (await getCurrentWorkspace(authToken))?.id ?? "";
+  if (authToken) workspaceId = (await getCurrentWorkspace(authToken, Astro.locals))?.id ?? "";
 } catch {
   // Unscoped storage still works for a single workspace; it only risks a stale thread after a switch.
 }

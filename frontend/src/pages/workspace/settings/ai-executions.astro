@@ -24,7 +24,7 @@ if (authed) {
     const [execs, settings, admin] = await Promise.all([
       sdk.ai.executions.list({ limit: 200 }),
       sdk.ai.settings.get().catch(() => null),
-      canManageCurrentWorkspace(authToken!).catch(() => false),
+      canManageCurrentWorkspace(authToken!, Astro.locals).catch(() => false),
     ]);
     executions = execs;
     seesAll = admin;

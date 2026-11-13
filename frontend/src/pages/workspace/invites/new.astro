@@ -29,7 +29,7 @@ let workspace = null;
 let error: string | null = null;
 
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
 } catch (e) {
   console.error("[invites/new] Error:", e);
   error = e instanceof Error ? e.message : String(e);

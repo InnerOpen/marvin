@@ -18,7 +18,7 @@ import { pastEndHref, readPage } from "@/lib/pagination";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; creating entries is AUTHOR+.
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 
 // Structured search: condition chips in `?c=` (lib/entryQuery.ts). With any, the page shows what the engine finds.
 // The sidebar's old links (?status=inbox, ?tag=…) open as the same chips.
@@ -41,8 +41,8 @@ if (!authToken) {
 } else {
   try {
     [entryTypes, collections, allTags] = await Promise.all([
-      listEntryTypes(authToken),
-      listCollections(authToken),
+      listEntryTypes(authToken, Astro.locals),
+      listCollections(authToken, Astro.locals),
       listTags(authToken),
     ]);
   } catch (e) {

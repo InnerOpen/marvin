@@ -3,6 +3,6 @@
 // of /admin/workspaces (same /api/admin/groups source), so it now redirects there.
 import { requireAdmin } from "@/lib/auth";
 
-await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 return Astro.redirect("/admin/workspaces", 301);
 ---
