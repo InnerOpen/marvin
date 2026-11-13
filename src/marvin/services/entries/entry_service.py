@@ -151,6 +151,18 @@ def count_by_status(session, group_id) -> dict[str, int]:
     return counts
 
 
+def count_by_type(session, group_id) -> dict[str, int]:
+    """`{entry_type_id: n}` of the entries outside the Trash, internal types left out (as the entry list counts them) — what
+    the Content model page and the dashboard's empty-type nudge read. One grouped query."""
+    from sqlalchemy import func
+
+    from marvin.db.models.platform import Entries
+    from marvin.services.entry_listing import only_listed
+
+    base = session.query(Entries.entry_type_id, func.count(Entries.id)).filter(Entries.group_id == group_id, Entries.status != TRASHED)
+    return {str(type_id): int(n) for type_id, n in only_listed(session, group_id, base).group_by(Entries.entry_type_id).all()}
+
+
 def restore_status(entry) -> str:
     """The status a trashed entry goes back to: the one it had before (metadata_json.trash), except that
     a published entry comes back as a draft — restoring must never put an entry on the site by itself."""

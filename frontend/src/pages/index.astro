@@ -3,7 +3,6 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listedTypes } from "@/lib/entryTypeListing";
 import { listCollections } from "@/lib/api/collections";
-import { listEntries } from "@/lib/api/entries";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import { listWizards } from "@/lib/api/wizards";
 import { getSiteClients } from "@/lib/api/platform";
@@ -23,7 +22,14 @@ const authToken = getAuthToken(Astro.cookies);
 // Quick Create offers only what the caller's workspace role may create.
 const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
-let entries: EntryRead[] = [];
+// The entry numbers come from counts and small queries, not from loading every entry.
+type EntryCounts = Partial<Record<"published" | "draft" | "total", number>>;
+type QueryResult = { entries: EntryRead[]; total: number };
+let entryCounts: EntryCounts = {};
+let countsByType: Record<string, number> = {};
+let staleDraftCount = 0;
+let recentWork: EntryRead[] = [];
+let lastPublishedEntry: EntryRead | undefined;
 let siteClients: APIClientRead[] = [];
 // API clients are admin-only; for everyone else the dashboard leaves them out instead of failing.
 let canSeeClients = true;
@@ -40,10 +46,21 @@ let error: string | null = null;
 if (!authToken) {
   error = "Authentication required";
 } else {
+  const query = (spec: Record<string, unknown>, limit: number) =>
+    fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec, limit }) }, authToken).catch(
+      (): QueryResult => ({ entries: [], total: 0 }),
+    );
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   try {
     let clients: APIClientRead[] | null;
-    [entries, clients, collections, entryTypes, resources, stats, dashboard, aiUsage, guided] = await Promise.all([
-      listEntries(authToken),
+    let stale: QueryResult, recent: QueryResult, lastPublished: QueryResult;
+    [entryCounts, countsByType, stale, recent, lastPublished, clients, collections, entryTypes, resources, stats, dashboard, aiUsage, guided] = await Promise.all([
+      fetchApi<EntryCounts>("/api/platform/entries/counts", { method: "GET" }, authToken).catch(() => ({})),
+      fetchApi<Record<string, number>>("/api/platform/entries/counts/by-type", { method: "GET" }, authToken).catch(() => ({})),
+      query({ status: "draft", updated_before: weekAgo }, 1),
+      query({ sort: { by: "updated_at", direction: "desc" } }, 5),
+      // Only published ones: on a descending sort Postgres puts the never-published (NULL) first.
+      query({ published_after: "1970-01-01T00:00:00Z", sort: { by: "published_at", direction: "desc" } }, 1),
       nullIfForbidden(getSiteClients(authToken)),
       listCollections(authToken),
       listEntryTypes(authToken),
@@ -53,6 +70,9 @@ if (!authToken) {
       fetchApi<any>("/api/groups/ai-settings/usage", { method: "GET" }, authToken).catch(() => null),
       listWizards(authToken).catch(() => []),
     ]);
+    staleDraftCount = stale.total;
+    recentWork = recent.entries;
+    lastPublishedEntry = lastPublished.entries[0];
     siteClients = clients ?? [];
     canSeeClients = clients !== null;
     entryTypes = listedTypes(entryTypes); // not the internal ones (the Social auto-reply rules): Quick Create and the empty-type nudges skip them
@@ -64,47 +84,22 @@ if (!authToken) {
 
 // Publishing Overview Stats
 const publishingStats = {
-  published: entries.filter((e) => e.status === "published").length,
-  draft: entries.filter((e) => e.status === "draft").length,
+  published: entryCounts.published ?? 0,
+  draft: entryCounts.draft ?? 0,
   activeClients: siteClients.filter((c) => c.enabled).length,
   totalClients: siteClients.length,
 };
 
 // Needs Attention - items requiring action
 const needsAttention = {
-  staleDrafts: entries.filter((e) => {
-    if (e.status !== "draft") return false;
-    const updated = e.updateAt ? new Date(e.updateAt) : null;
-    if (!updated) return true;
-    const daysSinceUpdate = (Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24);
-    return daysSinceUpdate > 7;
-  }),
-  emptyEntryTypes: entryTypes.filter((et) => {
-    return !entries.some((e) => e.entryTypeId === et.id);
-  }),
-  emptyCollections: collections.filter((c) => {
-    return !c.isSmart && !entries.some((e) => e.collections?.includes(c.id));
-  }),
+  staleDrafts: staleDraftCount, // drafts not updated in 7+ days
+  // Counted as the list counts (no Trash): a type with none has no key.
+  emptyEntryTypes: entryTypes.filter((et) => !countsByType[et.id]),
+  // A smart collection fills itself. entryCount counts whatever the collection holds (entries, assets or resources).
+  // System collections (the Trash, the workflow ones) fill themselves: an empty one needs nothing.
+  emptyCollections: collections.filter((c: any) => !c.isSmart && !c.isSystem && (c.entryCount ?? 0) === 0),
   unusedClients: siteClients.filter((c) => !c.lastUsedAt && c.enabled),
 };
-
-// Recent Work - last 5 updated entries
-const recentWork = entries
-  .sort((a, b) => {
-    const dateA = a.updateAt ? new Date(a.updateAt).getTime() : 0;
-    const dateB = b.updateAt ? new Date(b.updateAt).getTime() : 0;
-    return dateB - dateA;
-  })
-  .slice(0, 5);
-
-// Publishing Activity
-const lastPublishedEntry = entries
-  .filter((e) => e.publishedAt)
-  .sort((a, b) => {
-    const dateA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
-    const dateB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
-    return dateB - dateA;
-  })[0];
 
 // Recent Activity: the workspace's event log, newest first (the API already applies the AI-run visibility rule).
 const recentActivity: any[] = dashboard?.recentActivity ?? dashboard?.recent_activity ?? [];
@@ -381,18 +376,18 @@ function getStatusClass(status: string): string {
             </section>
           )}
 
-          {(needsAttention.staleDrafts.length > 0 ||
+          {(needsAttention.staleDrafts > 0 ||
             needsAttention.emptyEntryTypes.length > 0 ||
             needsAttention.emptyCollections.length > 0 ||
             needsAttention.unusedClients.length > 0) && (
             <section class="panel">
               <div class="panel-head"><h3>Housekeeping</h3></div>
               <div class="attention-grid">
-                {needsAttention.staleDrafts.length > 0 && (
+                {needsAttention.staleDrafts > 0 && (
                   <a href="/workspace/entries?status=draft" class="attention-card">
                     <div class="attention-icon">📝</div>
                     <div class="attention-content">
-                      <strong>{needsAttention.staleDrafts.length} stale draft{needsAttention.staleDrafts.length === 1 ? '' : 's'}</strong>
+                      <strong>{needsAttention.staleDrafts} stale draft{needsAttention.staleDrafts === 1 ? '' : 's'}</strong>
                       <span>No updates in 7+ days</span>
                     </div>
                   </a>

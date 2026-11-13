@@ -18,14 +18,6 @@ export type EntryUpdate = PlatformEntryUpdate;
 export type CollectionRead = PlatformCollection;
 
 /**
- * List all entries in the current workspace
- */
-export async function listEntries(authToken: string): Promise<EntryRead[]> {
-  const sdk = createSdkClient(authToken);
-  return sdk.entries.list();
-}
-
-/**
  * Get a single entry by ID
  */
 export async function getEntry(id: string, authToken: string): Promise<EntryRead> {

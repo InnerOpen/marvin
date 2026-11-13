@@ -1,9 +1,9 @@
 """Entry routes."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import UUID4
 
-from marvin.db.models.platform import EntryCollections, EntryTypes
+from marvin.db.models.platform import Entries, EntryCollections, EntryTypes
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import (
     editable_entry,
@@ -12,10 +12,11 @@ from marvin.routes._base.checks import (
     require_playbook_rules,
     require_workspace_admin,
 )
+from marvin.routes._base.paging import paged
 from marvin.schemas.platform import CollectionRead, EntryCreate, EntryQueryRequest, EntryQueryResult, EntryRead, EntryUpdate
 from marvin.services.entries import EntryService, trash
-from marvin.services.entries.entry_service import TRASHED, count_by_status, restore_status
-from marvin.services.entry_listing import unlisted_type_ids
+from marvin.services.entries.entry_service import TRASHED, count_by_status, count_by_type, restore_status
+from marvin.services.entry_listing import only_listed
 from marvin.services.entry_privacy import can_see_full_ip, entries_for, entry_for, keep_recorded_ip
 from marvin.services.entry_urls import entry_url, site_base_url
 
@@ -24,6 +25,14 @@ router = APIRouter(prefix="/entries")
 
 # One page of a structured search at most (the Entries page asks for this many).
 QUERY_MAX_ROWS = 500
+
+
+def with_read_relations(session, rows: list) -> list:
+    """``rows`` (entry rows loaded bare, as the query engine loads them) with what ``EntryRead`` reads loaded onto them up
+    front: a few queries for the whole page instead of several per entry."""
+    if rows:
+        session.query(Entries).filter(Entries.id.in_([r.id for r in rows])).options(*EntryRead.loader_options()).all()
+    return rows
 
 
 @controller(router)
@@ -60,14 +69,24 @@ class EntriesController(BaseUserController):
         )
 
     @router.get("", response_model=list[EntryRead], summary="List Entries")
-    def list_entries(self) -> list[EntryRead]:
+    def list_entries(
+        self,
+        response: Response,
+        limit: int | None = Query(None, ge=1, description="At most this many (default: all of them)"),
+        offset: int = Query(0, ge=0, description="Skip this many first (with `limit`, one page)"),
+        entry_type_id: UUID4 | None = Query(None, description="Only entries of this type"),
+    ) -> list[EntryRead]:
         """Every entry but those in the Trash (the Trash collection lists those) and those of an internal entry type
-        (`capabilities.listed: false`, e.g. the Social auto-reply rules: their pages list them; fetch one by id)."""
-        hidden = set(unlisted_type_ids(self.session, self.group_id))
-        full_ip = self._full_ip()
-        return [
-            entry_for(e, full_ip) for e in self.repos.entries.get_all(order_by="created_at") if e.status != TRASHED and e.entry_type_id not in hidden
-        ]
+        (`capabilities.listed: false`, e.g. the Social auto-reply rules: their pages list them; fetch one by id, or name
+        the type in `entry_type_id`), newest first. `limit`/`offset` page it and `entry_type_id` narrows it; the
+        `X-Total-Count` header says how many there are in all. For conditions, other orders and the total in the body,
+        use `POST /entries/query`."""
+        query = self.session.query(Entries).filter(Entries.group_id == self.group_id, Entries.status != TRASHED)
+        # Naming a type lists it, internal or not (as the entry query does: the pages that own an internal type reach it so).
+        query = query.filter(Entries.entry_type_id == entry_type_id) if entry_type_id is not None else only_listed(self.session, self.group_id, query)
+        page = paged(query.order_by(Entries.created_at.desc(), Entries.id.desc()), response, limit, offset)
+        rows = page.options(*EntryRead.loader_options()).all()
+        return entries_for([EntryRead.model_validate(e) for e in rows], self._full_ip())
 
     @router.post("", response_model=EntryRead, status_code=status.HTTP_201_CREATED, summary="Create Entry")
     def create_entry(self, data: EntryCreate) -> EntryRead:
@@ -88,13 +107,20 @@ class EntriesController(BaseUserController):
         result = run_entry_query(self.session, self.group_id, body.spec, limit=limit, offset=max(0, body.offset))
         if result.note:
             return EntryQueryResult(entries=[], total=0, note=result.note, unknown_ops=list(result.unknown_ops or []))
-        return EntryQueryResult(entries=entries_for([EntryRead.model_validate(e) for e in result.rows], self._full_ip()), total=result.total)
+        rows = with_read_relations(self.session, result.rows)
+        return EntryQueryResult(entries=entries_for([EntryRead.model_validate(e) for e in rows], self._full_ip()), total=result.total)
 
     @router.get("/counts", summary="Entry counts by status")
     def entry_counts(self) -> dict[str, int]:
         """`{inbox, draft, …, total}` for this workspace — what the sidebar badge reads (entries of an internal type are
         not counted). Declared before `/{item_id}`."""
         return count_by_status(self.session, self.group_id)
+
+    @router.get("/counts/by-type", summary="Entry counts by entry type")
+    def entry_counts_by_type(self) -> dict[str, int]:
+        """`{entry_type_id: n}`: how many entries each type has, counted as the list counts them (not those in the Trash,
+        nor those of an internal type); a type with none is left out. Declared before `/{item_id}`."""
+        return count_by_type(self.session, self.group_id)
 
     @router.get("/trash", summary="Trash summary")
     def trash_summary(self) -> dict:

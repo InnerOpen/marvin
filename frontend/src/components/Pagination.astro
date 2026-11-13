@@ -1,0 +1,39 @@
+---
+/**
+ * Pagination: the bar under a paged list (lib/pagination.ts). "51–100 of 1,255", Previous / Next, and the page size as
+ * plain links, so it works without a script and every link keeps the list's search and order. Nothing when the list is empty.
+ */
+import { pager } from "@/lib/pagination";
+
+export interface Props {
+  /** The page's address (Astro.url): page, size and the parameters to keep. */
+  url: URL;
+  /** How many there are in all. */
+  total: number;
+  label?: string;
+}
+const { url, total, label = "Pages" } = Astro.props;
+const p = pager(url, total);
+---
+
+{total > 0 && (
+  <nav class="pagination" aria-label={label}>
+    <span class="pagination-range">{p.range}</span>
+    <span class="pagination-steps">
+      {p.prev && <a class="button secondary small" href={p.prev} rel="prev">← Previous</a>}
+      {p.next && <a class="button secondary small" href={p.next} rel="next">Next →</a>}
+    </span>
+    <span class="pagination-sizes">
+      Per page:
+      {p.sizes.map((s) => (s.current ? <strong aria-current="true">{s.per}</strong> : <a href={s.href}>{s.per}</a>))}
+    </span>
+  </nav>
+)}
+
+<style>
+  .pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; margin: 1.25rem 0 0.5rem; font-size: 0.875rem; color: var(--muted); }
+  .pagination-steps { display: inline-flex; gap: 0.5rem; }
+  .pagination-sizes { display: inline-flex; align-items: center; gap: 0.5rem; margin-left: auto; }
+  .pagination-sizes a { color: var(--accent); }
+  .pagination-sizes strong { color: var(--ink); }
+</style>

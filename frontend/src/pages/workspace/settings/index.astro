@@ -1,7 +1,6 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { ApiRequestError, fetchApi, getAuthToken } from "@/lib/api/client";
-import { listEntries } from "@/lib/api/entries";
 import { getAssets, getSiteClients } from "@/lib/api/platform";
 import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
@@ -48,9 +47,10 @@ if (currentTab === "integrations") {
 let stats: any = null;
 if (currentTab === "statistics" && workspace?.id) {
   try {
-    const [members, entries, assets, apiClients, platformStats] = await Promise.all([
+    const [members, entryCounts, assets, apiClients, platformStats] = await Promise.all([
       listWorkspaceMembers(workspace.id, authToken),
-      listEntries(authToken),
+      // The count, not every entry: the entries outside the Trash, as the Entries list counts them.
+      fetchApi<{ total: number }>("/api/platform/entries/counts", { method: "GET" }, authToken),
       getAssets(authToken),
       // Admin-only: a member's 403 shows the count as "—" instead of blanking every stat.
       nullIfForbidden(getSiteClients(authToken)),
@@ -60,7 +60,7 @@ if (currentTab === "statistics" && workspace?.id) {
     stats = {
       users_count: members.length,
       groups_count: 1, // Current workspace
-      entries_count: entries.length,
+      entries_count: entryCounts.total,
       assets_count: assets.length,
       api_tokens_count: apiClients?.length,
       webhooks_count: platformStats?.webhooks ?? 0,
