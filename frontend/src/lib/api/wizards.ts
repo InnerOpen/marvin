@@ -1,3 +1,4 @@
+import { type RequestScope, readOnce } from "../requestCache";
 import { fetchApi } from "./client";
 import type { WizardButton, WizardDefinition } from "../wizard";
 
@@ -16,9 +17,14 @@ export interface WizardRead extends WizardSummary {
   definition: WizardDefinition;
 }
 
-/** The guided setups this workspace's packages bring; with an entry type, only those with a button on that type's entries. */
-export const listWizards = (authToken: string, entryType?: string): Promise<WizardSummary[]> =>
-  fetchApi<WizardSummary[]>(`/api/groups/wizards${entryType ? `?entry_type=${encodeURIComponent(entryType)}` : ""}`, {}, authToken);
+/**
+ * The guided setups this workspace's packages bring; with an entry type, only those with a button on that type's entries.
+ * `scope`: the page's `Astro.locals`, so the request reads them once (the layout's menu and the dashboard both list them).
+ */
+export const listWizards = (authToken: string, entryType?: string, scope?: RequestScope): Promise<WizardSummary[]> => {
+  const path = `/api/groups/wizards${entryType ? `?entry_type=${encodeURIComponent(entryType)}` : ""}`;
+  return readOnce(scope, path, authToken, () => fetchApi<WizardSummary[]>(path, {}, authToken));
+};
 
 /** One wizard with its steps, or null when there is none of that name. */
 export async function getWizard(slug: string, authToken: string): Promise<WizardRead | null> {

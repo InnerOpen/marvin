@@ -8,7 +8,7 @@ import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { requireAuth } from "@/lib/auth";
 
-const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 
 let workspace: any = null;
@@ -17,7 +17,7 @@ let currentUserRole: WorkspaceRole | null = null;
 let error: string | null = null;
 
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
   if (workspace) {
     const [members, sp] = await Promise.all([
       listWorkspaceMembers(workspace.id, authToken),

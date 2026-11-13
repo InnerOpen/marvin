@@ -8,6 +8,7 @@ import { fetchApi } from "./api/client";
 import { listApprovals } from "./api/workflowApprovals";
 import { type SelectionCondition, type WorkflowSelection, getSelection, getWorkflowState, startRun } from "./api/workflowRuns";
 import { listEntryTypes, type EntryTypeRead } from "./api/entryTypes";
+import type { RequestScope } from "./requestCache";
 import { coerceDataJsonValue, fieldTypeMap } from "./schemaFields";
 import { createSdkClient } from "./sdk";
 import { inOrder } from "./runList";
@@ -38,8 +39,8 @@ export async function entryBySlug(slug: string | undefined, authToken: string): 
   return (await findEntries({ entries: [slug] }, authToken, 1)).entries[0] ?? null;
 }
 
-export async function typeBySlug(slug: string | undefined, authToken: string): Promise<EntryTypeRead | null> {
-  return (await listEntryTypes(authToken)).find((t) => t.slug === slug) ?? null;
+export async function typeBySlug(slug: string | undefined, authToken: string, scope?: RequestScope): Promise<EntryTypeRead | null> {
+  return (await listEntryTypes(authToken, scope)).find((t) => t.slug === slug) ?? null;
 }
 
 /** The posted `dataJson.<key>` values for the named keys, each coerced to its declared type (FormData is all strings). */

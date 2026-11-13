@@ -11,7 +11,7 @@ import { getApiUrl } from "@/lib/api/config";
 import type { EmbeddingsInfo } from "@/lib/api/admin/about";
 import { requireAdmin } from "@/lib/auth";
 
-await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 
 const READINESS_TIMEOUT_MS = 3000;

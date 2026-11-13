@@ -11,7 +11,7 @@ import { noWorkspaceLanding } from "@/lib/workspaceGate";
 // The page for a user who is in no workspace yet: an Admin-created, OIDC or LDAP sign-up waiting for an invite.
 export const prerender = false;
 
-const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 
 // A super admin has Admin; anyone who has since been invited (or added) has a workspace to go to.
 if (user.platformRole === "SUPER_ADMIN") return Astro.redirect(noWorkspaceLanding(user.platformRole));

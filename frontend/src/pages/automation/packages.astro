@@ -27,7 +27,7 @@ if (!authToken) {
   try {
     packages = await listPackages(authToken);
     const sdk = createSdkClient(authToken);
-    const [wf, types, cols] = await Promise.all([sdk.automations.list(), listEntryTypes(authToken), listCollections(authToken)]);
+    const [wf, types, cols] = await Promise.all([sdk.automations.list(), listEntryTypes(authToken, Astro.locals), listCollections(authToken, Astro.locals)]);
     // Only what is free to bundle: a workflow already in a package belongs to that one, and built-in types and collections are not packaged.
     workflows = (wf as any[]).filter((w) => !w.sourcePackage).map((w) => ({ slug: w.slug, name: w.name }));
     entryTypes = (types as any[]).filter((t) => !t.isSystem).map((t) => ({ slug: t.slug, name: t.name }));

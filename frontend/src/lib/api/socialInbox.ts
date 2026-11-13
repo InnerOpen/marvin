@@ -9,6 +9,7 @@
 import type { AutoReplyMode, Filters, InboxItem, InboxSummary } from "../socialInbox";
 import { apiQuery } from "../socialInbox";
 import type { Rule } from "../socialSpace";
+import { type RequestScope, readOnce } from "../requestCache";
 import { fetchApi } from "./client";
 
 const BASE = "/api/groups/social-inbox";
@@ -50,9 +51,15 @@ export interface RuleResult {
 const post = <T>(path: string, body?: unknown) =>
   fetchApi<T>(`${BASE}${path}`, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-/** `visit`: a Social page asks, so the workspace's Social plumbing (the rule type, the engine's task) is made first. */
-export const getSummary = (authToken?: string, visit = false) =>
+const readSummary = (authToken: string | undefined, visit: boolean) =>
   fetchApi<InboxSummary>(`${BASE}/summary${visit ? "?visit=true" : ""}`, {}, authToken);
+
+/**
+ * `visit`: a Social page asks, so the workspace's Social plumbing (the rule type, the engine's task) is made first — a
+ * write, so never shared. `scope`: the page's `Astro.locals`, so the request reads the plain summary once.
+ */
+export const getSummary = (authToken?: string, visit = false, scope?: RequestScope): Promise<InboxSummary> =>
+  visit ? readSummary(authToken, true) : readOnce(scope, `${BASE}/summary`, authToken, () => readSummary(authToken, false));
 
 export const listItems = (filters: Filters, offset = 0, authToken?: string) =>
   fetchApi<InboxList>(`${BASE}?${apiQuery(filters, offset)}`, {}, authToken);

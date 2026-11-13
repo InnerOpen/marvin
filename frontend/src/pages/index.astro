@@ -17,10 +17,10 @@ import { fetchApi } from "@/lib/api/client";
 import { entityHref, entityTypeLabel } from "@/lib/eventEntity";
 
 // Require authentication
-await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 // Quick Create offers only what the caller's workspace role may create.
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 
 // The entry numbers come from counts and small queries, not from loading every entry.
 type EntryCounts = Partial<Record<"published" | "draft" | "total", number>>;
@@ -62,13 +62,13 @@ if (!authToken) {
       // Only published ones: on a descending sort Postgres puts the never-published (NULL) first.
       query({ published_after: "1970-01-01T00:00:00Z", sort: { by: "published_at", direction: "desc" } }, 1),
       nullIfForbidden(getSiteClients(authToken)),
-      listCollections(authToken),
-      listEntryTypes(authToken),
+      listCollections(authToken, Astro.locals),
+      listEntryTypes(authToken, Astro.locals),
       listResources(authToken),
       fetchApi<any>("/api/platform/stats", { method: "GET" }, authToken).catch(() => null),
       fetchApi<any>("/api/platform/stats/dashboard", { method: "GET" }, authToken).catch(() => null),
       fetchApi<any>("/api/groups/ai-settings/usage", { method: "GET" }, authToken).catch(() => null),
-      listWizards(authToken).catch(() => []),
+      listWizards(authToken, undefined, Astro.locals).catch(() => []),
     ]);
     staleDraftCount = stale.total;
     recentWork = recent.entries;

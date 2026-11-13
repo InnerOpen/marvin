@@ -18,8 +18,12 @@ try {
   if (!authToken) {
     throw new Error("Not authenticated");
   }
-  currentWorkspace = await getCurrentWorkspace(authToken);
-  workspaces = await listWorkspaces(authToken);
+  // The request's reads (Astro.locals): the layout and the middleware have made them already. Both at once; a failure
+  // of the current one is still the one reported.
+  const list = listWorkspaces(authToken, Astro.locals);
+  list.catch(() => null);
+  currentWorkspace = await getCurrentWorkspace(authToken, Astro.locals);
+  workspaces = await list;
 } catch (e) {
   error = e instanceof Error ? e.message : String(e);
   console.error("[WorkspaceSwitcher] Failed to load workspaces:", error);

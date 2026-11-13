@@ -123,7 +123,7 @@ if (Astro.request.method === "POST" && id && authToken) {
     let fieldTypes: Record<string, string> = {};
     if (entryTypeId) {
       try {
-        const type = (await listEntryTypes(authToken)).find((t) => t.id === entryTypeId);
+        const type = (await listEntryTypes(authToken, Astro.locals)).find((t) => t.id === entryTypeId);
         fieldTypes = fieldTypeMap(type?.schemaJson);
       } catch (e) {
         console.error("[Entry] Could not load schema for field coercion:", e);
@@ -229,8 +229,8 @@ if (!id) {
   try {
     [entry, entryTypes, collections, allTags, allAssets, allResources] = await Promise.all([
       getEntry(id, authToken),
-      listEntryTypes(authToken),
-      listCollections(authToken),
+      listEntryTypes(authToken, Astro.locals),
+      listCollections(authToken, Astro.locals),
       listTags(authToken),
       getAssets(authToken, { sort: "newest" }), // the picker and the sidebar list: a fresh upload at the top, not lost in the alphabet
       listResources(authToken),
@@ -266,7 +266,7 @@ if (entry && entry.status !== "trashed" && entryTypes.some((t: any) => t.id === 
 // Who may change this entry: EDITOR+ any entry; an AUTHOR their own until it's approved or published
 // (judged on the stored entry, not a failed save). Setting approved/published or a scheduled
 // publish is EDITOR+ only.
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 // An entry in the Trash is read-only: whoever may change it can Restore it or delete it forever, nothing else.
 const inTrash = entry?.status === "trashed";
 const mayChangeEntry = entry ? access.canEditEntry(entry) : false;

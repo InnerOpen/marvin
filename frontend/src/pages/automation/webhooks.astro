@@ -21,12 +21,12 @@ let adminOnly = false;
 let canManage = false;
 
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
 
   if (workspace) {
     webhooks = await sdk.webhooks.list();
     try {
-      canManage = canManageWorkspace(await listWorkspaces(authToken), (await sdk.user.getProfile()) as any);
+      canManage = canManageWorkspace(await listWorkspaces(authToken, Astro.locals), (await sdk.user.getProfile()) as any);
     } catch {
       // unknown role: no button
     }

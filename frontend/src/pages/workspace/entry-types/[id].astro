@@ -11,7 +11,7 @@ import { ADMINS_ONLY } from "@/lib/workspaceRole";
 const { id } = Astro.params;
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; changing an entry type is admin-only (if the role can't be read, let the API decide).
-const canManage = authToken ? await canManageCurrentWorkspace(authToken).catch(() => true) : true;
+const canManage = authToken ? await canManageCurrentWorkspace(authToken, Astro.locals).catch(() => true) : true;
 
 let entryType = null;
 let error: string | null = null;

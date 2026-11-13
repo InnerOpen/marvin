@@ -19,7 +19,7 @@ import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; uploading is AUTHOR+, editing and deleting assets EDITOR+.
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 // The filters live in the URL (lib/assetLibraryView.ts): the API returns exactly the matching assets, with versions
 // folded under their original unless shown.
 const view = readLibraryView(Astro.url.searchParams);
@@ -40,7 +40,7 @@ try {
     fetchApi<unknown[]>("/api/platform/assets?scope=ask", {}, authToken).catch(() => []),
     listTrashedAssets(authToken).catch(() => []),
     listTags(authToken).catch(() => []),
-    listCollections(authToken).catch(() => []),
+    listCollections(authToken, Astro.locals).catch(() => []),
     listAssetTypes(authToken).catch(() => []),
   ]);
   typesInUse = types;

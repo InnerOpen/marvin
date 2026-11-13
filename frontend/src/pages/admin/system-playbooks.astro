@@ -7,7 +7,7 @@ import { getAuthToken } from "@/lib/api/client";
 import { adminGroups, SWITCH_TITLE, summary } from "@/lib/adminSystemPlaybooks";
 import { requireAdmin } from "@/lib/auth";
 
-await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 
 let page: AdminSystemPlaybooks = { items: [], skipped: [] };

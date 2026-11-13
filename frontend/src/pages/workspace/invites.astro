@@ -17,7 +17,7 @@ let invites: InviteTokenSummary[] = [];
 let error: string | null = null;
 
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
   invites = await listInviteTokens(authToken);
 } catch (e) {
   console.error("[invites] Error:", e);

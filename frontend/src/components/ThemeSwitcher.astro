@@ -11,7 +11,7 @@ let themeColors: any;
 try {
   const authToken = getAuthToken(Astro.cookies);
   if (authToken) {
-    themeColors = await getTheme(authToken);
+    themeColors = await getTheme(authToken, Astro.locals);
   }
 } catch (error) {
   console.error("Failed to load theme colors:", error);

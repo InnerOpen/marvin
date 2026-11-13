@@ -35,7 +35,7 @@ if (authed) {
     console.error("[ai-ask] Error loading AI settings:", e);
   }
   if (aiEnabled && !askEnabled) {
-    canManage = await canManageCurrentWorkspace(authToken!).catch(() => false);
+    canManage = await canManageCurrentWorkspace(authToken!, Astro.locals).catch(() => false);
   } else {
     try {
       [agents, tones] = await Promise.all([

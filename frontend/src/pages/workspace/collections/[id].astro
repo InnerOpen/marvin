@@ -27,7 +27,7 @@ import { listTags } from "@/lib/api/tags";
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
 // Everyone reads; changing a collection is EDITOR+.
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 const { canEdit } = access;
 
 let collection: CollectionRead | null = null;
@@ -52,7 +52,7 @@ if (!authToken) {
     collection = await getCollection(id, authToken);
     const targetType = (collection as any).targetType ?? "entry";
     if (targetType === "entry") {
-      const [ents, types] = await Promise.all([getCollectionEntries(id, authToken), listEntryTypes(authToken)]);
+      const [ents, types] = await Promise.all([getCollectionEntries(id, authToken), listEntryTypes(authToken, Astro.locals)]);
       entries = ents;
       typeMap = new Map(types.map((t) => [t.id, t.name]));
       internalBadges = new Map(types.flatMap((t) => { const badge = internalTypeBadge(t); return badge ? [[t.id, badge] as [string, string]] : []; }));
@@ -88,7 +88,7 @@ type QueryResult = { entries: EntryRead[]; total: number; note?: string | null }
 let search: QueryResult | null = null;
 let builderData: Record<string, unknown> | null = null;
 if (pinned.length && authToken && !error) {
-  const [types, tags] = await Promise.all([listEntryTypes(authToken), listTags(authToken).catch(() => [])]);
+  const [types, tags] = await Promise.all([listEntryTypes(authToken, Astro.locals), listTags(authToken).catch(() => [])]);
   builderData = {
     types: types.map((t) => ({ value: t.slug, label: t.name })),
     typeDefs: types.map((t) => ({ slug: t.slug, schemaJson: { fields: ((t.schemaJson?.fields as any[]) ?? []) } })),

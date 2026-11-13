@@ -12,7 +12,7 @@ import { filterResources, isFiltered, readResourceView, resourceHref, SORTS } fr
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; adding, editing and deleting resources is EDITOR+ (Move to Trash is on a resource's page).
-const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const { canEdit } = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 // The filters live in the URL (lib/resourceView.ts). The list API takes none, so all are loaded and the page picks.
 const view = readResourceView(Astro.url.searchParams);
 
