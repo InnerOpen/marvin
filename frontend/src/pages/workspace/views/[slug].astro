@@ -194,6 +194,10 @@ const stepBars = (b: Bed, track: { start: number; seconds: number }) => {
     .map((st) => ({ ...st, ...clip(st, track) }))
     .filter((st) => st.seconds > 0 && from.seconds > 0)
     .map((st) => ({ left: ((st.from - from.from) / from.seconds) * 100, width: (st.seconds / from.seconds) * 100, height: (st.volume / top) * 100, volume: st.volume, start: st.start, end: st.start + st.seconds, source: st.source, by: st.by, muffled: st.muffled, ramp: st.ramp ?? 0, rampPct: ((st.ramp ?? 0) / from.seconds) * 100, slope: null as null | { left: number; width: number; from: number; to: number } }));
+  // A bed that holds one level the whole way (a scene's ambience) has no steps, but its level is drawn all the same, as one bar on a scale of 0 to 100%.
+  if (!b.steps.length && from.seconds > 0 && b.volume > 0) {
+    bars.push({ left: 0, width: 100, height: Math.max(b.volume * 100, 8), volume: b.volume, start: b.start, end: b.start + b.seconds, source: undefined, by: undefined, muffled: b.muffled, ramp: 0, rampPct: 0, slope: null });
+  }
   // Where the level eases from one step to the next (centred on the cut), the two bars stop short of the cut and a slope joins them.
   for (let i = 1; i < bars.length; i++) {
     const [prev, cur] = [bars[i - 1], bars[i]];
