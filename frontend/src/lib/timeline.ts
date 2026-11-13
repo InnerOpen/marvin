@@ -1010,6 +1010,26 @@ export function tickLevels(total: number, want = 10): { t: number; levels: numbe
   return [...byLevel.entries()].sort((a, b) => a[0] - b[0]).map(([t, levels]) => ({ t, levels: [...levels].sort((a, b) => a - b) }));
 }
 
+/** Unlabelled marks between the ruler's numbered ticks (whole seconds when there is room), for every zoom level at once, as `tickLevels` does: each says at
+ * which levels it shows. A mark that is a numbered tick at a level is left out of that level. The step is the smallest that divides the numbered step evenly
+ * and keeps the marks under about six per numbered tick, so a 60 s story shows a mark every second and a long film every few. */
+export function minorTickLevels(total: number, want = 10): { t: number; levels: number[] }[] {
+  const byT = new Map<number, number[]>();
+  if (total <= 0) return [];
+  for (const level of ZOOM_LEVELS) {
+    const target = want * level;
+    const major = TICK_STEPS.find((s) => total / s <= target) ?? TICK_STEPS[TICK_STEPS.length - 1];
+    const minor = TICK_STEPS.find((m) => m < major && Math.abs(major / m - Math.round(major / m)) < 1e-9 && total / m <= target * 6);
+    if (minor === undefined) continue;
+    const isMajor = new Set(ticks(total, target));
+    for (let t = 0; t <= total + 1e-9; t += minor) {
+      const at = Number(t.toFixed(3));
+      if (!isMajor.has(at)) byT.set(at, [...(byT.get(at) ?? []), level]);
+    }
+  }
+  return [...byT.entries()].sort((a, b) => a[0] - b[0]).map(([t, levels]) => ({ t, levels }));
+}
+
 export interface Progress {
   label: string;
   done: number;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aspectOf, canReview, clockText, jumpTo, parseClock, placeIn, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { aspectOf, canReview, clockText, jumpTo, parseClock, placeIn, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, minorTickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -178,6 +178,17 @@ test("tick levels: the fitted ruler's ticks show at every zoom, finer ticks only
   assert.deepEqual(all.find((x) => x.t === 0.5).levels, [4, 8]);
   assert.equal(all.filter((x) => x.levels.includes(1)).length, ticks(18.1).length);
   assert.deepEqual(all.map((x) => x.t).slice(0, 4), [0, 0.5, 1, 1.5]);
+});
+
+test("minor ticks: a mark every second (every half second when zoomed in) between the numbered ones, never on a numbered one, coarser on a long film", () => {
+  const m = minorTickLevels(60);
+  assert.deepEqual(m.find((x) => x.t === 1).levels, [1, 2, 4]); // at 8× the numbered ticks are every second, so it is numbered there
+  assert.equal(m.find((x) => x.t === 10), undefined); // 10 is a numbered tick at every level (fitted step 10, finer ones divide it)
+  assert.deepEqual(m.find((x) => x.t === 5).levels, [1, 4]); // numbered at 2× and 8×
+  assert.ok(m.every((x, i) => i === 0 || x.t > m[i - 1].t));
+  const long = minorTickLevels(600);
+  assert.ok(long.length > 0 && long.every((x) => x.t % 0.5 === 0));
+  assert.deepEqual(minorTickLevels(0), []);
 });
 
 const bedSpec = {
