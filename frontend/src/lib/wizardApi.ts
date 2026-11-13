@@ -74,6 +74,11 @@ export async function uploadAsset(file: File, nameHint: string, authToken: strin
   return String((asset as { id: string }).id);
 }
 
+/** An asset of this workspace by its id, as far as a file box needs to know it; null when it is not there. */
+export async function assetById(id: string, authToken: string): Promise<{ id: string; name?: string | null; mimeType?: string | null; publicUrl?: string | null } | null> {
+  return createSdkClient(authToken).assets.get(id).catch(() => null);
+}
+
 export function describeFailure(e: unknown): string {
   return e instanceof Error && e.message ? e.message.slice(0, 300) : "Something went wrong.";
 }

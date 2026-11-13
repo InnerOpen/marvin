@@ -86,6 +86,27 @@ export function cardActionShown(action: { when?: { field: string; op: "eq" | "ne
   return w.op === "eq" ? same : !same;
 }
 
+/** How a file box can be filled, as the start of a sentence: "Choose, upload or record", "Upload or record", "Upload". A box offers the
+ *  workspace's assets only where the step says so, and a recording only where it takes sounds. */
+export function fileWays(choose: boolean, record: boolean): string {
+  const ways = [choose && "choose", "upload", record && "record"].filter((w): w is string => !!w);
+  const said = ways.length > 2 ? `${ways.slice(0, -1).join(", ")} or ${ways[ways.length - 1]}` : ways.join(" or ");
+  return said.charAt(0).toUpperCase() + said.slice(1);
+}
+
+/** Whether a save button of the add form is off for now (`add.buttons[].file`): one that needs the file box filled ("required"), or one
+ *  that must find it empty ("none"). Neither can then post an error. */
+export function fileButtonOff(needs: string | null | undefined, has: boolean): boolean {
+  return needs === "required" ? !has : needs === "none" ? has : false;
+}
+
+/** The line under the add form's buttons that says why one is off, so nobody has to guess; empty when none is. `ways` is `fileWays`. */
+export function fileButtonNote(buttons: { label: string; needs?: string | null }[], has: boolean, noun: string, ways: string): string {
+  const off = buttons.filter((b) => fileButtonOff(b.needs, has)).map((b) => `“${b.label}”`);
+  if (!off.length) return "";
+  return has ? `A ${noun} is chosen. Remove it to use ${off.join(" or ")}.` : `${ways} a ${noun} to use ${off.join(" or ")}.`;
+}
+
 /** What a step's `subtitle` shows under a title: one field, or up to three joined with " · " (a line's words, then its status). Fields with nothing in
  *  them are left out, and each is cut at `max` characters (the whole thing is wanted where there is room: a pick list). */
 export function subtitleOf(subtitle: unknown, data: Record<string, unknown> | null | undefined, max = 60): string {
