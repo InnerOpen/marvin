@@ -876,6 +876,16 @@ test("marks lane: a view without one has no marks, and a lane with no via reads 
   assert.deepEqual(laid.marks.camera.map((m) => m.value).slice(0, 3), ["pan-left", "drift", "drift"]); // no scene tier
 });
 
+// ── an item's own hold is the least it lasts ────────────────────────────────────────────────────────────────────────────────────────────────────
+test("hold: an item with timed pieces lasts their length plus the silences, or its own hold when that is longer", () => {
+  const pieces = [{ seconds: 2.5 }];
+  const sec = { hold: "hold_seconds", lead: "lead_seconds", gap: "gap_seconds", tail: "tail_seconds", defaults: { hold: 4, lead: 0.3, gap: 0.25, tail: 0.35 } };
+  assert.ok(Math.abs(itemSeconds(row("b", {}), pieces, sec) - 3.15) < 1e-9, "no hold of its own: lead + speech + tail (the view's default hold of 4 is for an empty item)");
+  assert.equal(itemSeconds(row("b", { hold_seconds: 8 }), pieces, sec), 8, "its own hold, when longer, is the least it lasts");
+  assert.ok(Math.abs(itemSeconds(row("b", { hold_seconds: 2 }), pieces, sec) - 3.15) < 1e-9, "a hold shorter than the speech changes nothing");
+  assert.equal(itemSeconds(row("b", { hold_seconds: 8 }), [], sec), 8, "an empty item still holds");
+  assert.equal(itemSeconds(row("b", {}), [], sec), 4, "and the view's default when it sets none");
+
 // ── a lane's `off` field leaves an entry out ────────────────────────────────────────────────────────────────────────────────────────────────────
 const lineLane = { id: "lines", title: "Lines", entry_type: "line", of: "story", in: "beat", order: "order", off: "leave_out", seconds: "duration_seconds", text: "text" };
 const lineSpec = { ...spec, lanes: [lineLane] };

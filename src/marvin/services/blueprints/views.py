@@ -35,8 +35,9 @@ A timeline definition::
 - ``spine``: the items laid out in time. ``of`` is the field on each that holds the entry's slug, ``order`` the field they sort by,
   ``group`` an optional type the items are grouped under (chapters: ``field`` on an item holds the group's slug). ``picture`` is an asset
   field, ``text`` a text shown when there is no picture, ``status`` a status field drawn as a dot. ``seconds`` names the fields that time an
-  item: ``hold`` is how long an item with nothing in its lanes lasts; ``lead``, ``gap`` and ``tail`` are the silences around and between the
-  pieces of a lane that has ``seconds``; ``defaults`` fill in when a field is empty.
+  item: ``hold`` is how long an item with nothing in its lanes lasts (the view's default when the item sets none) and, when the item sets its own,
+  the least it lasts even with pieces in its lanes (the picture stays up after the last one); ``lead``, ``gap`` and ``tail`` are the
+  silences around and between the pieces of a lane that has ``seconds``; ``defaults`` fill in when a field is empty.
 - A ``lane`` is a child type drawn under the spine, in one of four shapes. ``in`` names the field that holds the spine item's slug (a line
   belongs to a beat; ``of`` is then required and scopes the lane's entries to the view's entry). ``placed`` says the spine item lists them:
   ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at`` (the entries come by

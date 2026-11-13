@@ -361,11 +361,17 @@ export function secondsOf(row: Row, spec: SecondsSpec | undefined): typeof DEFAU
   return out;
 }
 
-/** The renderer's rule: timed pieces one after another with silences around them; nothing timed, and the item holds. */
+/**
+ * The renderer's rule: timed pieces one after another with silences around them; nothing timed, and the item holds (its own hold, else the view's
+ * default). An item that sets its own hold lasts at least that long even with timed pieces: the picture stays up after the last line, so a beat
+ * that would be too quick for a viewer to take in can be given the time. The view's default hold is only for an item with nothing in it.
+ */
 export function itemSeconds(row: Row, timed: { seconds: number }[], spec: SecondsSpec | undefined): number {
   const s = secondsOf(row, spec);
   if (timed.length === 0) return s.hold;
-  return s.lead + timed.reduce((sum, p) => sum + p.seconds, 0) + s.gap * (timed.length - 1) + s.tail;
+  const spoken = s.lead + timed.reduce((sum, p) => sum + p.seconds, 0) + s.gap * (timed.length - 1) + s.tail;
+  const own = num(field(row, spec?.hold));
+  return own !== null && own > spoken ? own : spoken;
 }
 
 /** A number as a person writes beats: 4, "04" or "04a" (a beat inserted after 04), as its digits and its letters. Null for anything else. */
