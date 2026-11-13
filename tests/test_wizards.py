@@ -588,3 +588,56 @@ def test_an_option_step_may_be_optional_and_says_so_with_true_or_false():
 def test_a_choose_or_gallery_step_may_show_one_field_or_up_to_three_under_each_title(subtitle):
     assert _bad(lambda p: p["steps"][1].update(subtitle=subtitle)) is None
     assert _bad(lambda p: p["steps"][7].update(subtitle=subtitle)) is None  # the gallery
+
+
+# --- a run step says what it will act on, and what came of it -------------------------------------------------------------------------
+
+RUN_LIST = {
+    "button": "Make these ${count} sounds",
+    "audio": "audio",
+    "badges": ["kind", "status"],
+    "subtitle": "prompt",
+    "empty": "No sound is waiting to be made.",
+    "left_out": [
+        {"label": "music", "where": [{"field": "kind", "op": "eq", "value": "music"}]},
+        {"label": "already have a file", "where": [{"field": "audio", "op": "exists"}, {"field": "status", "op": "in", "value": ["draft"]}]},
+    ],
+    "report": {"entry": "story", "field": "fountain_check", "label": "What the check found"},
+}
+
+
+def _run_with(**settings):
+    return lambda p: p["steps"][4].update(**settings)
+
+
+def test_a_run_step_may_list_what_it_will_act_on_count_it_say_why_some_are_left_out_and_show_a_report():
+    assert _bad(_run_with(**RUN_LIST)) is None
+
+
+@pytest.mark.parametrize(
+    ("settings", "words"),
+    [
+        ({"button": "Make ${story} sounds"}, "button may only use ${count}"),
+        ({"empty": ""}, "empty is the line"),
+        ({"audio": "Audio file"}, "audio must be a field key"),
+        ({"badges": ["kind", "status", "source"]}, "badges"),
+        ({"subtitle": ["bad key"]}, "subtitle must be a field key"),
+        ({"left_out": []}, "left_out is a list of 1 to 4"),
+        ({"left_out": [{"label": "music", "where": []}]}, "where"),
+        ({"left_out": [{"where": [{"field": "kind", "op": "eq", "value": "music"}]}]}, "label"),
+        ({"left_out": [{"label": "music", "where": [{"field": "kind", "op": "sparkle", "value": "music"}]}]}, "op"),
+        ({"left_out": [{"label": "music", "where": [{"field": "story", "op": "eq", "value": "${story}"}]}]}, "no ${"),
+        ({"left_out": [{"label": "x", "where": [{"field": "kind", "op": "eq"}]}] * 5}, "1 to 4"),
+        ({"report": {"entry": "input", "field": "fountain_check"}}, "an option, not an entry"),
+        ({"report": {"entry": "story", "field": "Fountain check"}}, "report"),
+        ({"report": {"entry": "story", "field": "fountain_check", "label": ""}}, "report.label"),
+    ],
+)
+def test_a_wrong_run_list_says_what_is_wrong(settings, words):
+    problem = _bad(_run_with(**settings))
+    assert problem is not None and words in problem, problem
+
+
+def test_only_a_run_step_counts_what_it_lists():
+    """A gallery's generate button runs a workflow too, but lists nothing: its button cannot count."""
+    assert "${count}" in (_bad(lambda p: p["steps"][7]["generate"].update(button="Make ${count}")) or "")

@@ -46,6 +46,8 @@ from marvin.schemas.group.automation import (
     WorkflowLibraryRefs,
     WorkflowRecipe,
     WorkflowRunState,
+    WorkflowSelection,
+    WorkflowSelectionRequest,
     WorkflowState,
 )
 from marvin.services.automation.approvals import MAX_ENTRY_FILTER
@@ -475,6 +477,27 @@ class AutomationsController(BaseUserController):
             return WorkflowState(found=False)
         is_admin = _bypasses_workspace_roles(self.user) or _rank(self.user, self.group_id) >= ROLE_ADMIN
         return WorkflowState(found=True, id=row.id, enabled=bool(row.enabled), name=row.name, can_run=is_admin and bool(row.enabled))
+
+    @router.post("/selection", response_model=WorkflowSelection, summary="What a workflow would act on if it ran now")
+    def get_selection(self, data: WorkflowSelectionRequest) -> WorkflowSelection:
+        """The entries a manual workflow's first step, a `collect`, would gather with these `inputs` (as `POST /{id}/run`
+        takes them), without running anything: their `ids` in its order, `count`, `total` (all that match, before its
+        `limit`) and, for each `left_out` reason (a `where` put in place of the collect's own), how many match it
+        instead. `found` false: no such workflow, or it does not start by gathering entries. A page that offers to run
+        it (a guided setup's run step) lists them first. 400 for inputs it does not take. Any member, as for reading
+        entries (it says no more than an entry query would): someone who may not run it still sees what it would do."""
+        from marvin.services.automation.actions.base import AutomationActionError
+        from marvin.services.automation.inputs import RunInputError
+        from marvin.services.automation.selection import selection
+
+        row = self.session.query(WorkspaceAutomationModel).filter_by(group_id=self.group_id, slug=data.slug).first()
+        if row is None:
+            return WorkflowSelection(found=False)
+        reasons = [[c.model_dump() for c in reason] for reason in data.left_out]
+        try:
+            return WorkflowSelection.model_validate(selection(self.session, self.group_id, row, data.inputs, left_out=reasons))
+        except (RunInputError, AutomationActionError) as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     @router.post("/approvals/{approval_id}/decide", response_model=WorkflowApprovalRead, summary="Approve or deny a waiting run")
     def decide_approval(self, approval_id: UUID4, data: WorkflowApprovalDecision) -> WorkflowApprovalRead:

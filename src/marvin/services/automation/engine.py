@@ -1116,6 +1116,28 @@ def _run_on_failure(step: _StepRunner, handlers: list, error: AutomationActionEr
             return
 
 
+def manual_context(session, group_id, automation, inputs: dict | None, *, user_id=None, dry_run: bool = False) -> dict:
+    """What a manual run's steps read: its inputs checked against the trigger's (``${input.<name>}``; RunInputError says
+    what is wrong) and the entry an entry input names, bound as ``entry`` like an event's. A run and a look at what it
+    would gather (services/automation/selection.py) start from the same one."""
+    from .inputs import resolve as resolve_inputs
+
+    values, entry_id = resolve_inputs(session, group_id, automation, inputs, dry_run=dry_run)
+    context: dict = {
+        "event": {"event_type": "manual", "user_id": str(user_id) if user_id else None, **({"entry_id": entry_id} if entry_id else {})},
+        "previous": {},
+        "depth": 0,
+        "site": _site_context(session, group_id),
+        "vars": _variables_context(session, group_id),
+        "input": values,
+    }
+    if entry_id and (entry_ctx := _entry_context(session, group_id, entry_id)):
+        context["entry"] = entry_ctx
+        if submission := _form_submission_context(session, group_id, context["event"]):
+            context["form_submission"] = submission
+    return context
+
+
 def run_automation_now(
     session,
     group_id,
@@ -1141,21 +1163,7 @@ def run_automation_now(
     nothing (no AI call, no mutation, no webhook POST). It records nothing to the execution history and
     fires no ``automation_ran`` event; instead it returns ``plan`` — the resolved per-step preview.
     """
-    from .inputs import resolve as resolve_inputs
-
-    values, entry_id = resolve_inputs(session, group_id, automation, inputs, dry_run=dry_run)
-    context: dict = {
-        "event": {"event_type": "manual", "user_id": str(user_id) if user_id else None, **({"entry_id": entry_id} if entry_id else {})},
-        "previous": {},
-        "depth": 0,
-        "site": _site_context(session, group_id),
-        "vars": _variables_context(session, group_id),
-        "input": values,
-    }
-    if entry_id and (entry_ctx := _entry_context(session, group_id, entry_id)):
-        context["entry"] = entry_ctx
-        if submission := _form_submission_context(session, group_id, context["event"]):
-            context["form_submission"] = submission
+    context = manual_context(session, group_id, automation, inputs, user_id=user_id, dry_run=dry_run)
     # A dry run captures the resolved plan in memory and persists nothing; a real run uses the caller's
     # recorder (or none).
     dry_recorder = CollectingRecorder() if dry_run else None

@@ -38,10 +38,7 @@ def run_collect_action(session, group_id, action: dict, context: dict, *, user_i
     query = interpolate(action.get("query") or {}, context)
     if not isinstance(query, dict):
         raise AutomationActionError("collect `query` is an object of the target's keys")
-    try:
-        limit = max(1, min(int(action.get("limit") or DEFAULT_LIMIT), _cap()))
-    except (TypeError, ValueError) as e:
-        raise AutomationActionError("collect `limit` is a whole number") from e
+    limit = collect_limit(action)
     only_invalid = bool(action.get("only_invalid")) and entity == "entry"
     rows, total = _query(session, group_id, entity, query, CHECK_CAP if only_invalid else limit)
     problems: dict = {}
@@ -51,6 +48,14 @@ def run_collect_action(session, group_id, action: dict, context: dict, *, user_i
     extra = [str(f) for f in (action.get("fields") or []) if str(f).strip()]
     facts = [_row(session, group_id, entity, row, extra) | ({"problem": problems[row.id]} if only_invalid else {}) for row in rows]
     return {"entity": entity, "count": len(facts), "total": total, "rows": facts, "text": _text(entity, facts, extra)}
+
+
+def collect_limit(action: dict) -> int:
+    """The most rows the step returns (its `limit`, within the target cap)."""
+    try:
+        return max(1, min(int(action.get("limit") or DEFAULT_LIMIT), _cap()))
+    except (TypeError, ValueError) as e:
+        raise AutomationActionError("collect `limit` is a whole number") from e
 
 
 def _cap() -> int:

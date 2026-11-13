@@ -6,7 +6,7 @@ condition operators, action kinds) so the UI is backend-driven rather than hardc
 """
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import UUID4, ConfigDict, Field
 
@@ -549,6 +549,37 @@ class WorkflowState(_MarvinModel):
     enabled: bool = False
     name: str | None = None
     can_run: bool = False
+
+
+class SelectionCondition(_MarvinModel):
+    """One condition of a reason something is left out, as a `collect` query's `where` item."""
+
+    field: str = Field(min_length=1, max_length=80)
+    op: Literal["eq", "neq", "in", "contains", "exists", "missing", "gt", "gte", "lt", "lte"]
+    value: Any = None
+
+
+class WorkflowSelectionRequest(_MarvinModel):
+    slug: str = Field(min_length=1, max_length=80)
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    """The run's inputs, as `POST /{id}/run` takes them."""
+    left_out: list[Annotated[list[SelectionCondition], Field(min_length=1, max_length=4)]] = Field(default_factory=list, max_length=4)
+    """Reasons an entry is not in the list, each a `where` (1 to 4 conditions) counted in place of the collect's own."""
+
+
+class WorkflowSelection(_MarvinModel):
+    """What a manual workflow would act on if it ran now: the entries its first step, a `collect`, gathers
+    (services/automation/selection.py). `found` false: the workflow does not start by gathering entries (or is not here)."""
+
+    found: bool
+    step: str | None = None  # the collect step's id
+    ids: list[str] = Field(default_factory=list)
+    """The entries it would gather, in its order: at most `limit`."""
+    count: int = 0
+    total: int = 0  # every entry that matches, before `limit`: more than `count` means "the next `count` of `total`"
+    limit: int | None = None
+    left_out: list[int] = Field(default_factory=list)
+    """For each reason asked, how many entries of the same query match it instead (they may overlap)."""
 
 
 class WorkflowApprovalDecision(_MarvinModel):
