@@ -61,8 +61,9 @@ A timeline definition::
   whether it is heard from inside). The item's level wins over the entry's, which wins over the story's; the block shows each stretch as a
   step, says who set it (the story, a scene or a beat) and marks the muffled ones.
   spoken line.
-  ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it
-  repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
+  ``order`` is the field the lane's entries sort by (a number: those with none come after, by slug), ``off`` a boolean field that leaves an
+  entry out when it is on (not timed, drawn or played: tried out and set aside); ``audio`` is an asset field, ``seconds`` a duration field,
+  ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
   that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
   silence) and shows as steps in the block. ``cover`` is a video laid over each item's picture: ``field`` is the asset field, ``blend`` and
   ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with ``entry_type``) names, then the view's entry itself, and a
@@ -368,7 +369,7 @@ def _check_lane(lane: dict, label: str) -> str | None:
             return f"{label}: open is {{wizard}}, the guided setup a piece opens on instead of its own page"
         if problem := _slug(opens, "wizard", f"{label} open"):
             return problem
-    return _fields(lane, ("order", "text", "who", "audio", "waveform", "seconds", "volume", "loop", "estimate_from", "status"), label)
+    return _fields(lane, ("order", "off", "text", "who", "audio", "waveform", "seconds", "volume", "loop", "estimate_from", "status"), label)
 
 
 def _check_cover(cover: Any, label: str) -> str | None:
