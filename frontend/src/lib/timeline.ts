@@ -107,9 +107,9 @@ export interface CoverSpec {
   entry_type?: string;
 }
 
-/** One choice per spine item, written in its block: something about the shot that is not sound or picture (the camera's move). The item's own field
- * wins, then `other` (what an item shows when a different field of its own is filled in: an exact camera move), then the entry `via` names (a beat's
- * scene), then the view's entry itself (the story). */
+/** One choice per spine item, written in its block: something about the shot that is not sound or picture (the camera's move). `other` wins (what an item
+ * shows when a different field of its own is filled in: an exact camera move, written on purpose, so it beats a choice the item also holds), then
+ * the item's own field, then the entry `via` names (a beat's scene), then the view's entry itself (the story). */
 export interface MarksSpec {
   field: string;
   via?: string;
@@ -826,7 +826,7 @@ function marksOf(spec: MarksSpec, view: TimelineSpec, items: Item[], rows: Rows,
       return value ? { value, label: wordsOf(value, spec.labels), icon: spec.icons?.[value] ?? "", from, custom: false, source: inherited && owner ? owner.slug : "", count: 1, ...own } : null;
     };
     const written: Mark | null = row && spec.other && filled(field(row, spec.other.field)) ? { value: "", label: spec.other.label, icon: "", from: "", custom: true, source: "", count: 1, ...own } : null;
-    const found = choice(row, view.spine.entry_type, false) ?? written ?? choice(named, spec.entry_type ?? "", true) ?? choice(rows.entry, view.entry_type, true);
+    const found = written ?? choice(row, view.spine.entry_type, false) ?? choice(named, spec.entry_type ?? "", true) ?? choice(rows.entry, view.entry_type, true);
     if (!found) continue;
     const last = out[out.length - 1];
     const runs = !found.custom && spec.merge?.includes(found.value);

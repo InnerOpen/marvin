@@ -15,18 +15,28 @@ export interface Props {
     placeholder?: string;
     /** Ready-made values to start from: choosing one fills the box (a camera move: Slow push in). */
     presets?: { label: string; value: unknown }[];
+    /** Start from another field's choice: { from: "camera", values: { "Push in": {...} }, note }. Shown until the person edits it; saved only then. */
+    suggest?: { from: string; values: Record<string, unknown>; note?: string };
   };
   value?: unknown;
   error?: string;
 }
 
+import { readSuggest } from "../../lib/jsonSuggest";
+
 const { field, value, error } = Astro.props;
+const suggest = field.readOnly ? null : readSuggest(field.suggest);
 const inputId = `field-${field.key}`;
 const presets = Array.isArray(field.presets) ? field.presets.filter((p) => p && typeof p.label === "string") : [];
 const empty = value === undefined || value === null || value === "";
 ---
 
-<div class="field-group" data-json-presets={presets.length ? "1" : undefined}>
+<div
+  class="field-group"
+  data-json-presets={presets.length ? "1" : undefined}
+  data-json-suggest={suggest ? JSON.stringify(suggest) : undefined}
+  data-suggest-name={suggest ? `dataJson.${suggest.from}` : undefined}
+>
   <label for={inputId}>
     {field.label}
     {field.required && <span class="required">*</span>}
@@ -50,6 +60,7 @@ const empty = value === undefined || value === null || value === "";
     spellcheck="false"
   >{empty ? "" : JSON.stringify(value, null, 2)}</textarea>
 
+  {suggest && <p class="field-note" data-suggest-note hidden></p>}
   <p class="field-help">{field.helpText || "Enter valid JSON data"}</p>
   {error && <p class="field-error">{error}</p>}
 </div>
@@ -64,6 +75,52 @@ const empty = value === undefined || value === null || value === "";
       box.value = select.value;
       box.dispatchEvent(new Event("input", { bubbles: true }));
       select.value = "";
+    });
+  });
+</script>
+
+<script>
+  // A box that starts from another field's choice: it shows the suggestion for the pick while empty or untouched, follows the pick when that
+  // changes, and is left out of the save (sent empty) unless the person changed the text.
+  import { nextBox, noteFor, readSuggest, suggestionFor } from "../../lib/jsonSuggest";
+
+  document.querySelectorAll<HTMLElement>("[data-json-suggest]").forEach((group) => {
+    const suggest = readSuggest(JSON.parse(group.dataset.jsonSuggest ?? "null"));
+    const box = group.querySelector<HTMLTextAreaElement>("textarea");
+    const note = group.querySelector<HTMLElement>("[data-suggest-note]");
+    const form = box?.closest("form");
+    const pickField = form?.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${group.dataset.suggestName}"]`);
+    if (!suggest || !box || !form || !pickField) return;
+
+    let last = ""; // the suggestion the box was last given
+    let following = false; // the box holds only the suggestion
+
+    const show = () => {
+      const suggested = suggestionFor(suggest, pickField.value);
+      const next = nextBox(box.value, last, suggested);
+      box.value = next.text;
+      last = next.suggested ? suggested : "";
+      following = next.suggested;
+      box.classList.toggle("suggested", following);
+      if (note) {
+        const text = following ? noteFor(suggest, pickField.value, suggested) : "";
+        note.textContent = text;
+        note.hidden = !text;
+      }
+    };
+    show();
+    pickField.addEventListener("change", show);
+    box.addEventListener("input", () => {
+      if (following && box.value !== last) {
+        following = false;
+        last = "";
+        box.classList.remove("suggested");
+        if (note) note.hidden = true;
+      }
+    });
+    // What goes to the server: nothing, while the box is only the suggestion.
+    form.addEventListener("formdata", (event) => {
+      if (following && box.value === last) (event as FormDataEvent).formData.set(box.name, "");
     });
   });
 </script>
@@ -110,6 +167,17 @@ const empty = value === undefined || value === null || value === "";
 
   .field-textarea.error {
     border-color: var(--color-error);
+  }
+
+  .field-textarea.suggested {
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  .field-note {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--color-primary);
   }
 
   .field-help {

@@ -851,14 +851,14 @@ test("marks lane: a label says how a value reads, else the value is spaced and c
   assert.deepEqual(laid.marks.camera.map((m) => [m.label, m.icon]), [["Pan left!", ""], ["Push in", "⤢"], ["Pedestal down", ""]]);
 });
 
-test("marks lane: an item's own choice beats numbers it also holds, and its own numbers beat what its scene or the story chose", () => {
+test("marks lane: an item's own numbers beat the choice it also holds, and both beat what its scene or the story chose", () => {
   const laid = marksLaid({
     story: { camera: "drift" },
     sceneData: { camera: "tilt-up" },
     beatsData: [{ move: { from: { x: 0.5 }, to: { x: 0.6 } }, camera: "push-in" }, { move: { from: { x: 0.5 }, to: { x: 0.6 } } }, { move: {} }],
   });
   assert.deepEqual(laid.marks.camera.slice(0, 3).map((m) => [m.custom, m.label, m.from]), [
-    [false, "Push in", "beat"], // it chose a name: the name shows, not "custom"
+    [true, "Custom move", ""], // it chose a name and wrote numbers: the numbers were written on purpose (a preset's, then changed), so they show
     [true, "Custom move", ""], // numbers alone, over the deck's choice
     [false, "Tilt up", "scene"], // an empty move is no setting
   ]);

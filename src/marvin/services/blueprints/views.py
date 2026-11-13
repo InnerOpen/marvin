@@ -70,8 +70,9 @@ A timeline definition::
   there up. ``marks`` writes one choice per spine item in its block, for something about the shot that is not sound or picture (the camera's
   move, the time of day): ``field`` holds the choice (a select's value), read from the item, else the entry ``via`` (with ``entry_type``)
   names, else the view's entry, so a scene or a story can set it for the beats that do not; ``labels`` and ``icons`` ({value: text}) say how
-  a value reads, and ``other`` ({field, label}) names what the item shows when it has no choice of its own but that other field holds
-  something of its own (an exact camera move written out): it wins over what the scene or the story chose, not over the item's own choice.
+  a value reads, and ``other`` ({field, label}) names what the item shows when that other field holds
+  something of its own (an exact camera move written out): written on purpose, it wins over the item's own choice, which wins over what the
+  scene or the story chose.
   ``merge`` lists the values whose effect carries on across a cut (a ship's rocking): consecutive items with the same one from the same
   scene or story are drawn as one block, not a chip each.
 - ``spine.review`` ({ready, keep, redo}) puts Keep and Redo buttons on each item whose ``spine.status`` is one of ``ready`` (a still that was
