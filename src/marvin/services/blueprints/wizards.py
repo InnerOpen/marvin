@@ -31,7 +31,10 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   skipped; the entry still needs a name): a button that saves a person's own file needs no description of how to make one.
 - ``run``: a button that starts the workflow ``workflow`` (by slug, one the same package brings) with ``inputs`` ({name: "${key}" | literal}),
   e.g. cutting the beats of a script once it is uploaded. ``requires`` ({entry, field}) keeps the button off until that field holds something.
-  A workflow that is off is never turned on from here: the page says so.
+  A workflow that is off is never turned on from here: the page says so. When the workflow starts by gathering entries (a ``collect``),
+  the step lists them above the button, from the workflow itself, and ``button`` may say ``${count}``; ``audio``, ``badges``, ``subtitle``,
+  ``empty`` (nothing to do), ``left_out`` (why some are not in it) and ``report`` (a field the run writes, shown after) are in
+  ``_check_run_list``. Every run step but the last can be passed without running.
 - ``review``: ``checks``, each ``{label, query, op, value, step?}``: the query (entry-query spec: ``entry_type``, ``fields``, ``where``…) is
   counted and compared (``gt gte eq lte lt``) to a number; ``step`` names the step that makes it, linked when it fails. All passing means
   the wizard is done.
@@ -45,6 +48,8 @@ from __future__ import annotations
 
 import re
 from typing import Any
+
+from marvin.services.entries.query import WHERE_OPS
 
 MAX_STEPS = 40
 MAX_NEXT = 6  # lines of "what to do next" at the end
@@ -375,7 +380,8 @@ def _check_one_check(s: _Step, check: Any) -> str | None:
     return s.refs_known(check["query"], "a check")
 
 
-def _check_run(s: _Step) -> str | None:
+def _check_run(s: _Step, *, listed: bool = True) -> str | None:
+    """A run step, or a gallery's generate (``listed`` False: it lists nothing, so its button cannot count)."""
     inputs = s.step.get("inputs", {})
     if not isinstance(s.step.get("workflow"), str) or not _SLUG.match(s.step["workflow"]):
         return f"{s.label} needs the slug of the workflow it runs"
@@ -383,13 +389,70 @@ def _check_run(s: _Step) -> str | None:
         return f"{s.label}: inputs must map the workflow's input names to text"
     if s.step.get("button") is not None and not isinstance(s.step["button"], str):
         return f"{s.label}: button must be text"
+    if any(ref != "count" or not listed for ref in _refs(s.step.get("button"))):
+        if listed:
+            return f"{s.label}: button may only use ${{count}}, how many it lists"
+        return f"{s.label}: button is plain text (no ${{count}}: it lists nothing)"
     requires = s.step.get("requires")
     if requires is not None:
         if not isinstance(requires, dict) or not _is_field(requires.get("field")):
             return f"{s.label}: requires must be {{entry, field}}, the field that has to hold something before it can run"
         if (problem := _Step(requires, s.known, s.entries, s.label).ctx("entry")) is not None:
             return problem
-    return s.refs_known(inputs, "inputs")
+    return s.refs_known(inputs, "inputs") or (_check_run_list(s) if listed else None)
+
+
+MAX_LEFT_OUT = 4
+MAX_RUN_BADGES = 2
+
+
+def _check_run_list(s: _Step) -> str | None:
+    """What a run step shows besides its button. The entries the workflow will act on are listed from the workflow itself (its first
+    step, a collect: services/automation/selection.py); the step only says how a row looks (``audio``, ``badges`` (up to 2), ``subtitle``,
+    as a gallery's), what to say when there is none (``empty``) and, in ``left_out`` (up to 4 ``{label, where}``), the package's words for
+    what is not in the list: each ``where`` (a collect's ``where``, 1 to 4 plain conditions) is counted over the rest of the collect's query,
+    "Not included: 1 music". ``report`` ({entry, field, label?}) is a field of a chosen entry the run writes, shown on the step with a link
+    to edit it: what a check found."""
+    step = s.step
+    if step.get("audio") is not None and not _is_field(step["audio"]):
+        return f"{s.label}: audio must be a field key"
+    if (badges := step.get("badges")) is not None and ((problem := _keys(badges, f"{s.label}: badges")) or len(badges) > MAX_RUN_BADGES):
+        return problem or f"{s.label}: badges is at most {MAX_RUN_BADGES} field keys"
+    if problem := _check_subtitle(s):
+        return problem
+    if step.get("empty") is not None and not (isinstance(step["empty"], str) and step["empty"].strip() and len(step["empty"]) <= 300):
+        return f"{s.label}: empty is the line shown when there is nothing to do (at most 300 characters)"
+    if (left := step.get("left_out")) is not None:
+        if not isinstance(left, list) or not 1 <= len(left) <= MAX_LEFT_OUT:
+            return f"{s.label}: left_out is a list of 1 to {MAX_LEFT_OUT} reasons, each {{label, where}}"
+        for reason in left:
+            if problem := _check_reason(s, reason):
+                return problem
+    if (report := step.get("report")) is not None:
+        if not isinstance(report, dict) or not _is_field(report.get("field")):
+            return f"{s.label}: report is {{entry, field, label?}}, the field of a chosen entry the run writes"
+        if problem := _Step(report, s.known, s.entries, f"{s.label}: report").ctx("entry"):
+            return problem
+        if report.get("label") is not None and not (isinstance(report["label"], str) and report["label"].strip() and len(report["label"]) <= 60):
+            return f"{s.label}: report.label is a short heading (at most 60 characters)"
+    return None
+
+
+def _check_reason(s: _Step, reason: Any) -> str | None:
+    if not isinstance(reason, dict) or not isinstance(reason.get("label"), str) or not reason["label"].strip() or len(reason["label"]) > 60:
+        return f"{s.label}: each left_out reason needs a label, a few words (at most 60 characters) like music"
+    where = reason.get("where")
+    if not isinstance(where, list) or not 1 <= len(where) <= 4:
+        return f"{s.label}: left_out {reason['label']!r}: where is 1 to 4 conditions, as a collect's"
+    for cond in where:
+        field = cond.get("field") if isinstance(cond, dict) else None
+        if not (_is_field(field) or (isinstance(field, str) and field.startswith("metadata.") and _is_field(field[9:]))):
+            return f"{s.label}: left_out {reason['label']!r}: each condition is {{field, op, value?}} on a field key"
+        if cond.get("op") not in WHERE_OPS:
+            return f"{s.label}: left_out {reason['label']!r}: op is one of {', '.join(WHERE_OPS)}"
+        if _refs(cond.get("value")):
+            return f"{s.label}: left_out {reason['label']!r} uses no ${{…}}: it is counted over the workflow's own query, already narrowed"
+    return None
 
 
 def _check_add_extras(s: _Step, add: Any) -> str | None:
@@ -514,7 +577,7 @@ def _check_gallery(s: _Step) -> str | None:
         if prompt is not None and not (isinstance(prompt, dict) and _NAME.match(str(prompt.get("name"))) and isinstance(prompt.get("label"), str)):
             return f"{s.label}: generate.prompt needs a name and a label"
         typed = {prompt["name"]} if isinstance(prompt, dict) else set()
-        if problem := _check_run(_Step(gen, s.known | typed, s.entries, f"{s.label} generate")):
+        if problem := _check_run(_Step(gen, s.known | typed, s.entries, f"{s.label} generate"), listed=False):
             return problem
     return s.entry_type() or (s.ctx("parent") if scoped else None)
 

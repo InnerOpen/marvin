@@ -6,10 +6,11 @@
 import { createEntry, updateEntry } from "./api/entries";
 import { fetchApi } from "./api/client";
 import { listApprovals } from "./api/workflowApprovals";
-import { getWorkflowState, startRun } from "./api/workflowRuns";
+import { type SelectionCondition, type WorkflowSelection, getSelection, getWorkflowState, startRun } from "./api/workflowRuns";
 import { listEntryTypes, type EntryTypeRead } from "./api/entryTypes";
 import { coerceDataJsonValue, fieldTypeMap } from "./schemaFields";
 import { createSdkClient } from "./sdk";
+import { inOrder } from "./runList";
 import type { ApprovalCard } from "./wizard";
 
 export interface Row {
@@ -163,4 +164,19 @@ export async function decideApproval(id: string, decision: "approve" | "deny", c
   if (choice) body.choice = choice;
   if (note) body.note = note;
   await fetchApi(`/api/automations/approvals/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(body) }, authToken);
+}
+
+/** What a run step's workflow would act on if it ran now (its first step's `collect`, run by the server with these inputs), with the
+ *  entries themselves read through the entries API in the workflow's order; null when it does not start by gathering entries, or the
+ *  server could not say (the step then shows its button as before). */
+export async function runSelection(
+  workflow: string,
+  inputs: Record<string, unknown>,
+  leftOut: SelectionCondition[][],
+  authToken: string,
+): Promise<{ selection: WorkflowSelection; rows: Row[] } | null> {
+  const selection = await getSelection(workflow, inputs, leftOut, authToken).catch(() => null);
+  if (!selection?.found) return null;
+  const rows = selection.ids.length ? (await findEntries({ entries: selection.ids }, authToken, selection.ids.length)).entries : [];
+  return { selection, rows: inOrder(rows, selection.ids) };
 }

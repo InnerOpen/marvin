@@ -1,0 +1,56 @@
+---
+/**
+ * One entry as a guided setup shows it: a card that opens the entry, with its picture (or its first letter), a play button when it has a
+ * sound, the title, a line under it and pills. A gallery draws its cards with it, and a run step its list of what it will act on. Inside a
+ * `.cards.rows` list it is a row (a small square, then the words).
+ */
+import PlayButton from "@/components/PlayButton.astro";
+
+interface Props {
+  href: string;
+  title: string;
+  picture?: string | null;
+  sound?: string | null;
+  subtitle?: string;
+  /** The label of a marked card (the take in use), shown as the first pill. */
+  marked?: string | null;
+  pills?: string[];
+}
+
+const { href, title, picture, sound, subtitle, marked, pills = [] } = Astro.props;
+---
+
+<a class:list={["gcard", { marked: !!marked }]} href={href}>
+  <div class="gpic">
+    {picture ? <img src={picture} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(title || "?").slice(0, 1)}</span>}
+    {/* The play button keeps its click to itself (PlayButton.astro), so playing does not open the entry. */}
+    {sound && <span class="gplay"><PlayButton src={sound} label={`Play ${title}`} /></span>}
+  </div>
+  <div class="gbody">
+    <strong>{title}</strong>
+    {subtitle && <span class="muted gsub">{subtitle}</span>}
+    {(pills.length > 0 || marked) && (
+      <span class="gbadges">
+        {marked && <span class="pill inuse">{marked}</span>}
+        {pills.map((p) => <span class="pill">{p}</span>)}
+      </span>
+    )}
+  </div>
+</a>
+
+<style>
+  .gcard { display: grid; grid-template-rows: auto 1fr; border: 1px solid transparent; border-radius: var(--radius); background: var(--bg); overflow: hidden; text-decoration: none; color: inherit; }
+  .gcard:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .gcard.marked { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
+  :global(.cards.rows) .gcard { grid-template-rows: none; grid-template-columns: 64px 1fr; align-items: center; }
+  :global(.cards.rows) .gpic { aspect-ratio: auto; height: 64px; }
+  .gpic { aspect-ratio: 1; background: var(--panel-2); display: grid; place-items: center; position: relative; }
+  .gplay { position: absolute; right: 8px; bottom: 8px; }
+  .gpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gnone { font-size: 40px; font-weight: 700; color: var(--muted); }
+  .gbody { display: grid; gap: 4px; padding: 10px 12px; font-size: 14px; }
+  .gsub { font-size: 12px; }
+  .gbadges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .gbadges .pill { font-size: 11px; }
+  .pill.inuse { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+</style>

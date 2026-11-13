@@ -1,8 +1,8 @@
 /**
  * A workflow run as whoever started it follows it: start it (POST /api/automations/{id}/run?background=true answers with the run's
  * `execution_id`), then ask where it stands (GET /api/automations/runs/{executionId}); and one workflow by slug, for a page that offers
- * to run it (GET /api/automations/state?slug=). Editors and above may read; starting a run is an admin's. Hand-rolled until the SDK
- * ships these.
+ * to run it (GET /api/automations/state?slug=), and what it would act on before it runs (POST /api/automations/selection). Editors and
+ * above may read; starting a run is an admin's. Hand-rolled until the SDK ships these.
  */
 
 import { ApiRequestError, fetchApi } from "./client";
@@ -71,4 +71,27 @@ export async function startRun(workflowId: string, inputs: Record<string, unknow
     authToken,
   );
   return started?.execution_id ?? null;
+}
+
+/** One condition of a reason something is left out: a `where` item of an entry query. */
+export interface SelectionCondition {
+  field: string;
+  op: string;
+  value?: unknown;
+}
+
+/** The entries a workflow's first step (a `collect`) would gather if it ran now, in its order. `found` false: it does not start by
+ *  gathering entries. `leftOut` counts, for each reason asked, the entries of the same query that match it instead. */
+export interface WorkflowSelection {
+  found: boolean;
+  step?: string | null;
+  ids: string[];
+  count: number;
+  total: number;
+  limit?: number | null;
+  leftOut: number[];
+}
+
+export async function getSelection(slug: string, inputs: Record<string, unknown>, leftOut: SelectionCondition[][], authToken?: string): Promise<WorkflowSelection> {
+  return fetchApi<WorkflowSelection>("/api/automations/selection", { method: "POST", body: JSON.stringify({ slug, inputs, left_out: leftOut }) }, authToken);
 }

@@ -3,8 +3,8 @@ import AudioRecorder from "@/components/AudioRecorder.astro";
 import FileDrop from "@/components/FileDrop.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
 import LinkedItemsField from "@/components/schema-fields/LinkedItemsField.astro";
+import WizardCard from "@/components/WizardCard.astro";
 import WizardCreate from "@/components/WizardCreate.astro";
-import PlayButton from "@/components/PlayButton.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import SchemaFormField from "@/components/SchemaFormField.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -19,12 +19,13 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, shownLines, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
+import { jobLead, leftOutLine, listLine, nothingLine, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
-import { getRunState, type WorkflowRunState } from "@/lib/api/workflowRuns";
+import { getRunState, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { runKey, runLine } from "@/lib/runState";
-import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
+import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, runSelection, typeBySlug, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
 const slug = Astro.params.slug ?? "";
@@ -117,6 +118,10 @@ let pendingCards: ApprovalCard[] = [];
 let decidedCards: ApprovalCard[] = [];
 let watchIds: string[] = [];
 let lacking: string | null = null; // a run step's `requires` not met
+let picked: Awaited<ReturnType<typeof runSelection>> = null; // a run step's list: what its workflow will act on, from the workflow itself
+let leftSays: string | null = null; // and why some are not in it, in the package's words
+let jobSays: { lead: string; more: boolean; all: string } | null = null; // what the worker job the run started said
+let report: { label: string; text: string; title: string; href: string } | null = null; // the field the run writes, to read here
 let cards: Row[] = [];
 const LONG_LIST = 8; // a pick list longer than this puts "make a new one" above it, so it is not lost at the bottom
 let pictureRole: string | undefined; // the role the picture field's file is attached under (a field's `role` may differ from its key)
@@ -220,6 +225,19 @@ if (authToken && def && step) {
       if (!needed || !hasValue(needed.dataJson?.[step.requires.field])) lacking = `“${step.requires.field}” on ${needed?.title ?? step.requires.entry} is empty: fill it in (or upload it) in an earlier step first.`;
     }
     runNow = await runOf(step.workflow);
+    const reasons = (step.left_out ?? []) as { label: string; where: SelectionCondition[] }[];
+    picked = await runSelection(step.workflow, runInputs(step, ctx), reasons.map((r) => r.where), authToken);
+    leftSays = picked ? leftOutLine(reasons, picked.selection.leftOut) : null;
+    const job = runNow?.job?.finished ? (await findEntries({ entries: [runNow.job.entryId] }, authToken, 1)).entries[0] : null;
+    const log = String(job?.dataJson?.log ?? "").trim();
+    // A run whose step names a report shows the report: the job's own words only when it failed (they say why).
+    if (log && (runNow?.job?.status === "failed" || !step.report)) jobSays = { ...jobLead(log, runNow?.job?.status === "failed"), all: log };
+    const holder = step.report ? entries[step.report.entry] : null;
+    const text = holder ? String(holder.dataJson?.[step.report.field] ?? "").trim() : "";
+    if (holder && text) {
+      const label = step.report.label ?? fieldsOf(await typeBySlug(entryTypeOf(def, step.report.entry), authToken), [step.report.field])[0]?.label ?? step.report.field;
+      report = { label, text, title: holder.title, href: `/workspace/entries/${holder.id}` };
+    }
     const cards = await approvalCards(step.workflow, authToken);
     pendingCards = approvalsOf(cards.pending, step.workflow, about, askedBy(runNow));
     decidedCards = approvalsOf(cards.decided, step.workflow, about).slice(0, MAX_DECIDED_SHOWN);
@@ -242,6 +260,11 @@ const allPass = checks.length > 0 && checks.every((c) => c.ok);
 // question was asked makes the approval count as neither yes nor no).
 const held = (step?.kind === "run" || step?.kind === "gallery") && pendingCards.length > 0;
 const runSays = runNow ? runLine(runNow) : null;
+// A run step whose list is empty has nothing to do: Continue is its main button, not a run that would do nothing. While a run of it is
+// still going (the list empties as soon as it takes them), the run's own line speaks instead.
+const nothingToDo = !!picked && picked.selection.count === 0;
+const running = !!runSays && !runSays.over;
+const continues = !!after && !held && (nothingToDo || decidedCards.length > 0 || !!notice || !!runNow);
 const made = Object.entries(entries).map(([key, e]) => ({ key, ...e }));
 const opened = def?.open ? entries[def.open.entry] ?? null : null;
 const submitLabel = after ? "Continue" : "Save";
@@ -497,24 +520,15 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                     const badges = ((step.badges ?? []) as string[]).filter((b) => r.dataJson?.[b]);
                     return (
                       <div class="gwrap">
-                      <a class:list={["gcard", { marked: !!highlightOf(step, r.dataJson) }]} href={`/workspace/entries/${r.id}`}>
-                        <div class="gpic">
-                          {pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(r.title || "?").slice(0, 1)}</span>}
-                          {/* The play button keeps its click to itself (PlayButton.astro), so playing does not open the entry. */}
-                          {sound && <span class="gplay"><PlayButton src={sound} label={`Play ${r.title}`} /></span>}
-                        </div>
-                        <div class="gbody">
-                          <strong>{r.title}</strong>
-                          {subtitleOf(step.subtitle, r.dataJson, 80) && <span class="muted gsub">{subtitleOf(step.subtitle, r.dataJson, 80)}</span>}
-                          {(badges.length > 0 || highlightOf(step, r.dataJson)) && (
-                            <span class="gbadges">
-                              {highlightOf(step, r.dataJson) && <span class="pill inuse">{highlightOf(step, r.dataJson)}</span>}
-                              {badges.map((b) => <span class="pill">{String(r.dataJson?.[b])}</span>)}
-                              {lengthField && r.dataJson?.[lengthField] && <span class="pill">{Number(r.dataJson[lengthField]).toFixed(1)} s</span>}
-                            </span>
-                          )}
-                        </div>
-                      </a>
+                      <WizardCard
+                        href={`/workspace/entries/${r.id}`}
+                        title={r.title}
+                        picture={pic}
+                        sound={sound}
+                        subtitle={subtitleOf(step.subtitle, r.dataJson, 80)}
+                        marked={highlightOf(step, r.dataJson)}
+                        pills={[...badges.map((b) => String(r.dataJson?.[b])), ...(lengthField && r.dataJson?.[lengthField] && (badges.length > 0 || highlightOf(step, r.dataJson)) ? [`${Number(r.dataJson[lengthField]).toFixed(1)} s`] : [])]}
+                      />
                       <div class="gbar">
                       {(step.card_actions ?? []).some((a: any) => cardActionShown(a, r.dataJson)) && (
                         <div class="gacts">
@@ -661,6 +675,26 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 <div class="alert alert-info">“{flow.name}” is switched off. Turn it on under <a href="/automation/workflows">Automation → Workflows</a> (it runs with its author’s permissions), then come back.</div>
               )}
 
+              {picked && (nothingToDo ? (
+                !running && <p class="nothing">{nothingLine(step.empty, !!after)}</p>
+              ) : (
+                <section class="runlist" aria-label="What it works on">
+                  <p class="label">{listLine(picked.selection)}</p>
+                  <div class="cards rows">
+                    {picked.rows.map((r) => (
+                      <WizardCard
+                        href={`/workspace/entries/${r.id}`}
+                        title={r.title}
+                        sound={cardAudio(r.assets, step.audio)}
+                        subtitle={subtitleOf(step.subtitle, r.dataJson, 120)}
+                        pills={((step.badges ?? []) as string[]).filter((b) => r.dataJson?.[b]).map((b) => String(r.dataJson?.[b]))}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+              {leftSays && <p class="muted leftout">{leftSays}</p>}
+
               {pendingCards.map((c) => (
                 <form method="post" class="approval">
                   <input type="hidden" name="decide" value={c.id} />
@@ -684,13 +718,29 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   {runNow.job && <a href={`/workspace/entries/${runNow.job.entryId}`}>Open the job</a>}
                 </p>
               )}
+              {jobSays && (
+                <div class="said">
+                  <p class="label">What the job said</p>
+                  <p class="said-text">{jobSays.lead}</p>
+                  {jobSays.more && <details><summary>Show all of it</summary><div class="said-text">{jobSays.all}</div></details>}
+                </div>
+              )}
+              {/* What the run wrote, whenever it holds something (also for whoever did not start the run), except while a run is going. */}
+              {report && !running && (
+                <aside class="showcard report" aria-label={report.label}>
+                  <div class="showhead"><strong>{report.label}</strong><a class="muted" href={report.href}>Open {report.title} to edit it ↗</a></div>
+                  <div class="said-text">{report.text}</div>
+                </aside>
+              )}
 
               <form method="post" class="form">
                 <div class="actions">
-                  <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking}>
-                    {pendingCards.length > 0 || decidedCards.length > 0 || runNow ? `${step.button ?? "Run"} again` : (step.button ?? "Run")}
-                  </button>
-                  {after && !held && (decidedCards.length > 0 || notice || runNow) && <a class:list={["button", runSays && runSays.tone !== "ok" && "secondary"]} href={stepHref(slug, ctx, after.id)}>Continue →</a>}
+                  {!nothingToDo && (
+                    <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking}>
+                      {picked ? runButton(step.button, picked.selection.count) : pendingCards.length > 0 || decidedCards.length > 0 || runNow ? `${runButton(step.button, null)} again` : runButton(step.button, null)}
+                    </button>
+                  )}
+                  {continues && <a class:list={["button", !(nothingToDo && !running) && runSays && runSays.tone !== "ok" && "secondary"]} href={stepHref(slug, ctx, after!.id)}>Continue →</a>}
                   {held && <span class="muted">Answer the question above before going on: editing the story meanwhile would void it.</span>}
                 </div>
               </form>
@@ -740,6 +790,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           <div class="nav">
             {before ? <a class="button secondary" href={stepHref(slug, ctx, before.id)}>← Previous step</a> : <span />}
             {after && !["option", "choose", "run"].includes(step.kind) && <a class="muted" href={stepHref(slug, ctx, after.id)}>Next step without saving →</a>}
+            {after && step.kind === "run" && !held && !continues && <a class="muted" href={stepHref(slug, ctx, after.id)}>Next step without running →</a>}
           </div>
         </section>
       </>
@@ -1015,10 +1066,6 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .gallery { display: grid; gap: 16px; }
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
   .cards.rows { grid-template-columns: 1fr; gap: 8px; }
-  .cards.rows .gcard { grid-template-rows: none; grid-template-columns: 64px 1fr; align-items: center; }
-  .cards.rows .gpic { aspect-ratio: auto; height: 64px; }
-  .gcard.marked { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
-  .pill.inuse { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
   .approvals { display: grid; gap: 12px; margin: 0 0 16px; }
   .approval-audio { width: 100%; }
   .gbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -1040,23 +1087,23 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .showcard dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }
   .showcard dt { color: var(--muted); }
   .showcard dd { margin: 0; white-space: pre-wrap; }
-  .gcard { display: grid; grid-template-rows: auto 1fr; border: 1px solid transparent; border-radius: var(--radius); background: var(--bg); overflow: hidden; text-decoration: none; color: inherit; }
-  .gcard:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-  .gpic { aspect-ratio: 1; background: var(--panel-2); display: grid; place-items: center; position: relative; }
-  .gplay { position: absolute; right: 8px; bottom: 8px; }
-  .gpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .gnone { font-size: 40px; font-weight: 700; color: var(--muted); }
-  .gbody { display: grid; gap: 4px; padding: 10px 12px; font-size: 14px; }
   .gsub { font-size: 12px; }
   .choice-text { display: grid; gap: 2px; min-width: 0; }
   .choice-text .gsub { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
-  .gbadges { display: flex; flex-wrap: wrap; gap: 4px; }
-  .gbadges .pill { font-size: 11px; }
   .gactions { display: grid; gap: 10px; }
   .gaction summary { display: inline-flex; list-style: none; cursor: pointer; }
   .gaction summary::-webkit-details-marker { display: none; }
   .gform { margin-top: 10px; padding: 14px 16px; border: 0; background: var(--bg); border-radius: var(--radius); }
   .runs { margin: 0; font-size: 13px; }
+  /* A run step's list of what it works on, why some are left out, and what came of it. */
+  .runlist { display: grid; gap: 8px; }
+  .runlist .label, .said .label { margin: 0; }
+  .nothing { margin: 0; padding: 10px 14px; border-radius: var(--radius); background: var(--panel-2); }
+  .leftout { margin: 0; font-size: 13px; }
+  .said { display: grid; gap: 6px; }
+  .said-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+  .report .said-text { max-height: 28em; overflow: auto; }
   .waiting { margin: 0; }
   .approval { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--warn, #d08700); border-left-width: 3px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn, #d08700) 6%, var(--bg)); }
   .approval-title { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
