@@ -69,7 +69,7 @@ SECTION_GUIDE: dict[str, str] = {
         "the email step in full (who it may write to, sending once, links by role, what a dry run shows) and the alert step "
         "· when a step writes to a member, or alerts the owners and admins"
     ),
-    "records": "the metric, snapshot, schema_check and automation_result steps in full · for counts, versions, JSON checks and hand-off reports",
+    "records": "the metric, snapshot, schema_check, automation_result, delete_entries steps · counts, versions, JSON, hand-offs, bulk deletes",
     "agent": "the agent step in full: its fields, what the agent may do, Playbooks, output and guards · when a job goes to an agent",
     "social": "social.post and the engagement capabilities (comments, reply, like, hide, delete, repost, message) · when posting or answering",
     "templates": (
@@ -82,8 +82,8 @@ SECTION_GUIDE: dict[str, str] = {
     "examples": "the Library recipes this workspace can run; recipe=<id> shows one in full · first, to start from one instead of writing",
     "editor": "the workflow editor's own labels for each part · when telling a person what to click",
 }
-INDEX_BUDGET = 4_500  # characters: the index is read on every request; each new step kind costs ~40 here and each section ~130 (was 4_200)
-SECTION_BUDGET = 16_500  # characters: the `actions` section lists every step kind, so each new kind costs ~120 here (was 16_000)
+INDEX_BUDGET = 4_600  # characters: the index is read on every request; each new step kind costs ~40 here and each section ~130 (was 4_500)
+SECTION_BUDGET = 16_700  # characters: the `actions` section lists every step kind, so each new kind costs ~120 here (was 16_500; +delete_entries)
 
 # Workspace lists are capped, like workspace_overview's structure: the guide must stay one tool result.
 REF_LIMIT = 50
@@ -464,6 +464,7 @@ OWN_SECTION_KINDS = {
     "alert": "email",
     "metric": "records",
     "snapshot": "records",
+    "delete_entries": "records",
     "schema_check": "records",
     "automation_result": "records",
     "agent": "agent",
@@ -620,6 +621,11 @@ EMAIL_NOTE = (
     "once: the same event handled twice sends nothing more; once_per: welcome:${member.id} sends that person this step's email "
     "once, ever. Links by role: a `when` on ${member.role} (eq/in) per email step; ${site.url} is the public site, "
     "${site.app_url} the admin app. A dry run shows the rendered email (would_send) and sends nothing."
+)
+DELETE_ENTRIES_NOTE = (
+    'Preview first (mode preview → total, text "144 scenes and 600 beats", by_type), then an approval, then mode trash (restorable; slugs '
+    "freed for new entries) or permanent (author ADMIN+; approvers admin) with confirm_total ${steps.<preview>.output.total}. Output: deleted, "
+    "text, by_type, seconds. Trash never re-touches trashed entries; permanent takes them only when the query's statuses name trashed."
 )
 SNAPSHOT_NOTE = (
     "snapshot capture keeps the entry's content, status, collections, asset refs → "
@@ -820,6 +826,7 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
         out["records"] = {
             "metric": _step_doc("metric"),
             "snapshot": {**_step_doc("snapshot"), "note": SNAPSHOT_NOTE},
+            "delete_entries": {**_step_doc("delete_entries"), "note": DELETE_ENTRIES_NOTE},
             "schema_check": {**_step_doc("schema_check"), "note": SCHEMA_CHECK_NOTE},
             "automation_result": {**_step_doc("automation_result"), "note": AUTOMATION_RESULT_NOTE},
         }

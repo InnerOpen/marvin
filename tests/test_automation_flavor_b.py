@@ -365,6 +365,7 @@ class TestActionRegistry:
             "email",
             "metric",
             "snapshot",
+            "delete_entries",
             "automation_result",
             "wait",
             "repeat",

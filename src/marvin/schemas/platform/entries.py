@@ -1,7 +1,7 @@
 """Entry schemas."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import UUID4, AliasChoices, BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
@@ -357,3 +357,57 @@ class EntryQueryResult(_MarvinModel):
     """Why a condition can't match anything (an unknown tag, a status that isn't one), when it can't."""
     unknown_ops: list[str] = []
     """Comparison operators the engine doesn't know: it refuses the search, and `note` lists the valid ones."""
+
+
+class EntryBulkDeleteRequest(_MarvinModel):
+    """A bulk delete (services/entries/bulk_delete.py): the entries `spec` selects (an entry query, the keys of
+    POST /entries/query; it must narrow by type, fields, entries, a collection, tags, text or where), moved to the Trash
+    (`mode` trash, restorable) or deleted for good (`mode` permanent, ADMIN/OWNER). `confirmTotal` is the total the
+    preview counted: required to delete, and nothing is done when the selection no longer has that many."""
+
+    spec: dict
+    mode: Literal["trash", "permanent"] = "trash"
+    confirm_total: int | None = None
+    description: str | None = Field(default=None, max_length=300)
+    """What the entries are, for the summary event ("what the import made for The Last Onion")."""
+
+
+class EntryBulkDeleteType(_MarvinModel):
+    entry_type: str
+    """The entry type's slug."""
+    name: str
+    count: int
+
+
+class EntryBulkDeletePreview(_MarvinModel):
+    """What a bulk delete would remove now. Nothing is changed by asking."""
+
+    mode: str
+    total: int
+    """Pass this back as `confirmTotal` to delete them."""
+    by_type: dict[str, int]
+    """Entry type slug → how many."""
+    types: list[EntryBulkDeleteType]
+    """The same counts with the types' names, most first."""
+    text: str
+    """The counts in words: "144 scenes, 600 beats and 770 speech lines"."""
+    published: int
+    """How many are on the site now (their going asks for a site rebuild)."""
+    in_trash: int
+    """How many are already in the Trash (only a permanent delete selects those)."""
+
+
+class EntryBulkDeleteJob(_MarvinModel):
+    """A bulk delete running in the background, or the workspace's last one since the server started."""
+
+    state: Literal["running", "done", "failed"]
+    mode: str
+    description: str | None = None
+    total: int
+    done: int
+    """Entries handled so far (it works in chunks of 500)."""
+    started_at: str
+    finished_at: str | None = None
+    error: str | None = None
+    result: dict | None = None
+    """When done, as the service returns it: `deleted`, `by_type`, `types`, `text`, `published`, `chunks`, `seconds`."""
