@@ -60,20 +60,20 @@ A timeline definition::
   the story's bed), ``bed.entry_via_volume`` and ``bed.entry_via_muffled`` fields on the entry the item's ``via`` names (a scene's level, and
   whether it is heard from inside). The item's level wins over the entry's, which wins over the story's; the block shows each stretch as a
   step, says who set it (the story, a scene or a beat) and marks the muffled ones.
-  spoken line.
   ``order`` is the field the lane's entries sort by (a number: those with none come after, by slug), ``off`` a boolean field that leaves an
   entry out when it is on (not timed, drawn or played: tried out and set aside); ``audio`` is an asset field, ``seconds`` a duration field,
-  ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
-  that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
-  silence) and shows as steps in the block. ``cover`` is a video laid over each item's picture: ``field`` is the asset field, ``blend`` and
-  ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with ``entry_type``) names, then the view's entry itself, and a
-  blend of ``none`` at one of them switches the overlay off from there up. ``marks`` writes one choice per spine item in its block, for
-  something about the shot that is not sound or picture (the camera's move, the time of day): ``field`` holds the choice (a select's value),
-  read from the item, else the entry ``via`` (with ``entry_type``) names, else the view's entry, so a scene or a story can set it for the
-  beats that do not; ``labels`` and ``icons`` ({value: text}) say how a value reads, and ``other`` ({field, label}) names what the item
-  shows when it has no choice of its own but that other field holds something of its own (an exact camera move written out): it wins over
-  what the scene or the story chose, not over the item's own choice. ``merge`` lists the values whose effect carries on across a cut (a ship's
-  rocking): consecutive items with the same one from the same scene or story are drawn as one block, not a chip each.
+  ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it repeats, and ``estimate_from`` a text field whose length stands
+  in for the seconds while there is no recording (drawn hatched). On a bed that runs under the whole story, ``bed.item_volume`` *replaces*
+  the level while that spine item plays (a beat that takes the music to silence) and shows as steps in the block. ``cover`` is a video laid
+  over each item's picture: ``field`` is the asset field, ``blend`` and ``opacity`` its settings; the item's own field wins, then the entry
+  ``via`` (with ``entry_type``) names, then the view's entry itself, and a blend of ``none`` at one of them switches the overlay off from
+  there up. ``marks`` writes one choice per spine item in its block, for something about the shot that is not sound or picture (the camera's
+  move, the time of day): ``field`` holds the choice (a select's value), read from the item, else the entry ``via`` (with ``entry_type``)
+  names, else the view's entry, so a scene or a story can set it for the beats that do not; ``labels`` and ``icons`` ({value: text}) say how
+  a value reads, and ``other`` ({field, label}) names what the item shows when it has no choice of its own but that other field holds
+  something of its own (an exact camera move written out): it wins over what the scene or the story chose, not over the item's own choice.
+  ``merge`` lists the values whose effect carries on across a cut (a ship's rocking): consecutive items with the same one from the same
+  scene or story are drawn as one block, not a chip each.
 - ``spine.review`` ({ready, keep, redo}) puts Keep and Redo buttons on each item whose ``spine.status`` is one of ``ready`` (a still that was
   made and waits to be looked at): Keep writes the status ``keep``, Redo the status ``redo`` into the item's status field, and the page shows
   the new status at once. What the package does with those statuses (a redo made again) is its own workflows' business.
