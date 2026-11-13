@@ -25,6 +25,7 @@ const { options, value, label = "Sort" } = Astro.props;
     select.addEventListener("change", () => {
       const url = new URL(location.href);
       url.searchParams.set("sort", select.value);
+      url.searchParams.delete("page"); // a new order starts at its first page
       location.href = url.toString();
     }),
   );

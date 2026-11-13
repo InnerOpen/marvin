@@ -1,8 +1,7 @@
 ---
 import FilterBar from "@/components/FilterBar.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
-import { type EntryRead, listEntries } from "@/lib/api/entries";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { internalReason, lockReason } from "@/lib/entryTypeListing";
@@ -12,7 +11,7 @@ const authToken = getAuthToken(Astro.cookies);
 const canManage = authToken ? await canManageCurrentWorkspace(authToken).catch(() => true) : true;
 
 let entryTypes: EntryTypeRead[] = [];
-let entries: EntryRead[] = [];
+let entryCounts = new Map<string, number>();
 let error: string | null = null;
 
 if (!authToken) {
@@ -20,19 +19,18 @@ if (!authToken) {
   console.error("[EntryTypes] No auth token available");
 } else {
   try {
-    [entryTypes, entries] = await Promise.all([listEntryTypes(authToken), listEntries(authToken)]);
+    let byType: Record<string, number>;
+    [entryTypes, byType] = await Promise.all([
+      listEntryTypes(authToken),
+      // Entries per type, counted as the list counts them (no Trash); a type with none is absent.
+      fetchApi<Record<string, number>>("/api/platform/entries/counts/by-type", { method: "GET" }, authToken),
+    ]);
+    entryCounts = new Map(Object.entries(byType));
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[EntryTypes] Failed to load:", error);
   }
 }
-
-// Count entries per type
-const entryCounts = new Map<string, number>();
-entries.forEach((entry) => {
-  const count = entryCounts.get(entry.entryTypeId) || 0;
-  entryCounts.set(entry.entryTypeId, count + 1);
-});
 
 // Sort by sortOrder (camelCase from SDK)
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);

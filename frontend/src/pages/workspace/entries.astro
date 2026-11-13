@@ -3,16 +3,18 @@ import EntryCard from "@/components/EntryCard.astro";
 import EntryList from "@/components/EntryList.astro";
 import EntrySearchBar from "@/components/EntrySearchBar.astro";
 import ListSort from "@/components/ListSort.astro";
-import { ENTRY_SORTS, querySort, readEntrySort, sortEntries } from "@/lib/entrySort";
+import Pagination from "@/components/Pagination.astro";
+import { ENTRY_SORTS, querySort, readEntrySort } from "@/lib/entrySort";
 import EntryViews from "@/components/EntryViews.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
-import { type CollectionRead, getCollectionEntries, listCollections } from "@/lib/api/collections";
-import { type EntryRead, listEntries } from "@/lib/api/entries";
+import { type CollectionRead, listCollections } from "@/lib/api/collections";
+import type { EntryRead } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { listTags, type TagRead } from "@/lib/api/tags";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { legacyConds, readConds, STATUSES, toSpec } from "@/lib/entryQuery";
+import { pastEndHref, readPage } from "@/lib/pagination";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; creating entries is AUTHOR+.
@@ -23,10 +25,11 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
 const conds = readConds(Astro.url.searchParams).length ? readConds(Astro.url.searchParams) : legacyConds(Astro.url.searchParams);
 // Set by the entry page's Move to Trash: offer Undo (restore) right here.
 const trashedParam = Astro.url.searchParams.get("trashed") || "";
-// The order of the list (?sort=newest|oldest|updated|title): the plain list is sorted here, a search asks the query for the same order.
+// The order of the list (?sort=newest|oldest|updated|title): the query sorts it, with or without conditions.
 const sort = readEntrySort(Astro.url.searchParams.get("sort"));
+// One page of it (?page=, ?per=): a workspace can hold thousands of entries.
+const { per, offset } = readPage(Astro.url.searchParams);
 
-let entries: EntryRead[] = [];
 let entryTypes: EntryTypeRead[] = [];
 let collections: CollectionRead[] = [];
 let allTags: TagRead[] = [];
@@ -37,8 +40,7 @@ if (!authToken) {
   error = "Authentication required";
 } else {
   try {
-    [entries, entryTypes, collections, allTags] = await Promise.all([
-      listEntries(authToken),
+    [entryTypes, collections, allTags] = await Promise.all([
       listEntryTypes(authToken),
       listCollections(authToken),
       listTags(authToken),
@@ -48,18 +50,29 @@ if (!authToken) {
     console.error("[Entries] Failed to load:", error);
   }
 }
-entries = sortEntries(entries, sort);
 
-// The structured search's results (the same engine as the assistants' find_entries).
+// The page's entries, from the structured search (the same engine as the assistants' find_entries) with or without
+// conditions: without any it is every entry outside the Trash. `total` counts every match, not just this page.
 type QueryResult = { entries: EntryRead[]; total: number; note?: string | null; unknownOps?: string[] };
-let search: QueryResult | null = null;
-if (conds.length && authToken && !error) {
+let result: QueryResult = { entries: [], total: 0 };
+if (authToken && !error) {
   try {
-    search = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: { ...toSpec(conds), sort: querySort(sort) }, limit: 500 }) }, authToken);
+    result = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: { ...toSpec(conds), sort: querySort(sort) }, limit: per, offset }) }, authToken);
   } catch (e) {
-    search = { entries: [], total: 0, note: e instanceof Error ? e.message : String(e) };
+    const message = e instanceof Error ? e.message : String(e);
+    // A search that fails says so under the bar; the plain list failing is the page failing, as before.
+    if (conds.length) result = { entries: [], total: 0, note: message };
+    else {
+      error = message;
+      console.error("[Entries] Failed to load:", error);
+    }
   }
 }
+const pastEnd = error ? null : pastEndHref(Astro.url, result.total);
+if (pastEnd) return Astro.redirect(pastEnd);
+const entries = result.entries;
+// With conditions the bar says how many match; the plain list doesn't.
+const search = conds.length ? result : null;
 // The search bar (Beaker-style): a title box and status buttons, then "Show search options" for stacked rows of
 // field | operation | value. The rows hold everything but the title and the status, which the bar shows.
 const builderData = {
@@ -75,13 +88,8 @@ const typeNames = new Map(entryTypes.map((t) => [t.id, t.name]));
 // Create a map of collection ID to collection for quick lookup
 const collectionsMap = new Map(collections.map((c) => [c.id, c]));
 const trashCollection = collections.find((c: any) => c.isSystem && c.slug === "trash");
-// Trashed entries aren't in the list above: load the Trash's own, so the Trash group lists them and "In the Trash"
-// in the status filter shows them. "All statuses" leaves them out (the filter script), as everywhere else.
-let trashedEntries: EntryRead[] = [];
-if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
-  trashedEntries = await getCollectionEntries(trashCollection.id, authToken).catch(() => []);
-}
-
+// The list leaves the Trash out ("In the Trash" in Statuses asks for it); when everything is there, say so.
+const trashedCount = trashCollection?.entryCount ?? 0;
 
 ---
 
@@ -104,7 +112,7 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
       </div>
 
       <EntrySearchBar conds={conds} builderData={builderData} total={search?.total ?? null} note={search?.note ?? null} />
-      {(entries.length > 0 || conds.length > 0) && <ListSort options={ENTRY_SORTS} value={sort} />}
+      {(result.total > 0 || conds.length > 0) && <ListSort options={ENTRY_SORTS} value={sort} />}
 
       {trashedParam && (
         <div class="undo-notice" id="undo-notice" data-entry-id={trashedParam} role="status">
@@ -115,10 +123,10 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
       )}
 
       {conds.length > 0 ? (
-        search && search.entries.length > 0 ? (
+        entries.length > 0 ? (
           <>
-            <EntryViews entries={search.entries} typeNames={typeNames} collectionsMap={collectionsMap} storageKey="entries-search-view" />
-            {search.total > search.entries.length && <p class="query-more">Showing {search.entries.length} of {search.total}: add a condition to narrow it.</p>}
+            <EntryViews entries={entries} typeNames={typeNames} collectionsMap={collectionsMap} storageKey="entries-search-view" />
+            <Pagination url={Astro.url} total={result.total} label="Entries pages" />
           </>
         ) : (
           <div class="empty-state">
@@ -126,7 +134,7 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
             <p>Remove a condition, or <a href="/workspace/entries">clear them all</a>.</p>
           </div>
         )
-      ) : entries.length === 0 && trashedEntries.length === 0 ? (
+      ) : result.total === 0 && trashedCount === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">📝</div>
           <h3>No entries yet</h3>
@@ -155,7 +163,7 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
 
           {/* Flat grid view */}
           <section class="grid view-section" id="grid-view" aria-label="Entries">
-            {[...entries, ...trashedEntries].map((entry) => {
+            {entries.map((entry) => {
               return (
                 <div class="entry-wrapper"
                   data-type={entry.entryTypeId}
@@ -174,6 +182,8 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
           <div class="view-section" id="list-view" style="display:none;">
             <EntryList entries={entries} typeNames={typeNames} />
           </div>
+
+          <Pagination url={Astro.url} total={result.total} label="Entries pages" />
 
         </>
       )}
@@ -209,8 +219,6 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
     list: { el: document.getElementById('list-view'), btn: document.getElementById('view-list') },
   };
 
-  const hasChips = (JSON.parse(document.getElementById('query-data')?.textContent || '{}').conds ?? []).length > 0;
-
   // View toggle: Cards (grid) or List. The choice is remembered.
   function setView(view: View) {
     if (!views[view].el) view = 'grid';
@@ -219,24 +227,12 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
       v.btn?.classList.toggle('active', name === view);
     }
     try { localStorage.setItem('entries-view', view); } catch { /* private mode: not remembered */ }
-    filterEntries();
   }
   for (const [name, v] of Object.entries(views) as [View, (typeof views)[View]][]) v.btn?.addEventListener('click', () => setView(name));
 
   let savedView: View | null = null;
   try { savedView = localStorage.getItem('entries-view') as View | null; } catch { /* no storage */ }
   if (savedView && savedView in views) setView(savedView);
-
-  // Without chips, the list is everything but the Trash (the Trash group lists it); with chips, the server chose.
-  function filterEntries() {
-    if (hasChips) return;
-    document.querySelectorAll('.entry-wrapper').forEach((wrapper) => {
-      const trashed = wrapper.getAttribute('data-status') === 'trashed' && !wrapper.hasAttribute('data-in-trash');
-      (wrapper as HTMLElement).style.display = trashed ? 'none' : '';
-    });
-  }
-
-  filterEntries();
 </script>
 
 <style>
@@ -327,5 +323,4 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
   }
 
   }
-  .query-more { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
 </style>

@@ -2,12 +2,13 @@
 import CollectionVisibilityField from "@/components/CollectionVisibilityField.astro";
 import EmojiPicker from "@/components/EmojiPicker.astro";
 import SmartCollectionFields from "@/components/SmartCollectionFields.astro";
+import Pagination from "@/components/Pagination.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
-import { getCollection, getCollectionEntries } from "@/lib/api/collections";
+import { fetchApiPage, getAuthToken } from "@/lib/api/client";
+import { getCollection } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
-import { listEntries } from "@/lib/api/entries";
 import { listEntryTypes } from "@/lib/api/entryTypes";
+import { pastEndHref, readPage } from "@/lib/pagination";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
@@ -17,8 +18,10 @@ const { id } = Astro.params;
 const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let collection: CollectionRead | null = null;
-let allEntries: EntryRead[] = [];
 let collectionEntries: EntryRead[] = [];
+// One page of the collection's entries (?page=, ?per=); `entriesTotal` counts them all.
+const { per, offset } = readPage(Astro.url.searchParams);
+let entriesTotal = 0;
 let typeNames = new Map<string, string>(); // entry type id → name, for the picker's meta line
 let error: string | null = null;
 
@@ -29,12 +32,14 @@ if (!authToken) {
 } else {
   try {
     let types: Awaited<ReturnType<typeof listEntryTypes>> = [];
-    [collection, allEntries, collectionEntries, types] = await Promise.all([
+    let page: { items: EntryRead[]; total: number };
+    [collection, page, types] = await Promise.all([
       getCollection(id, authToken),
-      listEntries(authToken),
-      getCollectionEntries(id, authToken),
+      fetchApiPage<EntryRead>(`/api/platform/collections/${encodeURIComponent(id)}/entries?limit=${per}&offset=${offset}`, authToken),
       listEntryTypes(authToken).catch(() => []),
     ]);
+    collectionEntries = page.items;
+    entriesTotal = page.total;
 
     typeNames = new Map(types.map((t) => [t.id, t.name]));
     // Sort collection entries by order field (already sorted by API, but ensure it)
@@ -44,6 +49,8 @@ if (!authToken) {
     console.error("[Collection] Failed to load:", error);
   }
 }
+const pastEnd = error ? null : pastEndHref(Astro.url, entriesTotal);
+if (pastEnd) return Astro.redirect(pastEnd);
 ---
 
 <AppLayout
@@ -186,18 +193,19 @@ if (!authToken) {
 
       <section class="entries-section">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-          <h3 style="margin:0;font-size:1.125rem;">Entries (<span id="entry-count">{collectionEntries.length}</span>)</h3>
+          <h3 style="margin:0;font-size:1.125rem;">Entries (<span id="entry-count">{entriesTotal}</span>)</h3>
           <button id="save-entries-btn" class="button small" style="display:none;">Save Changes</button>
         </div>
 
-        <div id="attached-entries" class="attached-list">
+        {/* data-offset: the first card's place in the whole collection, so a later page saves and numbers after the earlier ones */}
+        <div id="attached-entries" class="attached-list" data-offset={offset}>
           {collectionEntries.map((entry, idx) => {
             const junction = (entry.collections || []).find((c: any) => c.id === id);
             return (
               <div class="attachment-card" data-entry-id={entry.id} data-entry-title={entry.title} data-entry-status={entry.status}>
                 <div class="attachment-header">
                   <div class="drag-handle" draggable="true">⋮⋮</div>
-                  <div class="sortable-order">{idx + 1}</div>
+                  <div class="sortable-order">{offset + idx + 1}</div>
                   <div class="attachment-name">
                     <strong>{entry.title}</strong>
                     <span class="picker-meta">
@@ -224,6 +232,7 @@ if (!authToken) {
             );
           })}
         </div>
+        <Pagination url={Astro.url} total={entriesTotal} label="Collection entries pages" />
 
         <details class="add-picker">
           <summary>Add Entry</summary>
@@ -231,27 +240,8 @@ if (!authToken) {
             <div class="picker-search">
               <input type="search" id="entry-search" placeholder="Search entries..." />
             </div>
-            <div class="picker-list">
-              {allEntries.filter(e => !collectionEntries.some(ce => ce.id === e.id)).map((entry) => (
-                <div class="attachment-card add-entry-item" data-entry-id={entry.id} data-entry-title={entry.title} data-entry-status={entry.status}>
-                  <div class="attachment-header">
-                    <div class="attachment-name">
-                      <strong>{entry.title}</strong>
-                      <span class="picker-meta">
-                        <span class={`pill ${entry.status}`}>{entry.status}</span>
-                        {typeNames.get(entry.entryTypeId) && <span> &bull; {typeNames.get(entry.entryTypeId)}</span>}
-                      </span>
-                    </div>
-                    <div class="attachment-actions">
-                      <button type="button" class="add-btn icon-btn" title="Add">+</button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {allEntries.length === 0 && (
-                <p class="empty-message">No entries available. <a href="/workspace/entries/new">Create one</a>.</p>
-              )}
-            </div>
+            {/* Filled by the script from a search of the workspace (the 50 most recent, or the titles that match). */}
+            <div class="picker-list" id="picker-list" data-type-names={JSON.stringify(Object.fromEntries(typeNames))}></div>
           </div>
         </details>
       </section>
@@ -260,6 +250,7 @@ if (!authToken) {
 </AppLayout>
 
 <script>
+  import { fetchApi } from '@/lib/api/client';
   import { isPublicFromForm } from '@/lib/collectionForm';
   import { bindMetadataPreview } from '@/lib/metadataPreview';
   import { createSdkClient } from '@/lib/sdk';
@@ -397,6 +388,8 @@ if (!authToken) {
   const collectionId = window.location.pathname.split('/').filter(Boolean).slice(-2)[0]!;
   const entriesContainer = document.getElementById('attached-entries') as HTMLElement;
   const saveEntriesBtn = document.getElementById('save-entries-btn') as HTMLButtonElement;
+  // This page's cards start here in the whole collection (a later page of it).
+  const pageOffset = Number(entriesContainer?.dataset.offset) || 0;
   let draggedCard: HTMLElement | null = null;
   let entriesDirty = false;
 
@@ -408,13 +401,14 @@ if (!authToken) {
   function updateEntryOrderNumbers() {
     entriesContainer?.querySelectorAll('.attachment-card').forEach((card, index) => {
       const orderEl = card.querySelector('.sortable-order');
-      if (orderEl) orderEl.textContent = String(index + 1);
+      if (orderEl) orderEl.textContent = String(pageOffset + index + 1);
     });
   }
 
-  function updateEntryCount() {
+  // The count is the whole collection's (this page shows part of it): move it by what was added or removed here.
+  function adjustEntryCount(by: number) {
     const countEl = document.getElementById('entry-count');
-    if (countEl) countEl.textContent = String(entriesContainer?.querySelectorAll('.attachment-card').length ?? 0);
+    if (countEl) countEl.textContent = String(Math.max(0, (Number(countEl.textContent) || 0) + by));
   }
 
   function setupEntryCard(card: HTMLElement) {
@@ -435,7 +429,7 @@ if (!authToken) {
 
       card.remove();
       updateEntryOrderNumbers();
-      updateEntryCount();
+      adjustEntryCount(-1);
 
       const pickerItem = document.querySelector(`.add-entry-item[data-entry-id="${entryId}"]`) as HTMLElement;
       if (pickerItem) pickerItem.style.display = '';
@@ -498,99 +492,159 @@ if (!authToken) {
     });
   }
 
-  // Add entry from picker
-  document.querySelectorAll('.add-entry-item').forEach(item => {
-    const addBtn = item.querySelector('.add-btn');
-    if (!addBtn) return;
-    addBtn.addEventListener('click', async () => {
-      const el = item as HTMLElement;
-      const entryId = el.dataset.entryId!;
-      const title = el.dataset.entryTitle!;
-      const entryStatus = el.dataset.entryStatus || 'draft';
+  // --- Add Entry picker ---
+  // A search of the whole workspace (POST /entries/query: the 50 most recent, or the titles that match what is typed),
+  // not a list of every entry. Entries already in this collection (on any page) are left out.
+  const pickerList = document.getElementById('picker-list') as HTMLElement | null;
+  const typeNames: Record<string, string> = JSON.parse(pickerList?.dataset.typeNames || '{}');
+  const PICKER_LIMIT = 50;
+  type PickerEntry = { id: string; title: string; status: string; entryTypeId: string; collections?: unknown[] };
+  const memberOf = (e: { collections?: unknown[] }) =>
+    (e.collections || []).map((c: any) => (typeof c === 'string' ? c : c.id)).includes(collectionId);
 
-      // Add to collection via SDK first
-      el.style.opacity = '0.5';
-      try {
-        const entry = await sdk.entries.get(entryId);
-        const currentIds = (entry.collections || []).map((c: any) => typeof c === 'string' ? c : c.id);
-        if (!currentIds.includes(collectionId)) {
-          await sdk.entries.update(entryId, {
-            collection_ids: [...currentIds, collectionId]
-          });
-        }
-      } catch (error: any) {
-        alert(error?.message || 'Failed to add entry');
-        el.style.opacity = '1';
-        return;
-      }
+  function pickerItem(entry: PickerEntry): HTMLElement {
+    const item = node('div', 'attachment-card add-entry-item');
+    item.dataset.entryId = entry.id;
+    item.dataset.entryTitle = entry.title;
+    item.dataset.entryStatus = entry.status;
+    const meta = node('span', 'picker-meta', node('span', `pill ${entry.status}`, entry.status));
+    const typeName = typeNames[entry.entryTypeId];
+    if (typeName) meta.append(node('span', '', ` • ${typeName}`));
+    item.append(
+      node(
+        'div',
+        'attachment-header',
+        node('div', 'attachment-name', node('strong', '', entry.title), meta),
+        node('div', 'attachment-actions', actionBtn('add-btn', 'Add', '+')),
+      ),
+    );
+    return item;
+  }
 
-      const idx = entriesContainer.querySelectorAll('.attachment-card').length;
+  function emptyMessage(...children: (Node | string)[]): HTMLElement {
+    return node('p', 'empty-message', ...children);
+  }
 
-      const card = document.createElement('div');
-      card.className = 'attachment-card';
-      card.dataset.entryId = entryId;
-      card.dataset.entryTitle = title;
-      card.dataset.entryStatus = entryStatus;
-      // The title and status come from entries anyone with edit access can name, so they go in as text.
-      const handle = node('div', 'drag-handle', '⋮⋮');
-      handle.draggable = true;
-      const role = node('input', 'junction-role') as HTMLInputElement;
-      role.type = 'text';
-      role.defaultValue = '';
-      role.placeholder = 'e.g. primary, featured';
-      const metadata = node('textarea', 'junction-metadata attachment-metadata') as HTMLTextAreaElement;
-      metadata.rows = 2;
-      metadata.placeholder = '{"featured": true}';
-      card.append(
-        node(
-          'div',
-          'attachment-header',
-          handle,
-          node('div', 'sortable-order', String(idx + 1)),
-          node(
-            'div',
-            'attachment-name',
-            node('strong', '', title),
-            node('span', 'picker-meta', node('span', `pill ${entryStatus}`, entryStatus)),
-          ),
-          node(
-            'div',
-            'attachment-actions',
-            actionBtn('move-up-btn', 'Move up', '↑'),
-            actionBtn('move-down-btn', 'Move down', '↓'),
-            actionBtn('remove-btn', 'Remove', '×'),
-          ),
-        ),
-        node(
-          'div',
-          'attachment-fields',
-          node('div', 'field-row', node('label', '', 'Role'), role),
-          node('div', 'field-row field-row-full', node('label', '', 'Metadata'), metadata),
-        ),
-      );
+  let searchSeq = 0;
+  async function loadPicker(q: string) {
+    if (!pickerList) return;
+    const seq = ++searchSeq;
+    let found: { entries: PickerEntry[]; total: number };
+    try {
+      found = await fetchApi<{ entries: PickerEntry[]; total: number }>('/api/platform/entries/query', {
+        method: 'POST',
+        body: JSON.stringify({ spec: q ? { text: q } : {}, limit: PICKER_LIMIT }),
+      });
+    } catch (error: any) {
+      if (seq === searchSeq) pickerList.replaceChildren(emptyMessage(`Couldn't search the entries: ${error?.message || error}`));
+      return;
+    }
+    if (seq !== searchSeq) return; // a later search has answered or will
+    const rows = (found.entries || []).filter((e) => !memberOf(e));
+    if (rows.length) pickerList.replaceChildren(...rows.map(pickerItem));
+    else if (!q && !found.total) {
+      const link = node('a', '', 'Create one') as HTMLAnchorElement;
+      link.href = '/workspace/entries/new';
+      pickerList.replaceChildren(emptyMessage('No entries available. ', link, '.'));
+    } else pickerList.replaceChildren(emptyMessage(q ? 'No other entries match.' : 'No other entries to add.'));
+  }
 
-      entriesContainer.appendChild(card);
-      setupEntryCard(card);
-      updateEntryCount();
-      el.style.display = 'none';
-    });
+  // The first list loads when the picker opens.
+  const picker = document.querySelector('details.add-picker') as HTMLDetailsElement | null;
+  let pickerLoaded = false;
+  picker?.addEventListener('toggle', () => {
+    if (picker.open && !pickerLoaded) {
+      pickerLoaded = true;
+      loadPicker('');
+    }
   });
 
-  // Entry search filter for add picker
   const entrySearch = document.getElementById('entry-search') as HTMLInputElement;
-  if (entrySearch) {
-    entrySearch.addEventListener('input', (e) => {
-      const query = (e.target as HTMLInputElement).value.toLowerCase();
-      document.querySelectorAll('.add-entry-item').forEach(item => {
-        const text = item.textContent?.toLowerCase() || '';
-        const el = item as HTMLElement;
-        // Only filter visible items (not already added)
-        if (el.style.display !== 'none') {
-          el.style.display = text.includes(query) ? '' : 'none';
-        }
-      });
-    });
-  }
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  entrySearch?.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => loadPicker(entrySearch.value.trim()), 250);
+  });
+
+  // Add entry from picker
+  pickerList?.addEventListener('click', async (event) => {
+    const addBtn = (event.target as HTMLElement).closest('.add-btn');
+    const el = addBtn?.closest('.add-entry-item') as HTMLElement | null;
+    if (!el) return;
+    const entryId = el.dataset.entryId!;
+    const title = el.dataset.entryTitle!;
+    const entryStatus = el.dataset.entryStatus || 'draft';
+
+    // Add to collection via SDK first
+    el.style.opacity = '0.5';
+    let alreadyMember = false;
+    try {
+      const entry = await sdk.entries.get(entryId);
+      const currentIds = (entry.collections || []).map((c: any) => typeof c === 'string' ? c : c.id);
+      alreadyMember = currentIds.includes(collectionId);
+      if (!alreadyMember) {
+        await sdk.entries.update(entryId, {
+          collection_ids: [...currentIds, collectionId]
+        });
+      }
+    } catch (error: any) {
+      alert(error?.message || 'Failed to add entry');
+      el.style.opacity = '1';
+      return;
+    }
+    el.style.display = 'none';
+    // Already in the collection (added elsewhere since the list loaded): its card is on this page or another one.
+    if (alreadyMember) return;
+
+    const idx = pageOffset + entriesContainer.querySelectorAll('.attachment-card').length;
+
+    const card = document.createElement('div');
+    card.className = 'attachment-card';
+    card.dataset.entryId = entryId;
+    card.dataset.entryTitle = title;
+    card.dataset.entryStatus = entryStatus;
+    // The title and status come from entries anyone with edit access can name, so they go in as text.
+    const handle = node('div', 'drag-handle', '⋮⋮');
+    handle.draggable = true;
+    const role = node('input', 'junction-role') as HTMLInputElement;
+    role.type = 'text';
+    role.defaultValue = '';
+    role.placeholder = 'e.g. primary, featured';
+    const metadata = node('textarea', 'junction-metadata attachment-metadata') as HTMLTextAreaElement;
+    metadata.rows = 2;
+    metadata.placeholder = '{"featured": true}';
+    card.append(
+      node(
+        'div',
+        'attachment-header',
+        handle,
+        node('div', 'sortable-order', String(idx + 1)),
+        node(
+          'div',
+          'attachment-name',
+          node('strong', '', title),
+          node('span', 'picker-meta', node('span', `pill ${entryStatus}`, entryStatus)),
+        ),
+        node(
+          'div',
+          'attachment-actions',
+          actionBtn('move-up-btn', 'Move up', '↑'),
+          actionBtn('move-down-btn', 'Move down', '↓'),
+          actionBtn('remove-btn', 'Remove', '×'),
+        ),
+      ),
+      node(
+        'div',
+        'attachment-fields',
+        node('div', 'field-row', node('label', '', 'Role'), role),
+        node('div', 'field-row field-row-full', node('label', '', 'Metadata'), metadata),
+      ),
+    );
+
+    entriesContainer.appendChild(card);
+    setupEntryCard(card);
+    adjustEntryCount(1);
+  });
 
   // Save all entry changes (junction updates + reorder)
   if (saveEntriesBtn) {
@@ -627,7 +681,8 @@ if (!authToken) {
             metadataJson,
           });
 
-          orderEntries.push({ entryId, sortOrder: index });
+          // Places in the whole collection: page 2's first card comes after page 1's last.
+          orderEntries.push({ entryId, sortOrder: pageOffset + index });
         }
 
         await sdk.collections.reorderEntries(collectionId, orderEntries);

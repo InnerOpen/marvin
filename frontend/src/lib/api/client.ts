@@ -70,6 +70,22 @@ export async function fetchApiBlob(path: string, authToken?: string): Promise<Bl
  * @param authToken - Optional authentication token (from Astro.cookies)
  */
 export async function fetchApi<T>(path: string, init: RequestInit = {}, authToken?: string): Promise<T> {
+  return (await request<T>(path, init, authToken)).body;
+}
+
+/**
+ * One page of a list that says its total in `X-Total-Count` (GET /entries, GET /collections/{id}/entries with `limit`):
+ * the items and that total (the items' count when the header is missing). Same auth, retries and errors as `fetchApi`.
+ */
+export async function fetchApiPage<T>(path: string, authToken?: string): Promise<{ items: T[]; total: number }> {
+  const { body, headers } = await request<T[]>(path, {}, authToken);
+  const items = body ?? [];
+  const total = Number.parseInt(headers.get("X-Total-Count") ?? "", 10);
+  return { items, total: Number.isFinite(total) ? total : items.length };
+}
+
+/** fetchApi's request, with the answer's headers. */
+async function request<T>(path: string, init: RequestInit, authToken?: string): Promise<{ body: T; headers: Headers }> {
   if (!hasApiBackend()) {
     throw new Error("MARVIN_API_URL is not configured.");
   }
@@ -194,10 +210,10 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
 
       // 204 / empty bodies (DELETE) have nothing to parse.
       if (response.status === 204 || response.headers.get("content-length") === "0") {
-        return undefined as T;
+        return { body: undefined as T, headers: response.headers };
       }
       const text = await response.text();
-      return (text.trim() ? JSON.parse(text) : undefined) as T;
+      return { body: (text.trim() ? JSON.parse(text) : undefined) as T, headers: response.headers };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
