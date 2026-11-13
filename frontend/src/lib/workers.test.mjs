@@ -50,6 +50,15 @@ describe("summarize", () => {
     assert.match(v.warnings.join(" "), /1 job has run past the time allowed/);
   });
 
+  test("a queued job for a kind a live worker offers is not flagged (a runner announces its kinds in its heartbeat, with no job-kind record), one it stopped offering is", () => {
+    const queued = [job("a", { kind: "describe-audio", status: "queued" })];
+    const offers = (secondsAgo) => beat(secondsAgo, { kinds: [{ kind: "describe-audio", description: "listen" }] });
+    assert.equal(summarize(queued, [], [offers(10)], NOW).jobs[0].unknownKind, false);
+    assert.doesNotMatch(summarize(queued, [], [offers(10)], NOW).warnings.join(" "), /nobody registered/);
+    assert.equal(summarize(queued, [], [offers(900)], NOW).jobs[0].unknownKind, true); // not seen for a quarter of an hour
+    assert.equal(summarize(queued, [], [beat(10)], NOW).jobs[0].unknownKind, true); // a worker that does not list this kind
+  });
+
   test("a queued job for an unregistered kind is flagged, a kind's mode defaults to kubernetes", () => {
     const v = summarize([job("a", { kind: "mystery", status: "queued" })], [{ id: "x", slug: "x", title: "x", dataJson: { kind: "k" } }], [beat(5)], NOW);
     assert.equal(v.jobs[0].unknownKind, true);
