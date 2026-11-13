@@ -885,6 +885,7 @@ test("hold: an item with timed pieces lasts their length plus the silences, or i
   assert.ok(Math.abs(itemSeconds(row("b", { hold_seconds: 2 }), pieces, sec) - 3.15) < 1e-9, "a hold shorter than the speech changes nothing");
   assert.equal(itemSeconds(row("b", { hold_seconds: 8 }), [], sec), 8, "an empty item still holds");
   assert.equal(itemSeconds(row("b", {}), [], sec), 4, "and the view's default when it sets none");
+});
 
 // ── a lane's `off` field leaves an entry out ────────────────────────────────────────────────────────────────────────────────────────────────────
 const lineLane = { id: "lines", title: "Lines", entry_type: "line", of: "story", in: "beat", order: "order", off: "leave_out", seconds: "duration_seconds", text: "text" };
