@@ -34,7 +34,10 @@ def _truncate(value) -> dict | None:
         return {"_unserializable": True}
     if len(s) <= _SNAPSHOT_CAP:
         return value
-    return {"_truncated": True, "bytes": len(s), "preview": s[:1000]}
+    # The entry a step made or changed is kept whatever the size: it is how a run is followed on to the worker job it
+    # started (services/automation/run_state.py).
+    kept = {"entry_id": value["entry_id"]} if isinstance(value.get("entry_id"), str) else {}
+    return {"_truncated": True, "bytes": len(s), "preview": s[:1000], **kept}
 
 
 def _step_label(action: dict, on_failure: bool) -> str | None:
@@ -121,11 +124,43 @@ class CollectingRecorder:
 
 
 class ExecutionRecorder:
-    """Persists a run and its per-(target, action) steps. Best-effort — never raises to the engine."""
+    """Persists a run and its per-(target, action) steps. Best-effort — never raises to the engine.
 
-    def __init__(self, session, group_id) -> None:
+    A caller that tells someone the run's id before the run begins (the Run button answers with it, then may run after
+    the response) records the run first with ``reserve``; the next ``start`` begins the run in that row. ``execution_id``
+    names a row another recorder reserved (the background run has a session of its own)."""
+
+    def __init__(self, session, group_id, execution_id=None) -> None:
         self.session = session
         self.group_id = group_id
+        self._reserved = execution_id
+
+    def reserve(self, automation, *, user_id=None):
+        """Record a run before it begins and return its id (None when it could not be recorded)."""
+        self._reserved = self.start(
+            automation, getattr(automation, "trigger_type", None) or "event", targets_matched=1, capped=False, user_id=user_id
+        )
+        return self._reserved
+
+    def close_unstarted(self, error: str) -> None:
+        """End a reserved run that never began (its workflow went away, its target could not be read) as failed, so
+        the id that was given out does not read as running for good. Nothing to do once the run has started."""
+        exec_id, self._reserved = self._reserved, None
+        if exec_id is not None:
+            self.session.rollback()  # whatever stopped the run may have left the session unusable
+            self.finish(exec_id, status="failed", error=error)
+
+    def _begin_reserved(self, *, targets_matched: int, capped: bool, correlation_id: str | None):
+        """Begin the run in the row reserved for it; None when that row is gone (the run is then recorded afresh)."""
+        from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+
+        exec_id, self._reserved = self._reserved, None
+        row = self.session.get(AutomationExecutionModel, exec_id)
+        if row is None:
+            return None
+        row.targets_matched, row.capped, row.correlation_id = targets_matched, capped, correlation_id
+        self.session.commit()
+        return row.id
 
     def start(
         self, automation, trigger_type: str, *, targets_matched: int, capped: bool, user_id=None, correlation_id: str | None = None, retry_of_id=None
@@ -133,6 +168,10 @@ class ExecutionRecorder:
         from marvin.db.models.groups.automation_executions import AutomationExecutionModel
 
         try:
+            if self._reserved is not None:
+                reserved = self._begin_reserved(targets_matched=targets_matched, capped=capped, correlation_id=correlation_id)
+                if reserved is not None:
+                    return reserved
             row = AutomationExecutionModel(
                 session=self.session,
                 group_id=self.group_id,

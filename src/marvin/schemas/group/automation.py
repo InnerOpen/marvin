@@ -482,7 +482,9 @@ class WorkflowApprovalRead(_MarvinModel):
     automation_id: UUID4
     automation_name: str | None = None
     automation_slug: str | None = None
+    execution_id: UUID4 | None = None  # the run that asked (GET /automations/runs/{execution_id} says where it stands)
     message: str
+    detail: str | None = None  # the long part of the question (a whole prompt), to show folded under the message
     approvers: str  # editor | admin — who may decide
     status: str  # pending | approved | denied | expired | stale
     entry_id: UUID4 | None = None
@@ -497,6 +499,56 @@ class WorkflowApprovalRead(_MarvinModel):
     choice: str | None = None  # the one picked, once approved
     image_url: str | None = None  # a picture shown with the question
     post_preview: ApprovalPostPreview | None = None  # pending, and the next step posts: what it will post, checked per network
+
+
+class WorkflowRunWaitingOn(_MarvinModel):
+    """An approval a run waits on. `message` is null for a reader below the step's `approvers` (it is not theirs to read)."""
+
+    approval_id: UUID4
+    message: str | None = None
+    approvers: str  # editor | admin
+
+
+class WorkflowRunJob(_MarvinModel):
+    """The worker job a run's last step started (an entry with a `kind` and a worker `status`), as it stands now."""
+
+    entry_id: UUID4
+    slug: str
+    kind: str
+    status: str  # queued | claimed | running | done | failed
+    finished: bool
+
+
+class WorkflowRunState(_MarvinModel):
+    """Where a run stands, followed past its approvals and waits to the runs that went on from it
+    (services/automation/run_state.py). No step outputs and no log: the run's detail is the admin's Runs page."""
+
+    execution_id: UUID4
+    automation_slug: str
+    automation_name: str | None = None  # null: the workflow has been deleted since
+    state: Literal["starting", "running", "waiting", "working", "done", "failed", "cancelled"]
+    """starting: recorded, no step has run yet. running. waiting: on a person (`waiting_on`). working: the run ended
+    and the worker job it started has not. done. failed (`error`). cancelled: it will not go on (its wait was
+    cancelled, or its workflow was switched off while it was parked)."""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None  # set once the state is done, failed or cancelled
+    error: str | None = None
+    steps_total: int = 0  # the workflow's steps (per entry, for a run over several)
+    steps_ok: int = 0  # steps finished so far, across the run and the runs that went on from it
+    steps_failed: int = 0
+    waiting_on: list[WorkflowRunWaitingOn] = Field(default_factory=list)
+    continued_by: UUID4 | None = None  # the newest run that went on from this one after an approval or a wait
+    job: WorkflowRunJob | None = None
+
+
+class WorkflowState(_MarvinModel):
+    """One workflow by slug, for a page that offers to run it: is it there, is it on, and may the caller run it."""
+
+    found: bool
+    id: UUID4 | None = None  # what `POST /automations/{id}/run` takes
+    enabled: bool = False
+    name: str | None = None
+    can_run: bool = False
 
 
 class WorkflowApprovalDecision(_MarvinModel):

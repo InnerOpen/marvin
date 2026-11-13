@@ -26,12 +26,18 @@ def run_approval_action(session, group_id, action: dict, context: dict, *, user_
     hours = int(action.get("expires_in_hours") or approval_default_hours(session, group_id))
     choices = _choices(action.get("choices"), context)
     image = _image(action.get("image"), context)
+    detail = str(interpolate(action.get("detail") or "", context) or "").strip()
     if dry_run:
+        from ..approvals import question
+
         context["_approval_ahead"] = True  # the preview goes on as if approved, so the steps it guards show too
+        message, kept = question(message, detail)  # as it would be asked: a long message cut, the whole of it in the detail
         out = {"dry_run": True, "kind": "approval", "message": message, "approvers": approvers, "expires_in_hours": hours, "would_wait": True}
-        out.update({**({"choices": choices} if choices else {}), **({"image": image} if image else {})})
+        out.update({**({"detail": kept} if kept else {}), **({"choices": choices} if choices else {}), **({"image": image} if image else {})})
         return out
     spec = {"message": message, "approvers": approvers, "expires_in_hours": hours, **({"image": image} if image else {})}
+    if detail:
+        spec["detail"] = detail
     return {PARK: {**spec, "choices": choices} if choices else spec}
 
 

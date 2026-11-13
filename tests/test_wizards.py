@@ -155,6 +155,7 @@ def _bad(mutate) -> str | None:
         (lambda p: p["steps"][3].update(entry=["x"]), "must name a context key"),
         (lambda p: p["steps"][3].update(when={"ctx": {}, "op": "set"}), "no earlier step sets"),
         (lambda p: p["steps"][2].update(**{"as": "step"}), "the page uses that name"),
+        (lambda p: p["steps"][2].update(**{"as": "run"}), "the page uses that name"),
         (lambda p: p["steps"][1].update(**{"as": "world"}), "already set by an earlier step"),
         (lambda p: p["steps"][8]["checks"][0].update(op="about"), "compares"),
         (lambda p: p["steps"][8]["checks"][0].update(step="nowhere"), "is not before it"),

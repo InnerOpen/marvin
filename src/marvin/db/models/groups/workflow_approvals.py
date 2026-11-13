@@ -40,6 +40,9 @@ class WorkflowApprovalModel(SqlAlchemyBase, BaseMixins):
     step_id: Mapped[str | None] = mapped_column(sa.String(100), nullable=True)
     target_index: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     message: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    """What the approvers are asked, short enough to read on a card or in a push (approvals.MAX_MESSAGE)."""
+    detail: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    """The rest, folded away under the message: a step's own `detail`, or the whole of a message too long to show."""
     min_role: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     """Who may decide: a member at this workspace role or above (services/ai/operations/base ROLE_*)."""
     status: Mapped[str] = mapped_column(sa.String(16), nullable=False, default=APPROVAL_PENDING, index=True)
