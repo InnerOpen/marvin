@@ -10,6 +10,9 @@ application settings (FakeHasher for testing, BcryptHasher otherwise).
 """
 
 import hashlib
+import threading
+import time
+from collections import OrderedDict
 from functools import lru_cache
 from typing import Protocol
 
@@ -119,17 +122,71 @@ def token_lookup(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+class VerifiedTokens:
+    """Remembers which (token, stored hash) pairs bcrypt has already confirmed, so an API token costs one bcrypt
+    check per few minutes instead of one per request (~0.17 s of CPU each at 12 rounds).
+
+    Only the bcrypt RESULT is remembered; the row query still runs on every request, so a revoked, disabled or
+    deleted token is refused on its very next use. The key is (table, SHA-256 of the token, the row's stored
+    token_hash): rotating a token changes its stored hash, so the old pair can never match again. Knowing a key
+    is no use to an attacker: a request carries the raw token and the lookup half is computed from it here, so
+    hitting an entry takes the token itself (or a SHA-256 preimage), and an entry exists only after bcrypt
+    accepted that exact token against that exact hash. Failures are never remembered. Bounded (least recently
+    used goes first) and every entry lapses after `ttl` seconds."""
+
+    def __init__(self, size: int = 1000, ttl: float = 300.0):
+        self.size, self.ttl = size, ttl
+        self._seen: OrderedDict[tuple[str, str, str], float] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def __len__(self) -> int:
+        return len(self._seen)
+
+    def known(self, key: tuple[str, str, str]) -> bool:
+        with self._lock:
+            until = self._seen.get(key)
+            if until is None:
+                return False
+            if until < time.monotonic():
+                del self._seen[key]
+                return False
+            self._seen.move_to_end(key)
+            return True
+
+    def remember(self, key: tuple[str, str, str]) -> None:
+        with self._lock:
+            self._seen[key] = time.monotonic() + self.ttl
+            self._seen.move_to_end(key)
+            while len(self._seen) > self.size:
+                self._seen.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._seen.clear()
+
+
+verified_tokens = VerifiedTokens()
+
+
 def find_token(query, model, token: str):
     """The row of `query` (enabled tokens of `model`, which has token_hash and token_lookup) that `token` belongs
-    to, or None. Found by its lookup and confirmed with bcrypt; a token stored before token_lookup existed is
-    found the old way — bcrypt against each such row — and gets its lookup on the way, so that scan shrinks to
-    nothing as old tokens are used."""
+    to, or None. Found by its lookup and confirmed with bcrypt — once: later requests with the same token skip
+    the check while `verified_tokens` remembers it (see there for why that is safe). A token stored before
+    token_lookup existed is found the old way — bcrypt against each such row — and gets its lookup on the way,
+    so that scan shrinks to nothing as old tokens are used."""
     lookup = token_lookup(token)
     row = query.filter(model.token_lookup == lookup).first()
     if row is not None:
-        return row if get_hasher().verify(token, row.token_hash) else None
+        key = (model.__tablename__, lookup, row.token_hash)
+        if verified_tokens.known(key):
+            return row
+        if not get_hasher().verify(token, row.token_hash):
+            return None
+        verified_tokens.remember(key)
+        return row
     for row in query.filter(model.token_lookup.is_(None)).all():
         if get_hasher().verify(token, row.token_hash):
             row.token_lookup = lookup
+            verified_tokens.remember((model.__tablename__, lookup, row.token_hash))
             return row
     return None
