@@ -717,6 +717,28 @@ class SnapshotAction(_StepBase):
         return self
 
 
+class DeleteEntriesAction(_StepBase):
+    """Deletes many entries at once. `query` is an entry query, as a collect step's (templates allowed; it must narrow by
+    type, fields, entries, a collection, tags, text or where). `mode` preview (the default) counts them by
+    type and changes nothing; trash moves them to the Trash (restorable); permanent deletes them for good (the workflow's
+    author must be ADMIN/OWNER: put an approval with approvers admin before it). A delete needs `confirm_total`, the
+    preview step's total (${steps.<id>.output.total}): when the query no longer selects that many, it fails and deletes
+    nothing. No entry_trashed / entry_deleted per entry; one entries_bulk_deleted."""
+
+    kind: Literal["delete_entries"]
+    query: dict
+    mode: Literal["preview", "trash", "permanent"] = "preview"
+    confirm_total: int | str | None = None
+    description: str | None = Field(default=None, max_length=300)
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _confirmed(self):
+        if self.mode != "preview" and self.confirm_total in (None, ""):
+            raise ValueError("a trash or permanent delete needs confirm_total: the preview step's total (${steps.<id>.output.total})")
+        return self
+
+
 class AutomationResultAction(_StepBase):
     """Settles a hand-off's result. For work an integration action that declares `hands_off` handed to another system (its results are listed
     under Settings > Automation > Results). `status` is the other system's own word for how it went (a template is fine), turned into
@@ -952,6 +974,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "alert": AlertAction,
     "metric": MetricAction,
     "snapshot": SnapshotAction,
+    "delete_entries": DeleteEntriesAction,
     "automation_result": AutomationResultAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
@@ -975,6 +998,7 @@ Action = Annotated[
     | AlertAction
     | MetricAction
     | SnapshotAction
+    | DeleteEntriesAction
     | AutomationResultAction
     | WaitAction
     | RepeatAction

@@ -1,0 +1,15 @@
+---
+/**
+ * ListBar: the one line above a list that holds the Cards · List switch on the left and the Sort select on the
+ * right (the switch is the default slot, the sort goes in the `sort` slot). Used by Entries, Assets, Resources and
+ * a collection's page, so Sort never sits on a line of its own.
+ */
+---
+
+<div class="list-bar"><slot /><slot name="sort" /></div>
+
+<style>
+  .list-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+  .list-bar :global(.view-toggle) { margin-bottom: 0; }
+  .list-bar :global(.list-sort) { margin: 0; }
+</style>

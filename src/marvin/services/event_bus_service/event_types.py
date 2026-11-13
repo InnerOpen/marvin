@@ -338,6 +338,7 @@ class EventTypes(EventTypeBase):
     """Event dispatched when a resource is restored from the Trash."""
     trash_auto_empty_soon = auto()
     trash_emptied = auto()
+    entries_bulk_deleted = auto()
     """Event dispatched once a day per workspace when the Trash's auto-empty will delete items forever within a day."""
 
     # ==========================================================================
@@ -1453,6 +1454,26 @@ class EventTrashEmptiedData(EventDocumentDataBase):
     resources: int = 0
     trash_collection_id: UUID4 | None = None
     """The workspace's Trash (the system collection)."""
+
+
+class EventEntriesBulkDeletedData(EventDocumentDataBase):
+    """Data payload for `entries_bulk_deleted`: the entries a saved search selected, moved to the Trash (``mode: trash``)
+    or deleted for good (``mode: permanent``) in one bulk delete (services/entries/bulk_delete.py). The entries send no
+    ``entry_trashed`` / ``entry_deleted`` of their own: this one event stands for all of them."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    workspace_id: UUID4
+    workspace_name: str | None = None
+    mode: str
+    """``trash`` (restorable from the Trash) or ``permanent``."""
+    total: int
+    """How many entries went."""
+    by_type: dict[str, int] = {}
+    """Entry type slug → how many of that type went."""
+    description: str | None = None
+    """What the caller said the entries were (e.g. what an import made for a story)."""
+    complete: bool = True
+    """False when the job stopped part way (an error): ``total`` is what went before it stopped."""
 
 
 class EventTrashAutoEmptyData(EventDocumentDataBase):

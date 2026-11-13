@@ -156,7 +156,6 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
       {builderData && (
         <>
           <EntrySearchBar conds={conds} pinned={pinned} path={searchPath} builderData={builderData} total={search?.total ?? null} note={search?.note ?? null} />
-          {targetType === "entry" && !isTrash && <ListSort options={COLLECTION_SORTS} value={sort} />}
         </>
       )}
 
@@ -186,7 +185,9 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
           <p>{targetType === "entry" ? "Entries" : `${targetType[0].toUpperCase()}${targetType.slice(1)}s`} matching this collection will appear here.</p>
         </div>
       ) : targetType === "entry" ? (
-        <EntryViews entries={shown} typeNames={typeMap} storageKey="collection-view" defaultView="list" />
+        <EntryViews entries={shown} typeNames={typeMap} storageKey="collection-view" defaultView="list">
+          {targetType === "entry" && !isTrash && <ListSort slot="sort" options={COLLECTION_SORTS} value={sort} />}
+        </EntryViews>
       ) : (
         <ul class="inbox">
           {members.map((m) => (

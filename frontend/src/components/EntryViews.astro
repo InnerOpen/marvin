@@ -4,6 +4,7 @@
  * collection's page and the Entries page's search results. The choice is remembered per `storageKey`.
  */
 import EntryCard from "@/components/EntryCard.astro";
+import ListBar from "@/components/ListBar.astro";
 import EntryList from "@/components/EntryList.astro";
 
 interface Props {
@@ -21,10 +22,13 @@ const CARDS_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="curren
 ---
 
 <div class="entry-views" data-storage-key={storageKey} data-default-view={defaultView}>
-  <div class="view-toggle" role="group" aria-label="Show as">
+  <ListBar>
+    <div class="view-toggle" role="group" aria-label="Show as">
     <button type="button" class="toggle-btn" data-view="cards"><Fragment set:html={CARDS_ICON} /> Cards</button>
     <button type="button" class="toggle-btn" data-view="list"><Fragment set:html={LIST_ICON} /> List</button>
   </div>
+    <Fragment slot="sort"><slot name="sort" /></Fragment>
+  </ListBar>
   <section class="grid" data-pane="cards" aria-label="Entries">
     {entries.map((entry) => (
       <div class="entry-wrapper" data-status={entry.status} data-title={(entry.title || "").toLowerCase()}>
