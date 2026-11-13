@@ -24,7 +24,7 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   a field under the name, ``badges`` fields shown as pills. Actions, each optional: ``add`` ({fields, data?}: a form), ``upload`` ({field,
   accept?}: a file becomes a new entry, named for the file; ``accept`` is the file input's accept, ``image/*`` unless it says, e.g.,
   ``audio/*``), ``generate`` ({workflow, inputs, button, prompt?: {name, label}}: a run, as a run step, with a text the person types).
-  ``card_actions`` (1 to 3 buttons on each card: ``{label, set: {field: value}, when?, file?}``) change the card's entry; with ``file`` ({field,
+  ``card_actions`` (1 to 4 buttons on each card: ``{label, set: {field: value}, when?, file?}``) change the card's entry; with ``file`` ({field,
   accept?, assets?}) the button first asks for a file, an upload or, with ``assets`` true, one of the workspace's assets that fits ``accept``, puts
   it in the asset field ``file.field`` and then sets the ``set`` fields. ``add.file`` takes ``assets`` the same way: choose a file already there
   instead of uploading one.
@@ -441,8 +441,8 @@ def _check_gallery_extras(s: _Step) -> str | None:
     if step.get("sort") not in (None, "natural"):
         return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
     if (acts := step.get("card_actions")) is not None:
-        if not isinstance(acts, list) or not 1 <= len(acts) <= 3:
-            return f"{s.label}: card_actions is a list of 1 to 3 buttons shown on each card"
+        if not isinstance(acts, list) or not 1 <= len(acts) <= 4:
+            return f"{s.label}: card_actions is a list of 1 to 4 buttons shown on each card"
         for a in acts:
             if not isinstance(a, dict) or not isinstance(a.get("label"), str) or not a["label"].strip():
                 return f"{s.label}: each card action needs a label"

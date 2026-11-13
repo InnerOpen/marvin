@@ -452,6 +452,8 @@ def test_a_wrong_takes_gallery_says_what_is_wrong(change, words):
 def test_a_card_action_may_ask_for_a_file_and_an_add_form_may_offer_the_workspaces_assets():
     action = {"label": "Use my file", "set": {"status": "approved"}, "file": {"field": "audio", "accept": "audio/*", "assets": True}}
     assert payload_problem(_takes_wizard(card_actions=[action]), "takes") is None
+    assert payload_problem(_takes_wizard(card_actions=[action] * 4), "takes") is None  # up to four buttons on a card
+    assert "1 to 4 buttons" in (payload_problem(_takes_wizard(card_actions=[action] * 5), "takes") or "")
     assert payload_problem(_takes_wizard(add={"fields": ["text"], "file": {"field": "audio", "accept": "audio/*", "assets": True}}), "takes") is None
     assert "assets is true or false" in (
         payload_problem(_takes_wizard(add={"fields": ["text"], "file": {"field": "audio", "assets": 1}}), "takes") or ""
