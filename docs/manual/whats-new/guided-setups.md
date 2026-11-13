@@ -30,7 +30,7 @@ A setup is a list of steps. The kinds:
 | `upload` | A file for an entry's field. Shows the picture as it is now, and asks before replacing one. |
 | `list` | The entries that belong to another (a story's characters), editable in place, with a way to add one. |
 | `gallery` | Entries as picture cards with a play button for sound; upload a picture or sound to make a new entry, or start a generation. |
-| `run` | A button that starts a workflow the same package brings, such as bringing in a screenplay. |
+| `run` | A button that starts a workflow the same package brings, such as bringing in a screenplay. The step then says where that run stands, as it goes: *Starting*, *Running (3 of 7 steps done)*, *Waiting on you* (its question is on the page), *Working* (the worker job it started), *Done* (Continue becomes the main button) or *Failed* (with the reason, and Run again). A gallery's Generate button says the same. The address carries the run (`run=<id>`), so the line survives a reload; `run`, like `step` and `notice`, cannot be a step's `as`. |
 | `review` | Checks (counts of entries, compared to a number) that say what is still missing, each linking back to the step that makes it. |
 
 `${name}` reads a choice made earlier. A setup ends with `next` (what to do after, with links) and `open` (a button that opens what was made, or its view). Field keys may be camelCase (`sellOnline`). A picture field is read under its role, so a type whose `image` field has `role: "featured"` shows the pictures attached as *featured*. The format is validated when the package is previewed; see `services/blueprints/wizards.py` for the exact rules.

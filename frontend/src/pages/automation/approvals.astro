@@ -39,6 +39,7 @@ try {
     {approvals.map((a) => (
       <article class="approval" data-id={a.id}>
         <p class="ask"><MessageText message={a.message} /></p>
+        {a.detail && <details class="ask-detail"><summary>Show the details</summary><p><MessageText message={a.detail} /></p></details>}
         {a.imageUrl && (isAudioUrl(a.imageUrl)
           ? <audio class="preview-audio" src={a.imageUrl} controls preload="metadata" />
           : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
@@ -98,6 +99,7 @@ try {
             </summary>
             <div class="chip-detail">
               <p class="ask"><MessageText message={a.message} /></p>
+              {a.detail && <details class="ask-detail"><summary>Show the details</summary><p><MessageText message={a.detail} /></p></details>}
               {a.imageUrl && (isAudioUrl(a.imageUrl)
                 ? <audio class="preview-audio" src={a.imageUrl} controls preload="none" />
                 : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
@@ -170,6 +172,10 @@ try {
   .approvals { display: grid; gap: 12px; max-width: 760px; }
   .approval { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; background: var(--panel); }
   .ask { margin: 0 0 6px; font-weight: 600; }
+  /* The long part of a question (a whole prompt), closed until asked for: the message above stays short enough to read at a glance. */
+  .ask-detail { margin: 0 0 8px; font-size: 14px; }
+  .ask-detail > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .ask-detail > p { margin: 8px 0 0; white-space: pre-wrap; max-height: 320px; overflow: auto; }
   .preview-audio { display: block; width: 100%; max-width: 360px; margin: 0 0 10px; }
   .preview { display: block; max-width: 360px; max-height: 270px; border-radius: var(--radius); border: 1px solid var(--line); margin: 0 0 10px; }
   .meta { margin: 0 0 10px; font-size: 13px; color: var(--muted); }

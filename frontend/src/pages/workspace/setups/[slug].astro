@@ -15,10 +15,12 @@ import { refOptionsFor } from "@/lib/refFieldsApi";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
-  type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
+  type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
   StepError, cardAudio, cardPicture, fieldRole, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
+import { getRunState, type WorkflowRunState } from "@/lib/api/workflowRuns";
+import { runKey, runLine } from "@/lib/runState";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -40,6 +42,8 @@ if (authToken) {
 }
 const def = wizard?.definition ?? null;
 const notice = NOTICES[Astro.url.searchParams.get(NOTICE_PARAM) ?? ""] ?? null;
+// The run this step started, carried in the address: the step says where it stands until it is over.
+const runId = runIdOf(Astro.url.searchParams);
 
 // The address is only trusted once checked: each choice must be an entry of the type its step picks (or one of an option's values), or it
 // is dropped, so a stale or crafted link cannot point a later step at something else.
@@ -72,11 +76,11 @@ if (Astro.request.method === "POST" && authToken && def && step) {
       const decision = form.get("decision") === "deny" ? "deny" : "approve";
       const choice = String(form.get("choice") ?? "").trim() || null;
       await decideApproval(deciding, decision, choice, String(form.get("note") ?? "").trim() || null, authToken);
-      return Astro.redirect(stepHref(slug, ctx, step.id, { [NOTICE_PARAM]: decision === "deny" ? "denied" : choice ? "chosen" : "approved" }));
+      return Astro.redirect(stepHref(slug, ctx, step.id, { ...(runId ? { [RUN_PARAM]: runId } : {}), [NOTICE_PARAM]: decision === "deny" ? "denied" : choice ? "chosen" : "approved" }));
     }
     const done = await runStep(def, step, form, ctx, authToken);
     const target = done.stay ? step : (nextStep(def, done.ctx, step.id) ?? step);
-    return Astro.redirect(stepHref(slug, done.ctx, target.id, done.notice ? { [NOTICE_PARAM]: done.notice } : {}));
+    return Astro.redirect(stepHref(slug, done.ctx, target.id, { ...(done.notice ? { [NOTICE_PARAM]: done.notice } : {}), ...(done.run ? { [RUN_PARAM]: done.run } : {}) }));
   } catch (e) {
     stepProblem = describeFailure(e);
     badFields = e instanceof StepError ? e.fields : [];
@@ -98,7 +102,14 @@ let formFields: any[] = [];
 let leftOut: any[] = [];
 let checks: { label: string; ok: boolean; count: number; step?: Step | null }[] = [];
 let columns: any[] = [];
-let flow: WorkflowState = { found: true, enabled: true };
+let flow: WorkflowState = { found: true, enabled: true, canRun: true };
+let runNow: WorkflowRunState | null = null; // where the run in the address stands, when it is this step's workflow's
+/** The run in the address, if it is a run of this workflow (an id carried over from another step says nothing here). */
+const runOf = async (workflow: string): Promise<WorkflowRunState | null> => {
+  const found = runId && authToken ? await getRunState(runId, authToken).catch(() => null) : null;
+  return found && found.automationSlug === workflow ? found : null;
+};
+const askedBy = (run: WorkflowRunState | null): string[] => (run?.waitingOn ?? []).map((w) => w.approvalId);
 let pendingCards: ApprovalCard[] = [];
 let decidedCards: ApprovalCard[] = [];
 let watchIds: string[] = [];
@@ -177,10 +188,10 @@ if (authToken && def && step) {
     }
     if (step.approve) {
       // The approvals of these workflows about the entries listed here (its takes, and what was chosen), so they are answered on this page.
-      const all = await approvalCards(authToken);
       const about = [...cards.map((c) => c.id), ...Object.values(entries).map((e) => e.id)];
       watchIds = about;
       for (const w of step.approve as string[]) {
+        const all = await approvalCards(w, authToken);
         approveNames[w] = (await workflowState(w, authToken)).name ?? w;
         pendingCards = [...pendingCards, ...approvalsOf(all.pending, w, about)];
         decidedCards = [...decidedCards, ...approvalsOf(all.decided, w, about)].slice(0, MAX_DECIDED_SHOWN);
@@ -191,8 +202,9 @@ if (authToken && def && step) {
       flow = await workflowState(genStep.workflow, authToken);
       const about = inputKeys(genStep).map((k) => entries[k]).filter((e): e is Row => !!e).map((e) => e.id);
       watchIds = about;
-      const all = await approvalCards(authToken);
-      pendingCards = approvalsOf(all.pending, genStep.workflow, about);
+      runNow = await runOf(genStep.workflow);
+      const all = await approvalCards(genStep.workflow, authToken);
+      pendingCards = approvalsOf(all.pending, genStep.workflow, about, askedBy(runNow));
       decidedCards = approvalsOf(all.decided, genStep.workflow, about).slice(0, MAX_DECIDED_SHOWN);
     }
   } else if (step.kind === "run") {
@@ -204,8 +216,9 @@ if (authToken && def && step) {
       const needed = entries[step.requires.entry];
       if (!needed || !hasValue(needed.dataJson?.[step.requires.field])) lacking = `“${step.requires.field}” on ${needed?.title ?? step.requires.entry} is empty: fill it in (or upload it) in an earlier step first.`;
     }
-    const cards = await approvalCards(authToken);
-    pendingCards = approvalsOf(cards.pending, step.workflow, about);
+    runNow = await runOf(step.workflow);
+    const cards = await approvalCards(step.workflow, authToken);
+    pendingCards = approvalsOf(cards.pending, step.workflow, about, askedBy(runNow));
     decidedCards = approvalsOf(cards.decided, step.workflow, about).slice(0, MAX_DECIDED_SHOWN);
   } else if (step.kind === "review") {
     checks = await Promise.all(
@@ -225,6 +238,7 @@ const allPass = checks.length > 0 && checks.every((c) => c.ok);
 // A run step with a card waiting holds the later steps: answering first keeps the card from going stale (an entry edited after the
 // question was asked makes the approval count as neither yes nor no).
 const held = (step?.kind === "run" || step?.kind === "gallery") && pendingCards.length > 0;
+const runSays = runNow ? runLine(runNow) : null;
 const made = Object.entries(entries).map(([key, e]) => ({ key, ...e }));
 const opened = def?.open ? entries[def.open.entry] ?? null : null;
 const submitLabel = after ? "Continue" : "Save";
@@ -436,7 +450,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           )}
 
           {step.kind === "gallery" && (
-            <div class="gallery" data-watch={(step.generate && (notice === NOTICES.started || pendingCards.length)) || (step.approve && (pendingCards.length || cards.some((c) => c.dataJson?.status === "queued"))) ? "1" : undefined} data-workflow={step.approve ? (step.approve as string[]).join(",") : genStep?.workflow} data-entries={watchIds.join(",")} data-pending={String(pendingCards.length)}>
+            <div class="gallery" data-watch={(step.generate && (notice === NOTICES.started || pendingCards.length)) || (step.approve && (pendingCards.length || cards.some((c) => c.dataJson?.status === "queued"))) ? "1" : undefined} data-workflow={step.approve ? (step.approve as string[]).join(",") : genStep?.workflow} data-entries={watchIds.join(",")} data-asked={askedBy(runNow).join(",")} data-pending={String(pendingCards.length)}>
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
               {step.approve && (pendingCards.length > 0 || cards.some((c) => c.dataJson?.status === "queued")) && (
                 <section class="approvals" aria-live="polite">
@@ -445,6 +459,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       <input type="hidden" name="decide" value={c.id} />
                       <p class="approval-title">{approveNames[c.automationSlug ?? ""] ?? "A workflow"} is asking</p>
                       <div class="approval-message">{c.message}</div>
+                      {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                       {c.imageUrl && <audio class="approval-audio" controls src={c.imageUrl}></audio>}
                       <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                       <div class="actions">
@@ -584,7 +599,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                     </details>
                   )}
                   {step.generate && (
-                    <details class="gaction" open={!!(notice || pendingCards.length)}>
+                    <details class="gaction" open={!!(notice || pendingCards.length || runNow)}>
                       <summary class="button secondary">✦ {step.generate.button ?? "Generate"}</summary>
                       <div class="form gform">
                         {flow.forbidden && <div class="alert alert-info">Only a workspace admin can start a workflow today.</div>}
@@ -595,6 +610,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             <input type="hidden" name="decide" value={c.id} />
                             <p class="approval-title">{flow.name ?? step.generate.workflow} is asking</p>
                             <div class="approval-message">{c.message}</div>
+                            {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                             {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
                             <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                             <div class="actions">
@@ -605,11 +621,16 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             </div>
                           </form>
                         ))}
-                        {pendingCards.length === 0 && notice === NOTICES.started && <p class="muted waiting">Started. Nothing needs your approval right now; if something does, it appears here. You can go on to the next step: what this makes shows there.</p>}
+                        {runNow && runSays && (
+                          <p class:list={["run-state", runSays.tone]} role="status" aria-live="polite" data-run={runNow.executionId} data-key={runKey(runNow)} data-over={runSays.over ? "1" : undefined}>
+                            <span data-run-text>{runSays.text}</span>
+                            {runNow.job && <a href={`/workspace/entries/${runNow.job.entryId}`}>Open the job</a>}
+                          </p>
+                        )}
                         <form method="post" class="form">
                           <input type="hidden" name="action" value="generate" />
                           {step.generate.prompt && <label class="col"><span>{step.generate.prompt.label}</span><textarea class="input" rows="3" name="prompt" required /></label>}
-                          <div class="actions"><button class="button" type="submit" disabled={!flow.found || !flow.enabled}>{step.generate.button ?? "Generate"}</button></div>
+                          <div class="actions"><button class="button" type="submit" disabled={!flow.canRun}>{step.generate.button ?? "Generate"}</button></div>
                         </form>
                       </div>
                     </details>
@@ -621,10 +642,10 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           )}
 
           {step.kind === "run" && (
-            <div class="run" data-watch={notice || pendingCards.length ? "1" : undefined} data-workflow={step.workflow} data-entries={watchIds.join(",")} data-pending={String(pendingCards.length)}>
+            <div class="run" data-watch={notice || pendingCards.length ? "1" : undefined} data-workflow={step.workflow} data-entries={watchIds.join(",")} data-asked={askedBy(runNow).join(",")} data-pending={String(pendingCards.length)}>
               {flow.forbidden && <div class="alert alert-info">Only a workspace admin can start a workflow today. Ask one to run this step; what it makes shows here for everyone.</div>}
               {!flow.found && !flow.forbidden && <div class="alert alert-info">This workspace has no workflow “{step.workflow}”. Install the package that brings it.</div>}
-              {flow.found && flow.enabled && <p class="muted runs">Runs “{flow.name}”{flow.description ? `: ${flow.description}` : ""}</p>}
+              {flow.found && flow.enabled && <p class="muted runs">Runs “{flow.name}”</p>}
               {lacking && flow.found && flow.enabled && <div class="alert alert-info">{lacking}</div>}
               {flow.found && !flow.enabled && (
                 <div class="alert alert-info">“{flow.name}” is switched off. Turn it on under <a href="/automation/workflows">Automation → Workflows</a> (it runs with its author’s permissions), then come back.</div>
@@ -635,6 +656,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   <input type="hidden" name="decide" value={c.id} />
                   <p class="approval-title">{flow.name ?? step.workflow} is asking</p>
                   <div class="approval-message">{c.message}</div>
+                  {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                   {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
                   <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                   <div class="actions">
@@ -646,14 +668,19 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 </form>
               ))}
 
-              {pendingCards.length === 0 && notice && flow.found && flow.enabled && <p class="muted waiting">Started. Nothing needs your approval right now; if something does, it appears here. You can go on to the next step: what this makes shows there.</p>}
+              {runNow && runSays && (
+                <p class:list={["run-state", runSays.tone]} role="status" aria-live="polite" data-run={runNow.executionId} data-key={runKey(runNow)} data-over={runSays.over ? "1" : undefined}>
+                  <span data-run-text>{runSays.text}</span>
+                  {runNow.job && <a href={`/workspace/entries/${runNow.job.entryId}`}>Open the job</a>}
+                </p>
+              )}
 
               <form method="post" class="form">
                 <div class="actions">
-                  <button class:list={["button", pendingCards.length > 0 && "secondary"]} type="submit" disabled={!flow.found || !flow.enabled || !!lacking}>
-                    {pendingCards.length > 0 || decidedCards.length > 0 ? `${step.button ?? "Run"} again` : (step.button ?? "Run")}
+                  <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking}>
+                    {pendingCards.length > 0 || decidedCards.length > 0 || runNow ? `${step.button ?? "Run"} again` : (step.button ?? "Run")}
                   </button>
-                  {after && !held && (decidedCards.length > 0 || notice) && <a class="button" href={stepHref(slug, ctx, after.id)}>Continue →</a>}
+                  {after && !held && (decidedCards.length > 0 || notice || runNow) && <a class:list={["button", runSays && runSays.tone !== "ok" && "secondary"]} href={stepHref(slug, ctx, after.id)}>Continue →</a>}
                   {held && <span class="muted">Answer the question above before going on: editing the story meanwhile would void it.</span>}
                 </div>
               </form>
@@ -759,7 +786,10 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
       form.submit();
     });
   });
-  import { fetchApi } from "@/lib/api/client";
+  import { listApprovals } from "@/lib/api/workflowApprovals";
+  import { approvalsOf } from "@/lib/wizard";
+  import { getRunState } from "@/lib/api/workflowRuns";
+  import { runKey, runLine } from "@/lib/runState";
   // A pick list longer than a few: type to narrow it by name (and by the line under it), as you type.
   const search = document.querySelector<HTMLInputElement>("[data-pick-search]");
   if (search) {
@@ -785,13 +815,16 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   if (run) {
     const slugs = (run.dataset.workflow ?? "").split(",").filter(Boolean);
     const entries = (run.dataset.entries ?? "").split(",").filter(Boolean);
+    const asked = (run.dataset.asked ?? "").split(",").filter(Boolean);
     const shown = Number(run.dataset.pending ?? "0");
     const started = Date.now();
     const tick = async () => {
       if (Date.now() - started > 10 * 60 * 1000) return;
       try {
-        const cards = await fetchApi<{ automationSlug?: string; entryId?: string }[]>("/api/automations/approvals?state=pending");
-        const mine = cards.filter((c) => slugs.includes(c.automationSlug ?? "") && (entries.length === 0 || !c.entryId || entries.includes(c.entryId)));
+        // Asked for one workflow at a time, so the server narrows the list before its cap: this step's cards are found however many
+        // others wait. Counted by the rule the page drew them with, so the two can never disagree (and reload for ever).
+        const lists = await Promise.all(slugs.map((slug) => listApprovals(undefined, "pending", { automation: slug })));
+        const mine = slugs.flatMap((slug, i) => approvalsOf(lists[i], slug, entries, asked));
         if (mine.length !== shown) return location.reload();
       } catch {
         /* a failed poll just tries again */
@@ -799,6 +832,27 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
       window.setTimeout(tick, 5000);
     };
     window.setTimeout(tick, 5000);
+  }
+  // A run this step started: say where it stands as it goes, and draw the page again when what it shows would change (a question
+  // to answer, the end). Stops when the run is over, or after half an hour.
+  const live = document.querySelector<HTMLElement>(".run-state[data-run]:not([data-over])");
+  if (live) {
+    const RUN_POLL_MS = 4000;
+    const RUN_WATCH_MS = 30 * 60 * 1000;
+    const words = live.querySelector<HTMLElement>("[data-run-text]");
+    const began = Date.now();
+    const follow = async () => {
+      if (Date.now() - began > RUN_WATCH_MS) return;
+      try {
+        const now = await getRunState(live.dataset.run ?? "");
+        if (!now || runKey(now) !== live.dataset.key) return location.reload();
+        if (words) words.textContent = runLine(now).text;
+      } catch {
+        /* a failed poll just tries again */
+      }
+      window.setTimeout(follow, RUN_POLL_MS);
+    };
+    window.setTimeout(follow, RUN_POLL_MS);
   }
 </script>
 
@@ -908,6 +962,16 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .approval-title { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
   .approval-message { white-space: pre-wrap; font-size: 14px; line-height: 1.5; max-height: 320px; overflow: auto; padding-right: 4px; }
   .approval-picture { max-width: 100%; max-height: 360px; border-radius: var(--radius); }
+  .approval-detail > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  .approval-detail[open] > summary { margin-bottom: 8px; }
+  /* Where the run this step started stands: one line, coloured by what it needs from the person. */
+  .run-state { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 14px; border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--radius); background: var(--panel); font-size: 14px; }
+  .run-state.ask { border-left-color: var(--warn, #d08700); }
+  .run-state.ok { border-left-color: var(--good); }
+  .run-state.bad { border-left-color: var(--color-error); }
+  .run-state.busy [data-run-text]::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--accent); animation: run-pulse 1.2s ease-in-out infinite; }
+  @keyframes run-pulse { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .run-state.busy [data-run-text]::before { animation: none; } }
   .decided summary { cursor: pointer; font-size: 13px; color: var(--muted); }
   .decided ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
   .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
