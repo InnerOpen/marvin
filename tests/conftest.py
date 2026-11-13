@@ -139,6 +139,15 @@ def pytest_unconfigure(config) -> None:
 
 
 @fixture(autouse=True)
+def _no_remembered_tokens() -> None:
+    """API tokens bcrypt has confirmed are remembered process-wide (core/security/hasher.py: verified_tokens); each
+    test starts with none, so one test's tokens never skip another's checks."""
+    from marvin.core.security.hasher import verified_tokens
+
+    verified_tokens.clear()
+
+
+@fixture(autouse=True)
 def _no_plugin_update_check(monkeypatch) -> None:
     """Admin → Overview starts a background GitHub tag check when its cache is stale; no test should reach GitHub."""
     from marvin.services import plugin_updates

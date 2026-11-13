@@ -108,6 +108,113 @@ def test_rotating_a_token_moves_its_lookup(db_session, owner):
     assert repo.validate_token(rotated.token) is not None and repo.validate_token(made.token) is None
 
 
+def test_a_token_is_bcrypt_checked_once_then_remembered(db_session, owner, verifications):
+    repo = _tokens(db_session)
+    made = repo.create({"name": "warm", "user_id": owner.uid})
+    verifications.n = 0
+    assert repo.validate_token(made.token) is not None and verifications.n == 1
+    for _ in range(5):
+        assert repo.validate_token(made.token) is not None
+    assert verifications.n == 1
+
+
+def test_a_wrong_or_different_token_is_still_checked_and_refused(db_session, owner, verifications, monkeypatch):
+    """A remembered token lets nothing else in: another stored token still costs its own check, and a token whose
+    stored hash does not match is refused (the remembered pair is that token's, not the row's)."""
+    from marvin.db.models.users.users import LongLiveToken
+
+    repo = _tokens(db_session)
+    a, b = (repo.create({"name": n, "user_id": owner.uid}) for n in ("a", "b"))
+    repo.validate_token(a.token)
+    verifications.n = 0
+    assert repo.validate_token(b.token) is not None and verifications.n == 1
+    # a request whose token finds a row by its lookup but does not match that row's hash: checked, and refused
+    db_session.query(LongLiveToken).filter_by(id=b.id).update({"token_lookup": hasher.token_lookup("marvin_tk_forged")})
+    db_session.commit()
+    verifications.n = 0
+    assert repo.validate_token("marvin_tk_forged") is None and verifications.n == 1
+    assert repo.validate_token("marvin_tk_forged") is None and verifications.n == 2
+
+
+def test_knowing_only_the_lookup_hash_gets_nobody_in(db_session, owner):
+    """The remembered key holds the token's SHA-256, but a request carries the raw token and the lookup is computed from
+    it here: presenting the SHA-256 itself hashes to something else and finds no row."""
+    repo = _tokens(db_session)
+    made = repo.create({"name": "h", "user_id": owner.uid})
+    assert repo.validate_token(made.token) is not None
+    assert repo.validate_token(hasher.token_lookup(made.token)) is None
+    assert repo.validate_token("marvin_tk_" + hasher.token_lookup(made.token)) is None
+
+
+@pytest.mark.parametrize("change", ["revoke", "disable", "delete"])
+def test_a_remembered_token_stops_working_on_the_next_request(db_session, owner, verifications, change):
+    from marvin.db.models.users.users import LongLiveToken
+
+    repo = _tokens(db_session)
+    made = repo.create({"name": change, "user_id": owner.uid})
+    assert repo.validate_token(made.token) is not None and repo.validate_token(made.token) is not None
+    if change == "revoke":
+        repo.revoke(made.id)
+    elif change == "disable":
+        db_session.query(LongLiveToken).filter_by(id=made.id).update({"enabled": False})
+        db_session.commit()
+    else:
+        db_session.query(LongLiveToken).filter_by(id=made.id).delete()
+        db_session.commit()
+    assert repo.validate_token(made.token) is None
+
+
+def test_a_rotated_token_is_refused_even_while_remembered(db_session, owner, verifications):
+    from marvin.db.models.users.users import LongLiveToken
+
+    repo = _tokens(db_session)
+    made = repo.create({"name": "rot", "user_id": owner.uid})
+    assert repo.validate_token(made.token) is not None
+    rotated = repo.rotate_token(made.id)
+    assert repo.validate_token(made.token) is None
+    assert repo.validate_token(rotated.token) is not None
+    # even if the row kept the old lookup, its new hash no longer matches the remembered pair: bcrypt decides
+    db_session.query(LongLiveToken).filter_by(id=made.id).update({"token_lookup": hasher.token_lookup(made.token)})
+    db_session.commit()
+    verifications.n = 0
+    assert repo.validate_token(made.token) is None and verifications.n == 1
+
+
+def test_remembered_tokens_are_bounded_and_lapse(monkeypatch):
+    seen = hasher.VerifiedTokens(size=3, ttl=60)
+    for i in range(10):
+        seen.remember(("t", f"lookup{i}", f"hash{i}"))
+    assert len(seen) == 3
+    assert seen.known(("t", "lookup9", "hash9")) and not seen.known(("t", "lookup0", "hash0"))
+    clock = [1000.0]
+    monkeypatch.setattr(hasher.time, "monotonic", lambda: clock[0])
+    seen.remember(("t", "x", "y"))
+    clock[0] += 61
+    assert not seen.known(("t", "x", "y"))
+
+
+def test_an_older_token_becomes_remembered_once_found(db_session, owner, verifications):
+    from marvin.db.models.users.users import LongLiveToken
+
+    repo = _tokens(db_session)
+    made = repo.create({"name": "old2", "user_id": owner.uid})
+    db_session.query(LongLiveToken).filter_by(id=made.id).update({"token_lookup": None})
+    db_session.commit()
+    verifications.n = 0
+    assert repo.validate_token(made.token) is not None and verifications.n == 1
+    assert repo.validate_token(made.token) is not None and verifications.n == 1
+
+
+def test_a_site_client_token_is_remembered_and_revoking_it_still_works(db_session, owner, verifications):
+    repo = APIClientsRepository(db_session, owner.gid)
+    client = repo.create({"name": "site warm", "created_by": owner.uid})
+    verifications.n = 0
+    assert repo.validate_token(client.token) is not None and repo.validate_token(client.token) is not None
+    assert verifications.n == 1
+    repo.revoke(client.id)
+    assert repo.validate_token(client.token) is None
+
+
 def test_a_site_client_token_is_found_by_its_lookup_and_rotation_moves_it(db_session, owner, verifications):
     repo = APIClientsRepository(db_session, owner.gid)
     clients = [repo.create({"name": f"site {i}", "created_by": owner.uid}) for i in range(3)]
