@@ -67,14 +67,16 @@ A timeline definition::
   ``bed.ramp`` seconds (0 to 30, default 0: a hard edge), or over the later step's first item's ``bed.item_ramp_in`` field, else the earlier
   step's last item's ``bed.item_ramp_out``, as the render does: the block draws the slope. ``cover`` is a video laid over each item's
   picture: ``field`` is the asset field, ``blend`` and ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with
-  ``entry_type``) names, then the view's entry itself, and a blend of ``none`` at one of them switches the overlay off from there up.
-  ``marks`` writes one choice per spine item in its block, for something about the shot that is not sound or picture (the camera's move, the
-  time of day): ``field`` holds the choice (a select's value), read from the item, else the entry ``via`` (with ``entry_type``) names, else
-  the view's entry, so a scene or a story can set it for the beats that do not; ``labels`` and ``icons`` ({value: text}) say how a value
-  reads, and ``other`` ({field, label}) names what the item shows when that other field holds something of its own (an exact camera move
-  written out): written on purpose, it wins over the item's own choice, which wins over what the scene or the story chose. ``merge`` lists
-  the values whose effect carries on across a cut (a ship's rocking): consecutive items with the same one from the same scene or story are
-  drawn as one block, not a chip each.
+  ``entry_type``) names, then the view's entry itself, and a blend of ``none`` at one of them switches the overlay off from there up;
+  ``cover.card`` ({title, text?, delay?, default_delay?, name?}) adds a card the item writes itself (an info card): it is drawn as a block
+  named ``name`` and the title (else the text), starting ``delay`` seconds (the item's field, else ``default_delay``) into the item, and
+  takes the place of any overlay file for that item, as the render does. ``marks`` writes one choice per spine item in its block, for
+  something about the shot that is not sound or picture (the camera's move, the time of day): ``field`` holds the choice (a select's value),
+  read from the item, else the entry ``via`` (with ``entry_type``) names, else the view's entry, so a scene or a story can set it for the
+  beats that do not; ``labels`` and ``icons`` ({value: text}) say how a value reads, and ``other`` ({field, label}) names what the item
+  shows when that other field holds something of its own (an exact camera move written out): written on purpose, it wins over the item's own
+  choice, which wins over what the scene or the story chose. ``merge`` lists the values whose effect carries on across a cut (a ship's
+  rocking): consecutive items with the same one from the same scene or story are drawn as one block, not a chip each.
 - ``spine.review`` ({ready, keep, redo}) puts Keep and Redo buttons on each item whose ``spine.status`` is one of ``ready`` (a still that was
   made and waits to be looked at): Keep writes the status ``keep``, Redo the status ``redo`` into the item's status field, and the page shows
   the new status at once. What the package does with those statuses (a redo made again) is its own workflows' business.
@@ -378,15 +380,27 @@ def _check_lane(lane: dict, label: str) -> str | None:
 
 def _check_cover(cover: Any, label: str) -> str | None:
     if not isinstance(cover, dict):
-        return f"{label}: cover is {{field, blend?, opacity?, via?, entry_type?}}"
+        return f"{label}: cover is {{field, blend?, opacity?, via?, entry_type?, card?}}"
     if problem := _field(cover, "field", f"{label} cover", required=True):
         return problem
     if problem := _fields(cover, ("blend", "opacity", "via"), f"{label} cover"):
         return problem
     if (cover.get("via") is None) != (cover.get("entry_type") is None):
         return f"{label}: cover.via (the spine item's field naming the entry) and cover.entry_type go together"
-    if cover.get("entry_type") is not None:
-        return _slug(cover, "entry_type", f"{label} cover")
+    if cover.get("entry_type") is not None and (problem := _slug(cover, "entry_type", f"{label} cover")):
+        return problem
+    if (card := cover.get("card")) is not None:
+        if not isinstance(card, dict):
+            return f"{label}: cover.card is {{title, text?, delay?, default_delay?, name?}}"
+        where = f"{label} cover.card"
+        if (problem := _field(card, "title", where, required=True)) or (problem := _fields(card, ("text", "delay"), where)):
+            return problem
+        default = card.get("default_delay")
+        if default is not None and (isinstance(default, bool) or not isinstance(default, int | float) or default < 0 or default > 60):
+            return f"{label}: cover.card.default_delay is seconds, 0 to 60"
+        name = card.get("name")
+        if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > 40):
+            return f"{label}: cover.card.name is a short text"
     return None
 
 

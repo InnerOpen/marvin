@@ -451,10 +451,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           data-start={c.start}
                           data-end={c.start + c.seconds}
                           style={`left:${pctIn(track, clip(c, track).from)};width:${pctIn(track, track.start + clip(c, track).seconds)}`}
-                          title={`${c.name}\n${timecode(c.start)} → ${timecode(c.start + c.seconds)} · ${c.blend}${c.opacity < 1 ? ` at ${Math.round(c.opacity * 100)}%` : ""} · from the ${c.from}`}
+                          title={c.card ? `${c.name}\n${timecode(c.start)} → ${timecode(c.start + c.seconds)} · written on the ${c.from}` : `${c.name}\n${timecode(c.start)} → ${timecode(c.start + c.seconds)} · ${c.blend}${c.opacity < 1 ? ` at ${Math.round(c.opacity * 100)}%` : ""} · from the ${c.from}`}
                         >
                           <span>{c.name}</span>
-                          <small>{c.blend}{c.opacity < 1 ? ` ${Math.round(c.opacity * 100)}%` : ""} · {c.from}</small>
+                          <small>{c.card ? `on the ${c.from}` : <>{c.blend}{c.opacity < 1 ? ` ${Math.round(c.opacity * 100)}%` : ""} · {c.from}</>}</small>
                         </span>
                       ))}
                     {lane.marks &&

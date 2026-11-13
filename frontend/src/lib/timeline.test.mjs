@@ -367,6 +367,26 @@ test("overlay lane: a blend of none switches the overlay off from that level up,
   ]);
 });
 
+const cardSpec = { ...spec, lanes: [...spec.lanes, { id: "overlay", title: "Overlay", entry_type: "beat", cover: { field: "overlay", via: "scene", entry_type: "scene", card: { title: "info_title", text: "info_text", delay: "overlay_delay", default_delay: 0.6, name: "Info card" } } }] };
+const cardLaid = (beatsData) => {
+  const spine = bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, ...(beatsData[i] ?? {}) }, assets: beatsData[i]?.assets ?? [] }));
+  return layout(cardSpec, { entry: row("s", {}, { assets: [grain] }), spine, groups: chapters, lanes: { lines: [], sounds: [] }, via: { overlay: [] } });
+};
+
+test("overlay lane: a card the beat writes is a block of its own, in after the delay, and it takes the place of the overlay file for that beat", () => {
+  const laid = cardLaid([{}, { info_title: "The Last Onion", info_text: "A ship.", overlay_delay: 1.5 }, {}]);
+  assert.deepEqual(laid.covers.overlay.map((c) => [c.name, !!c.card, c.start, c.seconds, c.items.length]), [
+    ["grain.mp4", false, 0, 4, 1], // b1: the story's file
+    ["Info card: The Last Onion", true, 5.5, 2.5, 1], // b2 (4 to 8 s): in after 1.5 s, and the story's file is not drawn under it
+    ["grain.mp4", false, 8, 12, 3], // b3 to b5: the file again
+  ]);
+});
+
+test("overlay lane: a card with no delay set comes in after the default, a sentence alone names it, and no card text is no card", () => {
+  const laid = cardLaid([{ info_text: "Only a sentence." }, { info_title: "  " }]);
+  assert.deepEqual(laid.covers.overlay.slice(0, 2).map((c) => [c.name, c.card ?? false, c.start]), [["Info card: Only a sentence.", true, 0.6], ["grain.mp4", false, 4]]);
+});
+
 test("overlay lane: nothing named anywhere draws nothing, and a file that is no picture or video is not an overlay", () => {
   assert.deepEqual(coverLaid({}).covers, { overlay: [] });
   assert.deepEqual(coverLaid({ storyAssets: [{ role: "overlay", publicUrl: "https://cdn/x.pdf", mimeType: "application/pdf" }] }).covers.overlay, []);
