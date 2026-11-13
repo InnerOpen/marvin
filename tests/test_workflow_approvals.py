@@ -305,6 +305,81 @@ def test_a_dry_run_previews_the_question_and_the_steps_after_it(ws, signoff):  #
     assert approvals.pending(ws.session, ws.gid, ROLE_EDITOR) == [] and signoff.calls == []
 
 
+# ── a long question: a short message, the whole of it in detail ──────────────
+
+
+def _asking(message: str, **step) -> dict:
+    return {"trigger": {"type": "event", "event": "entry_published"}, "actions": [{"kind": "approval", "id": "ok", "message": message, **step}]}
+
+
+def test_a_detail_is_kept_beside_the_message(ws):  # noqa: F811
+    _install(ws, _asking("Keep this cover for “${entry.title}”?", detail="Prompt: ${entry.title}, at dusk, in oils."))
+    article = _published(ws)
+
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+
+    waiting = _waiting(ws)
+    assert (waiting.message, waiting.detail) == ("Keep this cover for “Engraving brass”?", "Prompt: Engraving brass, at dusk, in oils.")
+
+
+def test_a_question_without_a_detail_has_none(ws):  # noqa: F811
+    _install(ws)
+    article = _published(ws)
+
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+
+    assert _waiting(ws).detail is None
+
+
+def test_a_long_message_keeps_its_first_600_and_the_whole_text_lands_in_detail(ws, monkeypatch):  # noqa: F811
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+    sent = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: sent.append((kw["event_type"].name, kw)))
+    long = "Paint " + "a very long prompt " * 263  # 5,003 characters
+    _install(ws, _asking(long))
+    article = _published(ws)
+
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+
+    waiting = _waiting(ws)
+    assert len(waiting.message) == approvals.MAX_MESSAGE == 600 and waiting.message.startswith(long[:590]) and waiting.message.endswith("…")
+    assert waiting.detail == long.strip()
+    (asked,) = [kw for name, kw in sent if name == "workflow_approval_requested"]
+    assert asked["document_data"].message == waiting.message  # the push line is the short one
+
+
+def test_a_long_message_with_a_detail_keeps_both_in_the_detail(ws):  # noqa: F811
+    _install(ws, _asking("Q" * 700, detail="The prompt."))
+    article = _published(ws)
+
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+
+    assert _waiting(ws).detail == "Q" * 700 + "\n\n" + "The prompt."
+
+
+def test_a_detail_is_cut_at_its_cap(ws):  # noqa: F811
+    _install(ws, _asking("Keep it?", detail="d" * 25_000))
+    article = _published(ws)
+
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+
+    assert len(_waiting(ws).detail) == approvals.MAX_DETAIL == 20_000
+
+
+def test_a_dry_run_shows_the_message_and_the_detail_as_they_would_be_asked(ws):  # noqa: F811
+    from marvin.services.automation.engine import dry_run_for_event
+
+    workflow = _install(ws, _asking("Q" * 700, detail="Prompt for ${entry.title}."))
+    article = _published(ws)
+
+    result = dry_run_for_event(ws.session, ws.gid, workflow, _entry_doc(article) | {"event_type": "entry_published", "entry_id": str(article.id)})
+
+    (ask,) = result["plan"]
+    assert len(ask["resolved"]["message"]) == 600 and ask["resolved"]["detail"] == "Q" * 700 + "\n\nPrompt for Engraving brass."
+    assert approvals.pending(ws.session, ws.gid, ROLE_EDITOR) == []
+
+
 # ── choices ──────────────────────────────────────────────────────────────────
 PICK = {
     "trigger": {"type": "event", "event": "entry_published"},

@@ -5,6 +5,8 @@
 
 import { createEntry, updateEntry } from "./api/entries";
 import { fetchApi } from "./api/client";
+import { listApprovals } from "./api/workflowApprovals";
+import { getWorkflowState, startRun } from "./api/workflowRuns";
 import { listEntryTypes, type EntryTypeRead } from "./api/entryTypes";
 import { coerceDataJsonValue, fieldTypeMap } from "./schemaFields";
 import { createSdkClient } from "./sdk";
@@ -106,34 +108,27 @@ export function withAutoSlug(type: EntryTypeRead | null, data: Record<string, un
   return { ...data, [AUTO_SLUG_FIELD]: title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) };
 }
 
-interface WorkflowRow {
-  id: string;
-  slug: string;
-  name: string;
-  description?: string | null;
-  enabled: boolean;
-}
-
-/** The workspace's workflow of this slug: whether it is there and on. */
+/** The workspace's workflow of this slug: whether it is there and on, and whether the signed-in person may run it. */
 export interface WorkflowState {
   found: boolean;
   enabled: boolean;
-  /** The signed-in person may not list or run workflows (an editor: that is an admin's right today). */
+  /** The signed-in person may run it now (an admin, and it is on). */
+  canRun: boolean;
+  /** It is there and on, and the signed-in person may not run it (an editor: that is an admin's right today). */
   forbidden?: boolean;
   id?: string;
   name?: string;
-  description?: string;
 }
 
 export async function workflowState(slug: string, authToken: string): Promise<WorkflowState> {
-  let rows: WorkflowRow[] | { items?: WorkflowRow[] };
   try {
-    rows = await fetchApi<WorkflowRow[] | { items?: WorkflowRow[] }>("/api/automations", {}, authToken);
+    const state = await getWorkflowState(slug, authToken);
+    if (!state.found) return { found: false, enabled: false, canRun: false };
+    return { found: true, enabled: state.enabled, canRun: state.canRun, forbidden: state.enabled && !state.canRun, id: state.id ?? undefined, name: state.name ?? undefined };
   } catch (e) {
-    return { found: false, enabled: false, forbidden: /403|forbidden/i.test(e instanceof Error ? e.message : String(e)) };
+    // Below editor: not theirs to know which workflows there are.
+    return { found: false, enabled: false, canRun: false, forbidden: /403|forbidden/i.test(e instanceof Error ? e.message : String(e)) };
   }
-  const found = (Array.isArray(rows) ? rows : (rows.items ?? [])).find((w) => w.slug === slug);
-  return found ? { found: true, enabled: !!found.enabled, id: found.id, name: found.name, description: found.description } : { found: false, enabled: false };
 }
 
 /** The entry a context key names, checked to be of the type the wizard says it is; null when it is not there or is something else. */
@@ -142,21 +137,22 @@ export async function entryOfType(typeSlug: string | undefined, slug: string | u
   return (await findEntries({ entry_type: typeSlug, entries: [slug] }, authToken, 1)).entries[0] ?? null;
 }
 
-/** Start a workflow now and don't wait for it. A workflow that is off is never switched on from here: it runs with its author's permissions. */
-export async function runWorkflow(slug: string, inputs: Record<string, unknown>, authToken: string): Promise<string> {
+/** Start a workflow now and don't wait for it: the id of the run it started, to follow (null when the server could not name one). A
+ *  workflow that is off is never switched on from here: it runs with its author's permissions. */
+export async function runWorkflow(slug: string, inputs: Record<string, unknown>, authToken: string): Promise<string | null> {
   const state = await workflowState(slug, authToken);
   if (state.forbidden) throw new Error("Only a workspace admin can start a workflow today; ask one to run this step.");
   if (!state.found) throw new Error(`This workspace has no workflow “${slug}”. Install the package that brings it.`);
   if (!state.enabled) throw new Error(`“${state.name}” is switched off. Turn it on under Automation → Workflows, then run this step again.`);
-  await fetchApi(`/api/automations/${encodeURIComponent(state.id!)}/run?background=true`, { method: "POST", body: JSON.stringify({ inputs }) }, authToken);
-  return state.name ?? slug;
+  return startRun(state.id!, inputs, authToken);
 }
 
 export const MAX_DECIDED_SHOWN = 4;
 
-/** The approvals a wizard step may show: the ones waiting, and the latest decided. Empty for someone below editor (they can't decide). */
-export async function approvalCards(authToken: string): Promise<{ pending: ApprovalCard[]; decided: ApprovalCard[] }> {
-  const get = (state: string) => fetchApi<ApprovalCard[]>(`/api/automations/approvals?state=${state}`, {}, authToken).catch(() => [] as ApprovalCard[]);
+/** The approvals a wizard step may show: the ones its workflow has waiting, and its latest decided. The server narrows the list to the
+ *  workflow, so a step finds its cards however many others wait. Empty for someone below editor (they can't decide). */
+export async function approvalCards(workflow: string, authToken: string): Promise<{ pending: ApprovalCard[]; decided: ApprovalCard[] }> {
+  const get = (state: "pending" | "decided") => listApprovals(authToken, state, { automation: workflow }).catch(() => [] as ApprovalCard[]);
   const [pending, decided] = await Promise.all([get("pending"), get("decided")]);
   return { pending, decided };
 }

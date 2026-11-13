@@ -8,7 +8,7 @@ action kinds, and the operations available as actions — so the UI is backend-d
 from contextlib import contextmanager
 from typing import Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from pydantic import UUID4
 
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
@@ -45,7 +45,10 @@ from marvin.schemas.group.automation import (
     WorkflowLibraryRead,
     WorkflowLibraryRefs,
     WorkflowRecipe,
+    WorkflowRunState,
+    WorkflowState,
 )
+from marvin.services.automation.approvals import MAX_ENTRY_FILTER
 from marvin.services.automation.workflows import WorkflowError, create_workflow, delete_workflow, update_workflow
 
 router = APIRouter(prefix="/automations", route_class=MarvinCrudRoute)
@@ -160,22 +163,37 @@ def _library_recipe(item: dict, refs, uses: dict[str, list[dict]] | None = None)
     )
 
 
-def _run_in_background(group_id, automation_id, user_id, inputs: dict | None = None) -> None:
-    """A Run-button run that answered first: in its own session, after the response. A failure is logged and lands in
-    the workflow's Runs and the automation_failed event like any run's."""
+def _run_reserved(session, group_id, row, recorder, **kwargs) -> dict:
+    """Run a workflow whose run was recorded ahead of it (`recorder.reserve`, so the Run button's answer can name it).
+    A run that stops before its first step would leave that row at "running" for good: it is closed as failed."""
+    from marvin.services.automation.engine import run_automation_now
+
+    try:
+        res = run_automation_now(session, group_id, row, recorder=recorder, **kwargs)
+    except Exception as e:
+        recorder.close_unstarted(f"The run did not start: {e}")
+        raise
+    recorder.close_unstarted("The run did not start: the entries it acts on could not be read.")
+    return res
+
+
+def _run_in_background(group_id, automation_id, user_id, inputs: dict | None = None, execution_id=None) -> None:
+    """A Run-button run that answered first: in its own session, after the response, recorded in the row the answer
+    named (`execution_id`). A failure is logged and lands in the workflow's Runs and the automation_failed event like
+    any run's."""
     from marvin.core.root_logger import get_logger
     from marvin.db.db_setup import session_context
-    from marvin.services.automation.engine import run_automation_now
     from marvin.services.automation.recorder import ExecutionRecorder
 
     logger = get_logger(__name__)
     try:
         with session_context() as session:
+            recorder = ExecutionRecorder(session, group_id, execution_id=execution_id)
             row = session.get(WorkspaceAutomationModel, automation_id)
             if row is None or str(row.group_id) != str(group_id) or not row.enabled:
+                recorder.close_unstarted("The run did not start: the workflow was removed or switched off first.")
                 return
-            recorder = ExecutionRecorder(session, group_id)
-            run_automation_now(session, group_id, row, user_id=user_id, logger=logger, recorder=recorder, inputs=inputs)
+            _run_reserved(session, group_id, row, recorder, user_id=user_id, logger=logger, inputs=inputs)
     except Exception as e:  # noqa: BLE001 — a background run must never take the worker down
         logger.error(f"background run of workflow {automation_id} failed: {e}", exc_info=True)
 
@@ -203,7 +221,9 @@ def _approval_read(session, row) -> WorkflowApprovalRead:
         automation_id=row.automation_id,
         automation_name=getattr(automation, "name", None),
         automation_slug=getattr(automation, "slug", None),
+        execution_id=row.execution_id,
         message=row.message,
+        detail=row.detail,
         approvers="admin" if row.min_role >= ROLE_ADMIN else "editor",
         status=row.status,
         entry_id=row.entry_id,
@@ -400,18 +420,61 @@ class AutomationsController(BaseUserController):
 
     # ── Approval steps: runs waiting for a person (services/automation/approvals.py) ──
     @router.get("/approvals", response_model=list[WorkflowApprovalRead], summary="Workflow runs waiting for approval, or recently decided")
-    def list_approvals(self, state: Literal["pending", "decided"] = "pending") -> list[WorkflowApprovalRead]:
+    def list_approvals(
+        self,
+        state: Literal["pending", "decided"] = "pending",
+        automation: str | None = None,
+        entry_id: list[UUID4] | None = Query(None, max_length=MAX_ENTRY_FILTER),  # noqa: B008 — FastAPI's way to declare it
+        execution_id: UUID4 | None = None,
+    ) -> list[WorkflowApprovalRead]:
         """`state=pending` (the default): the runs in this workspace waiting at an Approval step that you may decide (your
-        role is at least the step's `approvers`), oldest first. `state=decided`: the latest decisions on approvals you may
-        decide, newest first, each with who decided, when and the note. EDITOR and above."""
+        role is at least the step's `approvers`), oldest first, at most 100. `state=decided`: the latest decisions on
+        approvals you may decide, newest first, each with who decided, when and the note. EDITOR and above.
+
+        Narrow either list to what a page is about, before the cap: `automation` (a workflow's slug), `entry_id` (repeat
+        it, up to 50: approvals about those entries) and `execution_id` (the run that asked). Together they all apply."""
         from marvin.db.models.users.roles import WorkspaceRole
         from marvin.routes._base.checks import require_workspace_role
         from marvin.services.automation import approvals
 
         require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
         role = _rank(self.user, self.group_id)
-        rows = approvals.decided(self.session, self.group_id, role) if state == "decided" else approvals.pending(self.session, self.group_id, role)
+        listed = approvals.decided if state == "decided" else approvals.pending
+        rows = listed(self.session, self.group_id, role, automation=automation, entry_ids=entry_id, execution_id=execution_id)
         return [_approval_read(self.session, row) for row in rows]
+
+    @router.get("/runs/{execution_id}", response_model=WorkflowRunState, summary="Where a workflow run stands")
+    def get_run_state(self, execution_id: UUID4) -> WorkflowRunState:
+        """What a run is doing now, for whoever started it (`POST /{id}/run` answers with its `execution_id`): `state` is
+        starting, running, waiting (on a person: `waitingOn` names the approvals), working (the run ended, the worker job
+        it started has not: `job`), done, failed (`error`) or cancelled. A run that went on after an approval or a wait
+        is followed (`continuedBy`), so one id answers until the end. Step counts only: no outputs, no log. EDITOR and
+        above; 404 for a run this workspace doesn't have."""
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import require_workspace_role
+        from marvin.services.automation.run_state import run_state
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        found = run_state(self.session, self.group_id, execution_id, role=_rank(self.user, self.group_id))
+        if found is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")
+        return WorkflowRunState.model_validate(found)
+
+    @router.get("/state", response_model=WorkflowState, summary="One workflow by slug: is it there, on, and yours to run")
+    def get_workflow_state(self, slug: str) -> WorkflowState:
+        """For a page that offers to run a workflow it knows by slug (a guided setup's run step): `found`, its `id`, `enabled`,
+        `name`, and `canRun`, whether the caller may run it now (a workspace admin, and it is on). EDITOR and above, who
+        may not list the workflows themselves."""
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import _bypasses_workspace_roles, require_workspace_role
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        row = self.session.query(WorkspaceAutomationModel).filter_by(group_id=self.group_id, slug=slug).first()
+        if row is None:
+            return WorkflowState(found=False)
+        is_admin = _bypasses_workspace_roles(self.user) or _rank(self.user, self.group_id) >= ROLE_ADMIN
+        return WorkflowState(found=True, id=row.id, enabled=bool(row.enabled), name=row.name, can_run=is_admin and bool(row.enabled))
 
     @router.post("/approvals/{approval_id}/decide", response_model=WorkflowApprovalRead, summary="Approve or deny a waiting run")
     def decide_approval(self, approval_id: UUID4, data: WorkflowApprovalDecision) -> WorkflowApprovalRead:
@@ -636,6 +699,9 @@ class AutomationsController(BaseUserController):
         run over many entries (re-listing a shop) that would outlast the request. Its progress is the usual
         automation_started / automation_ran events (the activity toasts) and the workflow's Runs.
 
+        Either answer of a real run carries ``execution_id``, the run as it is recorded: ``GET /runs/{execution_id}``
+        says where it stands (running, waiting for an approval, working on a job, done, failed).
+
         ``dry_run=true`` resolves the target + each action's inputs but executes nothing (no AI call,
         no mutation, no webhook POST) and records nothing — it returns ``plan``, the resolved per-step
         preview. A disabled draft can be dry-run (that's when you most want to preview it).
@@ -673,22 +739,24 @@ class AutomationsController(BaseUserController):
             resolve(self.session, self.group_id, row, inputs, dry_run=dry_run)  # refused now, not after answering
         except RunInputError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-        if background and not dry_run:
-            bg_tasks.add_task(_run_in_background, self.group_id, row.id, self.user.id, inputs)
-            return {"status": "started", "ok": True}
+        if dry_run:
+            try:
+                res = run_automation_now(self.session, self.group_id, row, user_id=self.user.id, dry_run=True, inputs=inputs)
+            except Exception as e:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+            return {"status": "dry_run", **res, **self._dry_run_warnings(row)}
+        # The run is recorded before it begins, so the answer names it whether or not it waits for it.
+        recorder = ExecutionRecorder(self.session, self.group_id)
+        reserved = recorder.reserve(row, user_id=self.user.id)
+        named = {"execution_id": str(reserved) if reserved else None}
+        if background:
+            bg_tasks.add_task(_run_in_background, self.group_id, row.id, self.user.id, inputs, reserved)
+            return {"status": "started", "ok": True, **named}
         try:
-            res = run_automation_now(
-                self.session,
-                self.group_id,
-                row,
-                user_id=self.user.id,
-                dry_run=dry_run,
-                recorder=None if dry_run else ExecutionRecorder(self.session, self.group_id),
-                inputs=inputs,
-            )
+            res = _run_reserved(self.session, self.group_id, row, recorder, user_id=self.user.id, inputs=inputs)
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
-        return {"status": "dry_run" if dry_run else "ran", **res, **(self._dry_run_warnings(row) if dry_run else {})}
+        return {"status": "ran", **res, **named}
 
     def _dry_run_warnings(self, row) -> dict:
         """The advisory warnings a dry run adds beside the plan (`warnings`, messages; absent when there are none): what the

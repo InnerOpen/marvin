@@ -1,22 +1,15 @@
 /**
- * A button on a timeline that starts a workflow (a render) and then says how it is going. The workflow makes a `job` entry for the worker; this
- * finds the one this click started (the newest job made since, whose args name the entry) and puts its state in words. Pure: the page fetches.
+ * A button on a timeline that starts a workflow (a render) and then says how it is going. Starting it answers with the run's id; the run is
+ * followed by that id (lib/api/workflowRuns.ts) past its approvals to the worker job it makes, and this puts where it stands in words.
+ * Pure: the page fetches.
  */
 
+import type { WorkflowRunState } from "@/lib/api/workflowRuns";
+import { runLine } from "./runState.ts";
+
+/** The worker's job entry, read once the run is over: the video it made, or why it failed. */
 export interface JobRow {
-  createdAt?: string | null;
-  dataJson?: { status?: string; args?: unknown; result?: { url?: string | null } | null; log?: string | null } | null;
-}
-
-/** Jobs made a little before the click still count (the server's clock is not the browser's). */
-const SLACK_MS = 30_000;
-
-/** The newest job started since `since` (ms) whose args mention `slug`, or null while the workflow has not made one yet. */
-export function jobFor(jobs: readonly JobRow[], slug: string, since: number): JobRow | null {
-  const mine = jobs
-    .filter((j) => j.createdAt && Date.parse(j.createdAt) >= since - SLACK_MS && JSON.stringify(j.dataJson?.args ?? "").includes(JSON.stringify(slug)))
-    .sort((a, b) => Date.parse(b.createdAt!) - Date.parse(a.createdAt!));
-  return mine[0] ?? null;
+  dataJson?: { status?: string; result?: { url?: string | null } | null; log?: string | null } | null;
 }
 
 export interface RunState {
@@ -25,23 +18,22 @@ export interface RunState {
   finished: boolean;
   /** The finished video, when the job reports one. */
   url: string | null;
+  /** It waits for an approval: point at where to answer it. */
+  ask: boolean;
 }
 
-/** What to tell the person, from the job's status, or from there being no job yet. */
-export function runState(job: JobRow | null, label: string): RunState {
-  if (!job) return { text: `${label}: starting…`, finished: false, url: null };
-  const d = job.dataJson ?? {};
-  switch (d.status) {
-    case "done":
-      return { text: `${label}: done.`, finished: true, url: d.result?.url ?? null };
-    case "failed":
-      return { text: `${label} failed: ${lastLine(d.log) || "see the job's log"}`, finished: true, url: null };
-    case "claimed":
-    case "running":
-      return { text: `${label}: the worker is making it (a few minutes)…`, finished: false, url: null };
-    default:
-      return { text: `${label}: waiting for the worker…`, finished: false, url: null };
-  }
+/** The run a click started: the id in the answer of `POST /api/automations/{id}/run?background=true` (null when it named none). */
+export function startedRun(answer: { execution_id?: string | null } | null | undefined): string | null {
+  return answer?.execution_id || null;
+}
+
+/** What to tell the person from where the run stands. `job` is the worker's job entry, given once the run is over. */
+export function followed(run: WorkflowRunState | null, label: string, job: JobRow | null = null): RunState {
+  if (!run) return { text: `${label}: started, but its run is not on record. Look under Workers.`, finished: true, url: null, ask: false };
+  const line = runLine(run);
+  if (run.state === "done") return { text: `${label}: done.`, finished: true, url: job?.dataJson?.result?.url ?? null, ask: false };
+  if (run.state === "failed") return { text: `${label} failed: ${lastLine(job?.dataJson?.log) || run.error || "see the workflow’s runs"}`, finished: true, url: null, ask: false };
+  return { text: `${label}: ${line.text.charAt(0).toLowerCase()}${line.text.slice(1)}`, finished: line.over, url: null, ask: run.state === "waiting" };
 }
 
 const lastLine = (log: string | null | undefined): string => (log ?? "").trim().split("\n").filter(Boolean).pop()?.slice(0, 200) ?? "";

@@ -139,6 +139,7 @@ export function isDone(step: Step, ctx: Ctx): boolean {
 export const STEP_PARAM = "step";
 /** What a page says after a step did something: a code in the address, never free text (a link could not spoof a message). */
 export const NOTICES: Record<string, string> = {
+  // Only when the server could not name the run it started: a run that has an id is followed instead (RUN_PARAM).
   started: "Started. Anything the workflow asks you appears below as it runs; when it is done, go on to the next step.",
   approved: "Approved. The workflow goes on; anything else it asks appears here.",
   denied: "Denied. The workflow stops there; run it again if you change your mind.",
@@ -149,15 +150,24 @@ export const NOTICES: Record<string, string> = {
 };
 /** Address parameters that are not choices: the step asked for, and the line to show after a step that started something. */
 export const NOTICE_PARAM = "notice";
+/** The run a step started (its execution id): the step says where that run stands until it is over. */
+export const RUN_PARAM = "run";
+const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** The run named in the address, when it is an id (it goes into an API path). */
+export function runIdOf(params: URLSearchParams): string | null {
+  const value = (params.get(RUN_PARAM) ?? "").trim().toLowerCase();
+  return RUN_ID.test(value) ? value : null;
+}
 const CTX_NAME = /^[a-z][a-z0-9_]{0,39}$/;
 const MAX_VALUE = 200;
 const REF = /\$\{([^}]*)\}/g;
 
-/** The choices so far, from the address: every parameter but `step` whose name is a context name. */
+/** The choices so far, from the address: every parameter the page does not use itself (`step`, `notice`, `run`) whose name is a context name. */
 export function readCtx(params: URLSearchParams): Ctx {
   const ctx: Ctx = {};
   for (const [key, value] of params.entries()) {
-    if (key !== STEP_PARAM && key !== NOTICE_PARAM && CTX_NAME.test(key) && value.trim()) ctx[key] = value.trim().slice(0, MAX_VALUE);
+    if (key !== STEP_PARAM && key !== NOTICE_PARAM && key !== RUN_PARAM && CTX_NAME.test(key) && value.trim()) ctx[key] = value.trim().slice(0, MAX_VALUE);
   }
   return ctx;
 }
@@ -417,6 +427,8 @@ export interface ApprovalCard {
   automationSlug?: string | null;
   entryId?: string | null;
   message: string;
+  /** The long part of the question (a whole prompt), shown folded under the message. */
+  detail?: string | null;
   status: string;
   choices?: string[] | null;
   choice?: string | null;
@@ -428,9 +440,10 @@ export interface ApprovalCard {
 }
 
 /** The approvals that belong to this step: raised by its workflow, about one of the entries it was given. With no entries given, only
- * the cards about no entry at all: never every card of the workflow. */
-export function approvalsOf(cards: ApprovalCard[], workflowSlug: string, entryIds: string[]): ApprovalCard[] {
-  return cards.filter((c) => c.automationSlug === workflowSlug && (c.entryId ? entryIds.includes(c.entryId) : true));
+ * the cards about no entry at all: never every card of the workflow. `asked` are the approvals the run this step started is waiting
+ * on: those are its own whatever entry they are about. */
+export function approvalsOf(cards: ApprovalCard[], workflowSlug: string, entryIds: string[], asked: string[] = []): ApprovalCard[] {
+  return cards.filter((c) => c.automationSlug === workflowSlug && (asked.includes(c.id) || (c.entryId ? entryIds.includes(c.entryId) : true)));
 }
 
 /** Two field values are the same when they read the same: nothing, "" and null are all nothing. */

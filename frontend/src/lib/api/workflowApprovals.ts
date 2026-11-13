@@ -5,6 +5,7 @@ import type { CaptionResult } from "@/lib/captionCheck";
  * may ask for admins. Hand-rolled until the SDK ships `automations.approvals()`.
  */
 
+import { type ApprovalFilters, approvalsPath } from "@/lib/approvalFilters";
 import { fetchApi } from "./client";
 
 export interface WorkflowApproval {
@@ -12,7 +13,11 @@ export interface WorkflowApproval {
   automationId: string;
   automationName?: string | null;
   automationSlug?: string | null;
+  /** The run that asked (GET /api/automations/runs/{executionId} says where it stands). */
+  executionId?: string | null;
   message: string;
+  /** The long part of the question (a whole prompt): shown folded under the message. */
+  detail?: string | null;
   approvers: "editor" | "admin" | string;
   status: string;
   entryId?: string | null;
@@ -32,9 +37,10 @@ export interface WorkflowApproval {
   postPreview?: { text: string; results: CaptionResult[] } | null;
 }
 
-/** Waiting for you (`pending`, oldest first), or the latest settled ones (`decided`, newest first, with who, when and the note). */
-export async function listApprovals(authToken?: string, state: "pending" | "decided" = "pending"): Promise<WorkflowApproval[]> {
-  return fetchApi<WorkflowApproval[]>(`/api/automations/approvals${state === "decided" ? "?state=decided" : ""}`, {}, authToken);
+/** Waiting for you (`pending`, oldest first), or the latest settled ones (`decided`, newest first, with who, when and the note).
+ *  `only` narrows the list on the server to one workflow, some entries or the run that asked (lib/approvalFilters.ts). */
+export async function listApprovals(authToken?: string, state: "pending" | "decided" = "pending", only: ApprovalFilters = {}): Promise<WorkflowApproval[]> {
+  return fetchApi<WorkflowApproval[]>(approvalsPath(state, only), {}, authToken);
 }
 
 export async function decideApproval(
