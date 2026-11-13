@@ -158,6 +158,10 @@ const pctIn = (track: Track, seconds: number) => percent(seconds - track.start, 
 // Stacked tracks share one scale: the longest chapter fills the page and a shorter one is proportionally shorter, so rows compare honestly.
 const longest = Math.max(1e-9, ...tracks.map((t) => t.seconds));
 const share = (track: Track) => (stacked ? track.seconds / longest : 1);
+// How many numbered ticks the ruler aims for: about ten to a page, and the strip is wider than the page when its shortest beat needs room (a long story of short
+// beats is several pages wide), so count the pages it really takes (taking a page as 1400 px), not just its share of the longest track.
+const PAGE_PX = 1400;
+const tickWant = (track: Track) => Math.max(3, Math.round(10 * Math.max(share(track), minInnerWidth(track.items, track.seconds) / PAGE_PX)));
 const stackHref = (on: boolean) => {
   const u = new URL(Astro.url);
   if (on) u.searchParams.set("stack", "chapters");
@@ -398,10 +402,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                 </div>
 
                 <div class="tl-ruler" aria-hidden="true">
-                  {tickLevels(track.seconds, Math.max(3, Math.round(10 * share(track)))).map(({ t, levels }) => (
+                  {tickLevels(track.seconds, tickWant(track)).map(({ t, levels }) => (
                     <span class:list={["tl-tick", ...levels.map((z) => `z${z}`)]} style={`left:${pctIn(track, track.start + t)}`}><i /><b>{timecode(track.start + t)}</b></span>
                   ))}
-                  {minorTickLevels(track.seconds, Math.max(3, Math.round(10 * share(track)))).map(({ t, levels }) => (
+                  {minorTickLevels(track.seconds, tickWant(track)).map(({ t, levels }) => (
                     <span class:list={["tl-tick", "minor", ...levels.map((z) => `z${z}`)]} style={`left:${pctIn(track, track.start + t)}`}><i /></span>
                   ))}
                 </div>
