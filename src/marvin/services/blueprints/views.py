@@ -62,8 +62,8 @@ A timeline definition::
   spoken line.
   ``order`` is the field the lane's entries sort by (a number: those with none come after, by slug), ``off`` a boolean field that leaves an
   entry out when it is on (not timed, drawn or played: tried out and set aside); ``audio`` is an asset field, ``seconds`` a duration field,
-  ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched). On a bed
-  that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
+  ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it repeats, and ``estimate_from`` a text field whose length stands
+  in for the seconds while there is no recording (drawn hatched). On a bed that runs under the whole story, ``bed.item_volume`` *replaces* the level while that spine item plays (a beat that takes the music to
   silence) and shows as steps in the block. ``cover`` is a video laid over each item's picture: ``field`` is the asset field, ``blend`` and
   ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with ``entry_type``) names, then the view's entry itself, and a
   blend of ``none`` at one of them switches the overlay off from there up. ``marks`` writes one choice per spine item in its block, for
