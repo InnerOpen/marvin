@@ -28,6 +28,9 @@ ROLE_OF_APPROVERS = {"editor": ROLE_EDITOR, "admin": ROLE_ADMIN}
 DECISIONS = {"approve": "approved", "deny": "denied"}
 MAX_PENDING_LIST = 100
 MAX_DECIDED_LIST = 50
+MAX_MESSAGE = 600  # characters of the question a card, a list row and a push show
+MAX_DETAIL = 20_000  # characters kept folded away under it (a whole image or voice prompt)
+MAX_ENTRY_FILTER = 50  # entries one list request may name (the route refuses more)
 
 
 class ApprovalError(Exception):
@@ -50,6 +53,16 @@ def _entry_version(session, entry_id) -> str | None:
     return stamp.isoformat() if stamp else None
 
 
+def question(message: str, detail: str | None = None) -> tuple[str, str | None]:
+    """What is asked, as it is kept: a `message` short enough to read at a glance and the `detail` folded away under it.
+    A message over MAX_MESSAGE is not lost: its start stays as the message and the whole of it goes first in the detail."""
+    message, detail = message.strip(), (detail or "").strip()
+    if len(message) > MAX_MESSAGE:
+        detail = f"{message}\n\n{detail}" if detail else message
+        message = message[: MAX_MESSAGE - 1] + "…"
+    return message, detail[:MAX_DETAIL] or None
+
+
 def park(session, group_id, automation, context: dict, *, exec_id, step_index: int, target_index: int, step_id, spec: dict, run: dict):
     """Keep the run at this step and tell the approvers. Raises AutomationActionError when it can't wait (an unsaved
     workflow, a run too large to keep)."""
@@ -64,6 +77,7 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
     if snapshot is None:
         raise AutomationActionError("this run is too large to wait for an approval")
     entry_id = (context.get("entry") or {}).get("id")  # the entry the run acts on, if any: its version is checked on approval
+    message, detail = question(spec["message"], spec.get("detail"))
     row = WorkflowApprovalModel(
         session=session,
         group_id=group_id,
@@ -72,7 +86,8 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
         step_index=step_index,
         step_id=step_id,
         target_index=target_index,
-        message=spec["message"],
+        message=message,
+        detail=detail,
         min_role=ROLE_OF_APPROVERS.get(spec.get("approvers") or "editor", ROLE_EDITOR),
         status=APPROVAL_PENDING,
         snapshot=snapshot,
@@ -88,15 +103,30 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
     return row
 
 
-def pending(session, group_id, role: int) -> list[WorkflowApprovalModel]:
-    """The approvals waiting in this workspace that a member at `role` may decide, oldest first."""
-    return (
-        session.query(WorkflowApprovalModel)
-        .filter(WorkflowApprovalModel.group_id == group_id, WorkflowApprovalModel.status == APPROVAL_PENDING, WorkflowApprovalModel.min_role <= role)
-        .order_by(WorkflowApprovalModel.created_at)
-        .limit(MAX_PENDING_LIST)
-        .all()
+def _narrowed(query, group_id, *, automation: str | None = None, entry_ids=None, execution_id=None):
+    """A list narrowed to one workflow (its slug), some entries, or the run that asked. In the query, before the list's
+    cap: a page asking for its own cards finds them however many others wait."""
+    if automation:
+        from sqlalchemy import select
+
+        from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+        ids = select(WorkspaceAutomationModel.id).where(WorkspaceAutomationModel.group_id == group_id, WorkspaceAutomationModel.slug == automation)
+        query = query.filter(WorkflowApprovalModel.automation_id.in_(ids))
+    if entry_ids:
+        query = query.filter(WorkflowApprovalModel.entry_id.in_(list(entry_ids)))
+    if execution_id:
+        query = query.filter(WorkflowApprovalModel.execution_id == execution_id)
+    return query
+
+
+def pending(session, group_id, role: int, **only) -> list[WorkflowApprovalModel]:
+    """The approvals waiting in this workspace that a member at `role` may decide, oldest first. `only` narrows the
+    list (`automation`, `entry_ids`, `execution_id`: see `_narrowed`)."""
+    query = session.query(WorkflowApprovalModel).filter(
+        WorkflowApprovalModel.group_id == group_id, WorkflowApprovalModel.status == APPROVAL_PENDING, WorkflowApprovalModel.min_role <= role
     )
+    return _narrowed(query, group_id, **only).order_by(WorkflowApprovalModel.created_at).limit(MAX_PENDING_LIST).all()
 
 
 def decide(
@@ -271,12 +301,14 @@ def expire_due(session, *, logger=None, now: datetime | None = None) -> int:
     return done
 
 
-def decided(session, group_id, role: int, *, limit: int = MAX_DECIDED_LIST) -> list[WorkflowApprovalModel]:
+def decided(session, group_id, role: int, *, limit: int = MAX_DECIDED_LIST, **only) -> list[WorkflowApprovalModel]:
     """The approvals already settled in this workspace that a member at `role` may see (the ones they could have decided),
-    newest decision first: who decided, when, what they said, the note."""
+    newest decision first: who decided, when, what they said, the note. `only` narrows the list as it does `pending`."""
+    query = session.query(WorkflowApprovalModel).filter(
+        WorkflowApprovalModel.group_id == group_id, WorkflowApprovalModel.status.in_(DECISIONS_KEPT), WorkflowApprovalModel.min_role <= role
+    )
     return (
-        session.query(WorkflowApprovalModel)
-        .filter(WorkflowApprovalModel.group_id == group_id, WorkflowApprovalModel.status.in_(DECISIONS_KEPT), WorkflowApprovalModel.min_role <= role)
+        _narrowed(query, group_id, **only)
         .order_by(WorkflowApprovalModel.decided_at.desc().nullslast(), WorkflowApprovalModel.created_at.desc())
         .limit(limit)
         .all()

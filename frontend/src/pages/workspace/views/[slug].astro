@@ -102,7 +102,7 @@ if (spec && authToken) {
     const perItem = spec.spine.run;
     if (perItem) {
       const state = await workflowState(perItem.workflow, authToken);
-      if (state.id && state.enabled) itemRun = { workflow: state.id, base: { ...(perItem.inputs ?? {}), [perItem.entry]: entry.slug }, item: perItem.item, label: perItem.label ?? "Draft" };
+      if (state.id && state.canRun) itemRun = { workflow: state.id, base: { ...(perItem.inputs ?? {}), [perItem.entry]: entry.slug }, item: perItem.item, label: perItem.label ?? "Draft" };
     }
     // A button starts a wizard with this entry already chosen (the choose step of its type sets the key), or opens a workflow's page.
     for (const action of spec.actions ?? []) {
@@ -127,7 +127,7 @@ if (spec && authToken) {
         const state = await workflowState(action.workflow, authToken);
         const href = state.id ? `/automation/workflows?workflow=${encodeURIComponent(state.id)}` : "/automation/workflows";
         // A `run` action starts the workflow here, with this entry's slug in the input it names; one that is off or missing opens its page instead.
-        const run = action.run && state.id && state.enabled ? { workflow: state.id, inputs: { ...(action.run.inputs ?? {}), [action.run.entry]: entry.slug } } : undefined;
+        const run = action.run && state.id && state.canRun ? { workflow: state.id, inputs: { ...(action.run.inputs ?? {}), [action.run.entry]: entry.slug } } : undefined;
         actions.push({ label: action.label, href, run });
       }
     }
@@ -275,7 +275,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         <div class="tl-links">
           {actions.map((a) =>
             a.run ? (
-              <button type="button" class="button secondary" data-run={JSON.stringify(a.run)} data-run-label={a.label} data-run-slug={entry.slug}>{a.label}</button>
+              <button type="button" class="button secondary" data-run={JSON.stringify(a.run)} data-run-label={a.label}>{a.label}</button>
             ) : (
               <a class="button secondary" href={a.href}>{a.label}</a>
             ),
@@ -290,7 +290,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         {itemRun && (
           <div class="tl-pickbar" data-pickbar data-item-input={itemRun.item} data-noun={spec.spine.entry_type.replace(/-/g, " ")} role="status" aria-live="polite" hidden>
             <span data-pick-text></span>
-            <button type="button" class="button" data-pick-run data-run={JSON.stringify({ workflow: itemRun.workflow, inputs: itemRun.base })} data-run-label={itemRun.label} data-run-slug={entry.slug}>▶ {itemRun.label} selected</button>
+            <button type="button" class="button" data-pick-run data-run={JSON.stringify({ workflow: itemRun.workflow, inputs: itemRun.base })} data-run-label={itemRun.label}>▶ {itemRun.label} selected</button>
             <button type="button" class="button secondary" data-pick-clear>Clear</button>
           </div>
         )}
@@ -386,7 +386,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           class="tl-draft"
                           data-run={JSON.stringify({ workflow: itemRun.workflow, inputs: { ...itemRun.base, [itemRun.item]: item.key } })}
                           data-run-label={`${itemRun.label} of ${spec.spine.entry_type.replace(/-/g, " ")} ${item.key}`}
-                          data-run-slug={entry.slug}
+                         
                           title={`Make a quick draft video of just this ${spec.spine.entry_type.replace(/-/g, " ")}: its picture, overlay, moves, sound and captions`}
                         >▶ {itemRun.label}</button>
                       )}
@@ -578,7 +578,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   interface Cue { item: string; piece: string | null; lane: string | null; start: number; seconds: number; audio: string | null }
   import { clockText, gainAt, jumpTo, parseClock, placeIn, type Jump, type Overlay } from "@/lib/timeline";
   import { fetchApi } from "@/lib/api/client";
-  import { jobFor, runState, type JobRow } from "@/lib/timelineRun";
+  import { getRunState, startRun } from "@/lib/api/workflowRuns";
+  import { followed, type JobRow } from "@/lib/timelineRun";
   const root = document.querySelector<HTMLElement>(".tl");
   const cuesEl = root?.querySelector<HTMLScriptElement>("script[data-cues]");
   if (root && cuesEl) {
@@ -852,7 +853,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     };
     const toggle = () => (playing ? stop() : play());
 
-    // A button that runs a workflow here (a render preview): start it, then follow the job it makes until it is done or has failed.
+    // A button that runs a workflow here (a render preview): start it, then follow that run (by the id starting it gave) past any approval
+    // to the job it makes, until it is done or has failed.
     const runStatus = root.querySelector<HTMLElement>("[data-run-status]");
     const runText = runStatus?.querySelector<HTMLElement>("[data-run-text]");
     runStatus?.querySelector("[data-run-close]")?.addEventListener("click", () => (runStatus.hidden = true));
@@ -862,38 +864,44 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       button.addEventListener("click", async () => {
         const run = JSON.parse(button.dataset.run || "{}") as { workflow: string; inputs: Record<string, unknown> };
         const label = button.dataset.runLabel || "Run";
-        const slug = button.dataset.runSlug || "";
         const since = Date.now();
-        const say = (text: string, url: string | null = null) => {
+        const say = (text: string, link: { href: string; text: string } | null = null) => {
           if (!runStatus || !runText) return;
           runStatus.hidden = false;
           runText.replaceChildren(document.createTextNode(text));
-          if (url) {
-            const link = document.createElement("a");
-            link.href = url;
-            link.target = "_blank";
-            link.rel = "noopener noreferrer";
-            link.textContent = " Open the video ↗";
-            runText.append(link);
+          if (link) {
+            const a = document.createElement("a");
+            a.href = link.href;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            a.textContent = ` ${link.text} ↗`;
+            runText.append(a);
           }
         };
         button.disabled = true;
         say(`${label}: starting…`);
+        let runId: string | null;
         try {
-          await fetchApi(`/api/automations/${encodeURIComponent(run.workflow)}/run?background=true`, { method: "POST", body: JSON.stringify({ inputs: run.inputs }) });
+          runId = await startRun(run.workflow, run.inputs);
         } catch (e) {
           say(`${label} could not start: ${e instanceof Error ? e.message : "the workflow did not run"}`);
           button.disabled = false;
           return;
         }
-        while (Date.now() - since < GIVE_UP_MS) {
+        if (!runId) say(`${label}: started. Look under Workers for how it goes.`);
+        while (runId && Date.now() - since < GIVE_UP_MS) {
           await new Promise((r) => setTimeout(r, POLL_MS));
-          const found = await fetchApi<{ entries?: JobRow[] }>("/api/platform/entries/query", {
-            method: "POST",
-            body: JSON.stringify({ spec: { entry_type: "job", created_after: new Date(since - 30_000).toISOString(), sort: { by: "created_at", direction: "desc" } }, limit: 20 }),
-          }).catch(() => ({ entries: [] as JobRow[] }));
-          const state = runState(jobFor(found.entries ?? [], slug, since), label);
-          say(state.text, state.url);
+          let now: Awaited<ReturnType<typeof getRunState>>;
+          try {
+            now = await getRunState(runId);
+          } catch {
+            continue; // a failed poll just tries again
+          }
+          // Once the run is over, the job's own record has what the run's state leaves out: the video it made, or its log's last line.
+          const over = now && (now.state === "done" || now.state === "failed") && now.job;
+          const job = over ? await fetchApi<JobRow>(`/api/platform/entries/${encodeURIComponent(now!.job!.entryId)}`).catch(() => null) : null;
+          const state = followed(now, label, job);
+          say(state.text, state.url ? { href: state.url, text: "Open the video" } : state.ask ? { href: "/automation/approvals", text: "Answer it" } : null);
           if (state.finished) break;
         }
         button.disabled = false;

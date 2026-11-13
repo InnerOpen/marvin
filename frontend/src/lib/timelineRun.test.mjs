@@ -1,28 +1,41 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { jobFor, runState } from "./timelineRun.ts";
+import { followed, startedRun } from "./timelineRun.ts";
 
-const at = (s) => new Date(1_700_000_000_000 + s * 1000).toISOString();
-const job = (s, args, extra = {}) => ({ createdAt: at(s), dataJson: { status: "queued", args, ...extra } });
-const since = 1_700_000_000_000 + 100 * 1000;
+const run = (state, extra = {}) => ({ executionId: "run-1", automationSlug: "render-preview", state, stepsTotal: 3, stepsOk: 0, stepsFailed: 0, waitingOn: [], ...extra });
+const job = (status, finished = false) => ({ entryId: "e-1", slug: "job-1", kind: "render", status, finished });
 
-test("the job this click started is the newest one since it that names the entry", () => {
-  const jobs = [job(10, { story: "granny" }), job(105, { story: "other" }), job(101, { story: "granny", quality: "draft" }), job(103, { story: "granny", quality: "draft" })];
-  assert.equal(jobFor(jobs, "granny", since)?.createdAt, at(103));
-  assert.equal(jobFor(jobs, "nobody", since), null);
+test("the run button follows the run its click started: the id the answer gave", () => {
+  assert.equal(startedRun({ status: "started", ok: true, execution_id: "run-1" }), "run-1");
+  assert.equal(startedRun({ status: "started", ok: true, execution_id: null }), null);
+  assert.equal(startedRun(undefined), null);
 });
 
-test("a job made a few seconds before the click still counts (clocks differ), one from long before does not", () => {
-  assert.equal(jobFor([job(80, { story: "g" })], "g", since)?.createdAt, at(80));
-  assert.equal(jobFor([job(20, { story: "g" })], "g", since), null);
+test("while the run or its job goes on, the words say where it is and the polling continues", () => {
+  assert.deepEqual(followed(run("starting"), "Render"), { text: "Render: starting…", finished: false, url: null, ask: false });
+  assert.equal(followed(run("running", { stepsOk: 1 }), "Render").text, "Render: running: 1 of 3 steps done…");
+  const working = followed(run("working", { job: job("running") }), "Render");
+  assert.deepEqual([working.text, working.finished], ["Render: working: the render job is running…", false]);
 });
 
-test("the state is told in words, and only done or failed stops the polling", () => {
-  assert.deepEqual(runState(null, "Render"), { text: "Render: starting…", finished: false, url: null });
-  assert.equal(runState(job(0, {}, { status: "queued" }), "Render").finished, false);
-  assert.match(runState(job(0, {}, { status: "running" }), "Render").text, /making it/);
-  const done = runState(job(0, {}, { status: "done", result: { url: "https://cdn/v.mp4" } }), "Render");
-  assert.deepEqual([done.finished, done.url], [true, "https://cdn/v.mp4"]);
-  const failed = runState(job(0, {}, { status: "failed", log: "start\nthe still of beat 2 is missing" }), "Render");
-  assert.deepEqual([failed.finished, failed.text], [true, "Render failed: the still of beat 2 is missing"]);
+test("a run waiting for an approval says so and points at where to answer it", () => {
+  const waiting = followed(run("waiting", { waitingOn: [{ approvalId: "ap-1", message: "Render it?", approvers: "editor" }] }), "Render");
+  assert.deepEqual([waiting.finished, waiting.ask], [false, true]);
+  assert.match(waiting.text, /^Render: waiting on you/);
+});
+
+test("done stops the polling and carries the video the job made", () => {
+  const done = followed(run("done", { job: job("done", true) }), "Render", { dataJson: { status: "done", result: { url: "https://cdn/v.mp4" } } });
+  assert.deepEqual(done, { text: "Render: done.", finished: true, url: "https://cdn/v.mp4", ask: false });
+  assert.deepEqual(followed(run("done"), "Render"), { text: "Render: done.", finished: true, url: null, ask: false });
+});
+
+test("failed stops the polling and says why: the job's last log line, else the run's error", () => {
+  const byJob = followed(run("failed", { error: "The render job it started failed.", job: job("failed", true) }), "Render", { dataJson: { status: "failed", log: "start\nthe still of beat 2 is missing" } });
+  assert.deepEqual([byJob.finished, byJob.text], [true, "Render failed: the still of beat 2 is missing"]);
+  assert.equal(followed(run("failed", { error: "no such entry" }), "Render").text, "Render failed: no such entry");
+});
+
+test("a run that is not on record ends the following", () => {
+  assert.deepEqual(followed(null, "Render"), { text: "Render: started, but its run is not on record. Look under Workers.", finished: true, url: null, ask: false });
 });

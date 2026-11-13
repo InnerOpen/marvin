@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalsOf, buttonHref, cardActionShown, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf } from "./wizard.ts";
+import { approvalsOf, buttonHref, cardActionShown, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, RUN_PARAM, runIdOf } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -280,3 +280,27 @@ test("a step's subtitle is one field or up to three joined, with empty ones left
   for (const none of [undefined, null, "", [], 5]) assert.equal(subtitleOf(none, line), "");
   assert.equal(subtitleOf("status", null), "");
 });
+
+test("a step's address can carry the run it started, and the run is never read as a choice", () => {
+  const href = stepHref("narrate", { story: "granny" }, "stills", { [RUN_PARAM]: "0b0e5c1e-7f43-4c8e-9d54-1a2b3c4d5e6f" });
+  const params = new URL(href, "http://x").searchParams;
+  assert.equal(params.get("run"), "0b0e5c1e-7f43-4c8e-9d54-1a2b3c4d5e6f");
+  assert.deepEqual(readCtx(params), { story: "granny" });
+});
+
+test("the run in the address is taken only when it is an id", () => {
+  assert.equal(runIdOf(new URLSearchParams("run=0B0E5C1E-7f43-4c8e-9d54-1a2b3c4d5e6f")), "0b0e5c1e-7f43-4c8e-9d54-1a2b3c4d5e6f");
+  assert.equal(runIdOf(new URLSearchParams("run=../../admin")), null);
+  assert.equal(runIdOf(new URLSearchParams("step=stills")), null);
+});
+
+test("a card the run itself waits on is shown whatever entry it is about", () => {
+  const cards = [
+    { id: "a", automationSlug: "make-stills", entryId: "beat-1", message: "?", status: "pending" },
+    { id: "b", automationSlug: "make-stills", entryId: "beat-9", message: "?", status: "pending" },
+    { id: "c", automationSlug: "other", entryId: "beat-9", message: "?", status: "pending" },
+  ];
+  assert.deepEqual(approvalsOf(cards, "make-stills", ["beat-1"]).map((c) => c.id), ["a"]);
+  assert.deepEqual(approvalsOf(cards, "make-stills", ["beat-1"], ["b", "c"]).map((c) => c.id), ["a", "b"]);
+});
+

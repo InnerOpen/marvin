@@ -7,9 +7,14 @@ import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, createOf, entryBySlug, en
 export interface Outcome {
   ctx: Ctx;
   stay: boolean;
-  /** A line to show on the next page (a run was started). */
+  /** A line to show on the next page (something was added, or a run started that the server could not name). */
   notice?: string;
+  /** The run this step started: the next page follows it. */
+  run?: string;
 }
+
+/** What a step that started a run hands the next page: the run to follow, or just "started" when the server named none. */
+const startedRun = (ctx: Ctx, run: string | null): Outcome => (run ? { ctx, stay: true, run } : { ctx, stay: true, notice: "started" });
 
 const text = (form: FormData, name: string): string => String(form.get(name) ?? "").trim();
 
@@ -209,8 +214,7 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
   if (action === "generate") {
     const { run, extra } = generateAsRun(step, text(form, "prompt"));
     if (step.generate?.prompt && !extra[step.generate.prompt.name]) throw new Error(`Say ${step.generate.prompt.label.toLowerCase()} first.`);
-    await runWorkflow(run.workflow, runInputs(run, { ...ctx, ...extra }), authToken);
-    return { ctx, stay: true, notice: "started" };
+    return startedRun(ctx, await runWorkflow(run.workflow, runInputs(run, { ...ctx, ...extra }), authToken));
   }
   throw new Error("Add one, upload one, or generate one.");
 }
@@ -228,11 +232,7 @@ export async function runStep(def: WizardDefinition, step: Step, form: FormData,
   }
   if (step.kind === "choose") return choose(def, step, form, ctx, authToken);
   if (step.kind === "upload") return upload(def, step, form, ctx, authToken);
-  if (step.kind === "run") {
-    const name = await runWorkflow(step.workflow, runInputs(step, ctx), authToken);
-    void name;
-    return { ctx, stay: true, notice: "started" };
-  }
+  if (step.kind === "run") return startedRun(ctx, await runWorkflow(step.workflow, runInputs(step, ctx), authToken));
   if (step.kind === "list") return editList(step, form, ctx, authToken);
   if (step.kind === "gallery") return gallery(step, form, ctx, authToken);
   if (step.kind === "form") {
