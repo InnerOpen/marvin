@@ -131,6 +131,14 @@ export function summarize(jobs: RecordRow[], kindRows: RecordRow[], workers: Rec
   }));
   const allowed = new Map(kinds.map((k) => [k.kind, k.timeoutSeconds]));
 
+  // A runner announces the kinds it does in its heartbeat and writes no job-kind record for them, so a kind a worker seen lately offers is known too.
+  const advertised = new Set<string>();
+  for (const row of workers) {
+    const raw = field(row, "kinds");
+    const ago = seconds(field(row, "last_seen"), now);
+    if (Array.isArray(raw) && ago !== null && ago <= SEEN_RECENTLY_SECONDS) for (const k of raw) if (typeof k === "object" && k !== null && text((k as Record<string, unknown>).kind)) advertised.add(text((k as Record<string, unknown>).kind));
+  }
+
   const jobViews: JobView[] = jobs.map((row) => {
     const kind = text(field(row, "kind"));
     const status = text(field(row, "status")) || "queued";
@@ -145,7 +153,7 @@ export function summarize(jobs: RecordRow[], kindRows: RecordRow[], workers: Rec
       resultUrl: /^https?:\/\//.test(text(field(row, "url"))) ? text(field(row, "url")) : "",
       queuedAgo: seconds(row.createdAt, now),
       stuck: (status === "claimed" || status === "running") && sinceClaim !== null && sinceClaim > limit,
-      unknownKind: status === "queued" && !allowed.has(kind),
+      unknownKind: status === "queued" && !allowed.has(kind) && !advertised.has(kind),
     };
   });
 
