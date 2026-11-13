@@ -41,8 +41,10 @@ CHOICE_TTL_SECONDS = 5.0
 """How long a read of the admin's choice is reused: every asset URL asks which provider is active, so it
 isn't read from the database each time. Saving a choice resets it in this process at once."""
 
-# Providers other than STORAGE_PROVIDER's, built once per (slug, settings object): rows on them, and the chosen one.
-_row_providers: dict[tuple[str, int], BaseStorageProvider] = {}
+# Providers built once per (slug, settings object) and reused, STORAGE_PROVIDER's among them: every asset URL in a list asks
+# for one, and building a remote one makes a new boto3 client (~20 ms; a 1,300-entry list spent 25 s doing it, 2026-11-13).
+# The settings object is kept with its provider so its id can't be reused by another one while the entry is cached.
+_row_providers: dict[tuple[str, int], tuple["AppSettings", BaseStorageProvider]] = {}
 _choice: tuple[float, str | None] | None = None  # (expires at, slug) of the last read of the admin's choice
 _fallback_warned: set[tuple[str, str]] = set()
 
@@ -164,8 +166,8 @@ def _provider(slug: str, settings: "AppSettings") -> BaseStorageProvider:
     """``slug``'s provider, built once per settings object and reused."""
     key = (slug, id(settings))
     if key not in _row_providers:
-        _row_providers[key] = build_provider(slug, settings)
-    return _row_providers[key]
+        _row_providers[key] = (settings, build_provider(slug, settings))
+    return _row_providers[key][1]
 
 
 def get_storage_provider(settings: "AppSettings | None" = None) -> BaseStorageProvider:
@@ -180,10 +182,7 @@ def get_storage_provider(settings: "AppSettings | None" = None) -> BaseStoragePr
     """
     if settings is None:
         settings = _settings()
-    target = upload_target(settings)
-    if target.effective == target.env_default:
-        return build_provider(target.env_default, settings)
-    return _provider(target.effective, settings)
+    return _provider(upload_target(settings).effective, settings)
 
 
 def provider_for(asset: Any) -> BaseStorageProvider:

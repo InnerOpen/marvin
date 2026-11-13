@@ -185,6 +185,12 @@ class ScheduledPublishBlock(_MarvinModel):
     """When the task first held it back for this reason."""
 
 
+# Fields EntryRead.model_validate fills from an entry row's junction rows (and tag_names). Read as attributes, they would
+# lazy-load the plain relationships of the same name (`Entries.collections`, `.assets`, `.resources`) only to throw them
+# away: three queries per entry, most of a list's time (measured 2026-11-13).
+_FROM_JUNCTIONS = ("tags", "collections", "assets", "resources")
+
+
 class EntryRead(_MarvinModel):
     """Schema for reading an entry.
 
@@ -242,21 +248,26 @@ class EntryRead(_MarvinModel):
 
     @classmethod
     def loader_options(cls):
-        from sqlalchemy.orm import joinedload
+        """What `model_validate` reads off a row, loaded up front: one query per relationship for the whole page
+        (selectin), not one join of all four, whose rows multiply per entry (3 collections x 2 assets x 3 tags is 18
+        copies of the entry, its JSON columns decoded each time)."""
+        from sqlalchemy.orm import selectinload
 
         from marvin.db.models.platform import Entries, EntryAssets, EntryCollections, EntryResources
+        from marvin.db.models.platform.assets import Assets
 
         return [
-            joinedload(Entries.entry_collections).joinedload(EntryCollections.collection),
-            joinedload(Entries.entry_assets).joinedload(EntryAssets.asset),
-            joinedload(Entries.entry_resources).joinedload(EntryResources.resource),
-            joinedload(Entries.tags),
+            selectinload(Entries.entry_collections).joinedload(EntryCollections.collection),
+            selectinload(Entries.entry_assets).joinedload(EntryAssets.asset).selectinload(Assets.tags),  # EntryAssetRead lists them
+            selectinload(Entries.entry_resources).joinedload(EntryResources.resource),
+            selectinload(Entries.tags),
         ]
 
     @classmethod
     def model_validate(cls, obj, **kwargs):
         """Custom validation to extract collection IDs and build asset/resource details."""
-        data = {field: getattr(obj, field, None) for field in cls.model_fields}
+        is_row = hasattr(obj, "entry_collections")
+        data = {field: getattr(obj, field, None) for field in cls.model_fields if not (is_row and field in _FROM_JUNCTIONS)}
 
         # `obj.tags` is the ORM relationship (Tag objects); the schema field is list[str] of slugs.
         # tag_names is the property over the junction — use it so validation gets strings, not rows.

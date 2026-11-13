@@ -1,12 +1,13 @@
 """Collection routes."""
 
 import sqlalchemy as sa
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import UUID4, BaseModel, ConfigDict, Field
 
 from marvin.db.models.platform import EntryCollections
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor
+from marvin.routes._base.paging import paged
 from marvin.schemas.platform import (
     CollectionCreate,
     CollectionRead,
@@ -268,9 +269,16 @@ class CollectionsController(BaseUserController):
         return [{"id": str(r.id), "label": getattr(r, label_col), "slug": r.slug, "type": target} for r in rows]
 
     @router.get("/{item_id}/entries", response_model=list[EntryRead], summary="Get Collection Entries")
-    def get_collection_entries(self, item_id: UUID4) -> list[EntryRead]:
+    def get_collection_entries(
+        self,
+        item_id: UUID4,
+        response: Response,
+        limit: int | None = Query(None, ge=1, description="At most this many (default: all of them)"),
+        offset: int = Query(0, ge=0, description="Skip this many first (with `limit`, one page)"),
+    ) -> list[EntryRead]:
         """Get all entries in a collection, ordered by sort_order. Entries in the Trash are listed only by
-        the Trash collection (a manual collection keeps their membership, so a restore puts them back)."""
+        the Trash collection (a manual collection keeps their membership, so a restore puts them back).
+        `limit`/`offset` page it; the `X-Total-Count` header says how many there are in all."""
         collection = self.repos.collections.get_one(item_id)
         if not collection:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
@@ -278,13 +286,12 @@ class CollectionsController(BaseUserController):
         from marvin.db.models.platform.entries import Entries
         from marvin.services.entry_listing import hidden_type_ids
 
-        entries = (
+        query = (
             self.session.query(Entries)
             .join(EntryCollections, Entries.id == EntryCollections.entry_id)
             .filter(EntryCollections.collection_id == item_id)
             .filter(trash.collection_entries_filter(collection))
             .filter(Entries.entry_type_id.notin_(hidden_type_ids(self.session, self.group_id, collection)))
-            .options(*EntryRead.loader_options())
             .order_by(
                 sa.case(
                     (EntryCollections.sort_order.is_(None), 1),
@@ -292,9 +299,10 @@ class CollectionsController(BaseUserController):
                 ),
                 EntryCollections.sort_order.asc(),
                 Entries.published_at.desc(),
+                Entries.id,  # ties broken the same way every time, so pages don't overlap
             )
-            .all()
         )
+        entries = paged(query, response, limit, offset).options(*EntryRead.loader_options()).all()
 
         from marvin.services.entry_privacy import can_see_full_ip, entries_for
 
