@@ -105,6 +105,9 @@ export interface CoverSpec {
   opacity?: string;
   via?: string;
   entry_type?: string;
+  /** A card the item itself writes (an info card: a title and a sentence laid over its picture). It is drawn in this lane as its own block, after `delay`
+   * seconds into the item (the item's field, else `default_delay`), and, as the render does, it takes the place of any overlay file for that item. */
+  card?: { title: string; text?: string; delay?: string; default_delay?: number; name?: string };
 }
 
 /** One choice per spine item, written in its block: something about the shot that is not sound or picture (the camera's move). `other` wins (what an item
@@ -255,6 +258,8 @@ export interface Cover {
   start: number;
   seconds: number;
   items: string[];
+  /** True for a card the item writes itself (it has no file, so no address). */
+  card?: boolean;
 }
 
 export interface Item {
@@ -773,6 +778,16 @@ function coversOf(spec: CoverSpec, view: TimelineSpec, items: Item[], rows: Rows
     if (item.card) continue; // a card has no overlay of its own: the render gives it none
     const row = spine.get(item.id);
     const named = row && spec.via ? via.get(str(field(row, spec.via))) : undefined;
+    if (row && spec.card) {
+      const said = str(field(row, spec.card.title)).trim() || str(field(row, spec.card.text)).trim();
+      if (said) {
+        // The card comes in after its delay and takes the place of any overlay file for this item (the render hands it on as the item's overlay).
+        const set = spec.card.delay ? Number(field(row, spec.card.delay)) : NaN;
+        const delay = Math.min(Math.max(Number.isFinite(set) && set > 0 ? set : (spec.card.default_delay ?? 0), 0), Math.max(item.seconds - 0.1, 0));
+        out.push({ url: "", name: `${spec.card.name ?? "Card"}: ${said}`, from: view.spine.entry_type, blend: "normal", opacity: 1, start: item.start + delay, seconds: item.seconds - delay, items: [item.id], card: true });
+        continue;
+      }
+    }
     const tiers: [Row | undefined, string][] = [
       [row, view.spine.entry_type],
       [named, spec.entry_type ?? ""],
