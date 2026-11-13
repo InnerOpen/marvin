@@ -644,7 +644,7 @@ MEDIA_NOTE = (
     "script runs in it. An integration action with an image.* capability (openai_images.generate) "
     "keeps its pictures the same way — output images: [{asset}] — and takes attach_as and tags too; references: [asset ids "
     "or slugs] (up to 16; or one template for the whole list, e.g. ${entry.data.references}, comma-separated text, blanks dropped; "
-    "an item may itself be a list or comma text, e.g. [\"${entry.data.references}\", \"${scene.anchor}\"]) "
+    'an item may itself be a list or comma text, e.g. ["${entry.data.references}", "${scene.anchor}"]) '
     "adds pictures to go by, e.g. a character's master (source, if set, is the one it edits). An action with a "
     "speech.* or audio.* capability (elevenlabs.synthesize, .dialogue, .sound_effect, .music) keeps its audio as an asset — "
     "output asset {id, url, duration_seconds} — and takes attach_as and tags; speech.transcribe takes an audio or video "
