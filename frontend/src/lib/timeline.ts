@@ -80,6 +80,11 @@ export interface BedSpec {
   entry_fade_out?: string;
   item_fade_in?: string;
   item_fade_out?: string;
+  /** How a story-wide bed's level eases from one step to the next (a beat's music_volume): `ramp` seconds by default (0: a hard edge), else the later
+   * step's first item's `item_ramp_in`, else the earlier step's last item's `item_ramp_out`, centred on the cut and never longer than the shorter step. */
+  ramp?: number;
+  item_ramp_in?: string;
+  item_ramp_out?: string;
   /** A bed that layers, as the render plays ambience: `item_field` on each spine item names its own sound (it wins over the `via` entry's
    * `field`: a beat's own over its scene's), and `entry_field` on the view's entry names a sound under the whole film (the story's), which
    * plays together with those, its level in `entry_volume`. */
@@ -237,6 +242,8 @@ export interface BedStep {
   source?: BedSource;
   by?: string;
   muffled?: boolean;
+  /** Seconds the level eases into this step, centred on its start (0 or missing for the first step or a hard edge). */
+  ramp?: number;
 }
 
 export type BedSource = "story" | "scene" | "beat";
@@ -732,12 +739,27 @@ function stepsOf(spec: BedSpec, items: Item[], rows: Rows, base: number): BedSte
   if (!spec.item_volume) return [];
   const spine = new Map(rows.spine.map((r) => [r.id, r] as const));
   const runs: BedStep[] = [];
+  const ends: { first: Row | undefined; last: Row | undefined }[] = []; // the first and last item of each run, whose own ramp seconds say how its edges ease
   for (const item of items) {
     const row = spine.get(item.id);
     const volume = (row ? level(field(row, spec.item_volume)) : null) ?? base;
     const last = runs[runs.length - 1];
-    if (last && Math.abs(last.volume - volume) < 1e-9) last.seconds = item.start + item.seconds - last.start;
-    else runs.push({ start: item.start, seconds: item.seconds, volume });
+    if (last && Math.abs(last.volume - volume) < 1e-9) {
+      last.seconds = item.start + item.seconds - last.start;
+      ends[ends.length - 1].last = row;
+    } else {
+      runs.push({ start: item.start, seconds: item.seconds, volume });
+      ends.push({ first: row, last: row });
+    }
+  }
+  const set = (row: Row | undefined, key: string | undefined) => {
+    const v = row && key ? Number(field(row, key)) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : null;
+  };
+  for (let i = 1; i < runs.length; i++) {
+    const wanted = set(ends[i].first, spec.item_ramp_in) ?? set(ends[i - 1].last, spec.item_ramp_out) ?? spec.ramp ?? 0;
+    const ramp = wanted > 0 ? Math.max(0.05, Math.min(wanted, runs[i - 1].seconds, runs[i].seconds)) : 0; // as the render: never longer than the shorter run beside it
+    if (ramp > 0) runs[i].ramp = ramp;
   }
   return runs.length > 1 || (runs.length === 1 && Math.abs(runs[0].volume - base) > 1e-9) ? runs : [];
 }

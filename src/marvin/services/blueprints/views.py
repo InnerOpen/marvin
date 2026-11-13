@@ -41,40 +41,40 @@ A timeline definition::
 - A ``lane`` is a child type drawn under the spine, in one of four shapes. ``in`` names the field that holds the spine item's slug (a line
   belongs to a beat; ``of`` is then required and scopes the lane's entries to the view's entry). ``placed`` says the spine item lists them:
   ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at`` (the entries come by
-  those slugs, so a library sound shared by stories is found; ``of`` is optional; ``volume`` names the key inside each cue that holds its own
-  level (0 to 1), which replaces the sound's own for that cue and gets a slider in the cue editor; ``filter`` limits what the item's page offers to
-  pick
-  to entries whose fields hold those values, e.g. ``{"kind": "effect"}``). ``bed`` is a sound that runs under a stretch: ``field``
-  names the lane entry's slug on the view's entry itself (a story's music, one block under everything), or on each spine item, or, with
-  ``via`` and ``entry_type``, on the entry a spine item's ``via`` field names (a beat's scene names its ambience); consecutive items with the
-  same bed merge into one block. ``bed.volume`` is the level field on that entry and ``bed.item_volume`` an override on the spine item;
-  a level set there *replaces* the sound's own (not multiplied), and ``bed.default_volume`` (0 to 1) plays when none is set.
-  ``bed.fade_in`` / ``bed.fade_out`` name the sound's fade fields (seconds), ``bed.default_fade_in`` / ``default_fade_out`` what the render does
-  when they are empty, and ``bed.end_fade`` a field on the view's entry for how long every bed fades out at the end of the film; the block
-  draws them and Play follows them; ``bed.start_fade`` is the same for the start of the film, and ``bed.entry_fade_in`` /
-  ``entry_fade_out`` (on the entry) and ``bed.item_fade_in`` / ``item_fade_out`` (on each item) make the lane's own fades cascade: the sound's,
-  then the entry's, then the item's. ``bed.item_field`` (a field on each spine item) names that item's own sound, winning over the ``via``
-  entry's, and ``bed.entry_field`` / ``bed.entry_volume`` name a sound under the whole film and its level: it plays together with the others,
-  as the render layers them. ``bed.duck`` is a field on the view's entry holding none, light or strong: how far the bed goes down under each
-  The story's bed can be turned down (or muffled) where the story is: ``bed.entry_item_volume`` is a field on each spine item (a beat's level for
-  the story's bed), ``bed.entry_via_volume`` and ``bed.entry_via_muffled`` fields on the entry the item's ``via`` names (a scene's level, and
-  whether it is heard from inside). The item's level wins over the entry's, which wins over the story's; the block shows each stretch as a
-  step, says who set it (the story, a scene or a beat) and marks the muffled ones.
-  ``order`` is the field the lane's entries sort by (a number: those with none come after, by slug), ``off`` a boolean field that leaves an
-  entry out when it is on (not timed, drawn or played: tried out and set aside); ``audio`` is an asset field, ``seconds`` a duration field,
-  ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it repeats, and ``estimate_from`` a text field whose length stands
-  in for the seconds while there is no recording (drawn hatched). On a bed that runs under the whole story, ``bed.item_volume`` *replaces*
-  the level while that spine item plays (a beat that takes the music to silence) and shows as steps in the block. ``cover`` is a video laid
-  over each item's picture: ``field`` is the asset field, ``blend`` and ``opacity`` its settings; the item's own field wins, then the entry
-  ``via`` (with ``entry_type``) names, then the view's entry itself, and a blend of ``none`` at one of them switches the overlay off from
-  there up. ``marks`` writes one choice per spine item in its block, for something about the shot that is not sound or picture (the camera's
-  move, the time of day): ``field`` holds the choice (a select's value), read from the item, else the entry ``via`` (with ``entry_type``)
-  names, else the view's entry, so a scene or a story can set it for the beats that do not; ``labels`` and ``icons`` ({value: text}) say how
-  a value reads, and ``other`` ({field, label}) names what the item shows when that other field holds
-  something of its own (an exact camera move written out): written on purpose, it wins over the item's own choice, which wins over what the
-  scene or the story chose.
-  ``merge`` lists the values whose effect carries on across a cut (a ship's rocking): consecutive items with the same one from the same
-  scene or story are drawn as one block, not a chip each.
+  those slugs, so a library sound shared by stories is found; ``of`` is optional; ``volume`` names the key inside each cue that holds its
+  own level (0 to 1), which replaces the sound's own for that cue and gets a slider in the cue editor; ``filter`` limits what the item's
+  page offers to pick to entries whose fields hold those values, e.g. ``{"kind": "effect"}``). ``bed`` is a sound that runs under a stretch:
+  ``field`` names the lane entry's slug on the view's entry itself (a story's music, one block under everything), or on each spine item, or,
+  with ``via`` and ``entry_type``, on the entry a spine item's ``via`` field names (a beat's scene names its ambience); consecutive items
+  with the same bed merge into one block. ``bed.volume`` is the level field on that entry and ``bed.item_volume`` an override on the spine
+  item; a level set there *replaces* the sound's own (not multiplied), and ``bed.default_volume`` (0 to 1) plays when none is set.
+  ``bed.fade_in`` / ``bed.fade_out`` name the sound's fade fields (seconds), ``bed.default_fade_in`` / ``default_fade_out`` what the render
+  does when they are empty, and ``bed.end_fade`` a field on the view's entry for how long every bed fades out at the end of the film; the
+  block draws them and Play follows them; ``bed.start_fade`` is the same for the start of the film, and ``bed.entry_fade_in`` /
+  ``entry_fade_out`` (on the entry) and ``bed.item_fade_in`` / ``item_fade_out`` (on each item) make the lane's own fades cascade: the
+  sound's, then the entry's, then the item's. ``bed.item_field`` (a field on each spine item) names that item's own sound, winning over the
+  ``via`` entry's, and ``bed.entry_field`` / ``bed.entry_volume`` name a sound under the whole film and its level: it plays together with
+  the others, as the render layers them. ``bed.duck`` is a field on the view's entry holding none, light or strong: how far the bed goes
+  down under each The story's bed can be turned down (or muffled) where the story is: ``bed.entry_item_volume`` is a field on each spine
+  item (a beat's level for the story's bed), ``bed.entry_via_volume`` and ``bed.entry_via_muffled`` fields on the entry the item's ``via``
+  names (a scene's level, and whether it is heard from inside). The item's level wins over the entry's, which wins over the story's; the
+  block shows each stretch as a step, says who set it (the story, a scene or a beat) and marks the muffled ones. ``order`` is the field the
+  lane's entries sort by (a number: those with none come after, by slug), ``off`` a boolean field that leaves an entry out when it is on
+  (not timed, drawn or played: tried out and set aside); ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and
+  ``loop`` the lane entry's own level and whether it repeats, and ``estimate_from`` a text field whose length stands in for the seconds
+  while there is no recording (drawn hatched). On a bed that runs under the whole story, ``bed.item_volume`` *replaces* the level while that
+  spine item plays (a beat that takes the music to silence) and shows as steps in the block, and the level eases between two steps over
+  ``bed.ramp`` seconds (0 to 30, default 0: a hard edge), or over the later step's first item's ``bed.item_ramp_in`` field, else the earlier
+  step's last item's ``bed.item_ramp_out``, as the render does: the block draws the slope. ``cover`` is a video laid over each item's
+  picture: ``field`` is the asset field, ``blend`` and ``opacity`` its settings; the item's own field wins, then the entry ``via`` (with
+  ``entry_type``) names, then the view's entry itself, and a blend of ``none`` at one of them switches the overlay off from there up.
+  ``marks`` writes one choice per spine item in its block, for something about the shot that is not sound or picture (the camera's move, the
+  time of day): ``field`` holds the choice (a select's value), read from the item, else the entry ``via`` (with ``entry_type``) names, else
+  the view's entry, so a scene or a story can set it for the beats that do not; ``labels`` and ``icons`` ({value: text}) say how a value
+  reads, and ``other`` ({field, label}) names what the item shows when that other field holds something of its own (an exact camera move
+  written out): written on purpose, it wins over the item's own choice, which wins over what the scene or the story chose. ``merge`` lists
+  the values whose effect carries on across a cut (a ship's rocking): consecutive items with the same one from the same scene or story are
+  drawn as one block, not a chip each.
 - ``spine.review`` ({ready, keep, redo}) puts Keep and Redo buttons on each item whose ``spine.status`` is one of ``ready`` (a still that was
   made and waits to be looked at): Keep writes the status ``keep``, Redo the status ``redo`` into the item's status field, and the page shows
   the new status at once. What the package does with those statuses (a redo made again) is its own workflows' business.
@@ -309,6 +309,8 @@ def _check_bed(bed: Any, label: str) -> str | None:
             "entry_fade_out",
             "item_fade_in",
             "item_fade_out",
+            "item_ramp_in",
+            "item_ramp_out",
             "duck",
             "item_field",
             "entry_field",
@@ -324,7 +326,7 @@ def _check_bed(bed: Any, label: str) -> str | None:
         return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"
     if bed.get("entry_type") is not None and (problem := _slug(bed, "entry_type", f"{label} bed")):
         return problem
-    for key in ("default_fade_in", "default_fade_out"):
+    for key in ("default_fade_in", "default_fade_out", "ramp"):
         if not _number_between(bed, key, 0, 30):
             return f"{label}: bed.{key} must be a number of seconds from 0 to 30"
     if not _number_between(bed, "default_volume", 0, 1):
