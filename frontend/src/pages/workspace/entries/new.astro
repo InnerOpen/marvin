@@ -480,8 +480,9 @@ const prefill: Record<string, unknown> = fromAsset && assetField ? { [assetField
 
         if (field.type === 'checkbox') {
           dataJson[fieldKey] = field.checked;
-        } else if (!field.value) {
-          dataJson[fieldKey] = null;
+        } else if (!field.value || field.classList.contains('suggested')) {
+          dataJson[fieldKey] = null; // empty, or only a suggestion the person has not changed
+
         } else if (field.type === 'number') {
           const n = Number(field.value);
           dataJson[fieldKey] = Number.isNaN(n) ? null : n;
