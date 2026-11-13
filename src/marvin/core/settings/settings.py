@@ -526,6 +526,13 @@ class AppSettings(BaseSettings):
     SECURITY_BCRYPT_ROUNDS: int = 12
     """Bcrypt cost factor (work factor). Higher = more secure but slower. Range: 4-31. Default: 12"""
 
+    SECURITY_TOKEN_VERIFY_CACHE_TTL: int = 300
+    """Seconds an API token that bcrypt has confirmed is remembered, so later requests skip the bcrypt check.
+    0 switches the cache off (every request does the bcrypt check); negative values count as 0. Default: 300"""
+
+    SECURITY_TOKEN_VERIFY_CACHE_SIZE: int = 1000
+    """Most API tokens remembered at once (least recently used goes first). Minimum 1. Default: 1000"""
+
     # ===============================================
     # Authentication Configuration
 

@@ -132,17 +132,32 @@ class VerifiedTokens:
     is no use to an attacker: a request carries the raw token and the lookup half is computed from it here, so
     hitting an entry takes the token itself (or a SHA-256 preimage), and an entry exists only after bcrypt
     accepted that exact token against that exact hash. Failures are never remembered. Bounded (least recently
-    used goes first) and every entry lapses after `ttl` seconds."""
+    used goes first) and every entry lapses after `ttl` seconds.
 
-    def __init__(self, size: int = 1000, ttl: float = 300.0):
-        self.size, self.ttl = size, ttl
+    `size` and `ttl` are SECURITY_TOKEN_VERIFY_CACHE_SIZE (minimum 1) and SECURITY_TOKEN_VERIFY_CACHE_TTL (0 or
+    less: remember nothing), read when used so a change takes effect; a value given here overrides the setting."""
+
+    def __init__(self, size: int | None = None, ttl: float | None = None):
+        self._size, self._ttl = size, ttl
         self._seen: OrderedDict[tuple[str, str, str], float] = OrderedDict()
         self._lock = threading.Lock()
+
+    @property
+    def size(self) -> int:
+        size = self._size if self._size is not None else get_app_settings().SECURITY_TOKEN_VERIFY_CACHE_SIZE
+        return max(1, size)
+
+    @property
+    def ttl(self) -> float:
+        ttl = self._ttl if self._ttl is not None else get_app_settings().SECURITY_TOKEN_VERIFY_CACHE_TTL
+        return max(0.0, ttl)
 
     def __len__(self) -> int:
         return len(self._seen)
 
     def known(self, key: tuple[str, str, str]) -> bool:
+        if self.ttl == 0:
+            return False
         with self._lock:
             until = self._seen.get(key)
             if until is None:
@@ -154,10 +169,13 @@ class VerifiedTokens:
             return True
 
     def remember(self, key: tuple[str, str, str]) -> None:
+        ttl, size = self.ttl, self.size
+        if ttl == 0:
+            return
         with self._lock:
-            self._seen[key] = time.monotonic() + self.ttl
+            self._seen[key] = time.monotonic() + ttl
             self._seen.move_to_end(key)
-            while len(self._seen) > self.size:
+            while len(self._seen) > size:
                 self._seen.popitem(last=False)
 
     def clear(self) -> None:

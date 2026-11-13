@@ -224,3 +224,50 @@ def test_a_site_client_token_is_found_by_its_lookup_and_rotation_moves_it(db_ses
     assert repo.validate_token("marvin_sk_" + "y" * 43) is None and verifications.n == 0
     rotated = repo.rotate_token(clients[0].id)
     assert repo.validate_token(rotated.token) is not None and repo.validate_token(clients[0].token) is None
+
+
+def test_the_cache_defaults_are_a_thousand_tokens_for_five_minutes():
+    assert (hasher.verified_tokens.size, hasher.verified_tokens.ttl) == (1000, 300)
+    assert (hasher.VerifiedTokens().size, hasher.VerifiedTokens().ttl) == (1000, 300)
+
+
+def test_with_a_ttl_of_zero_every_request_is_bcrypt_checked(db_session, owner, verifications, monkeypatch):
+    from marvin.core.config import get_app_settings
+
+    monkeypatch.setattr(get_app_settings(), "SECURITY_TOKEN_VERIFY_CACHE_TTL", 0)
+    repo = _tokens(db_session)
+    made = repo.create({"name": "off", "user_id": owner.uid})
+    verifications.n = 0
+    for _ in range(3):
+        assert repo.validate_token(made.token) is not None
+    assert verifications.n == 3 and len(hasher.verified_tokens) == 0
+    client = APIClientsRepository(db_session, owner.gid).create({"name": "site off", "created_by": owner.uid})
+    verifications.n = 0
+    for _ in range(2):
+        assert APIClientsRepository(db_session, owner.gid).validate_token(client.token) is not None
+    assert verifications.n == 2 and len(hasher.verified_tokens) == 0
+
+
+def test_a_negative_ttl_counts_as_zero_and_a_size_below_one_as_one(monkeypatch):
+    from marvin.core.config import get_app_settings
+
+    monkeypatch.setattr(get_app_settings(), "SECURITY_TOKEN_VERIFY_CACHE_TTL", -5)
+    monkeypatch.setattr(get_app_settings(), "SECURITY_TOKEN_VERIFY_CACHE_SIZE", 0)
+    seen = hasher.VerifiedTokens()
+    assert (seen.ttl, seen.size) == (0, 1)
+    seen.remember(("t", "a", "b"))
+    assert len(seen) == 0 and not seen.known(("t", "a", "b"))
+
+
+def test_the_size_setting_bounds_the_cache(db_session, owner, verifications, monkeypatch):
+    from marvin.core.config import get_app_settings
+
+    monkeypatch.setattr(get_app_settings(), "SECURITY_TOKEN_VERIFY_CACHE_SIZE", 2)
+    repo = _tokens(db_session)
+    made = [repo.create({"name": f"s{i}", "user_id": owner.uid}) for i in range(3)]
+    for m in made:
+        assert repo.validate_token(m.token) is not None
+    assert len(hasher.verified_tokens) == 2
+    verifications.n = 0
+    assert repo.validate_token(made[2].token) is not None and verifications.n == 0
+    assert repo.validate_token(made[0].token) is not None and verifications.n == 1  # least recently used went first
