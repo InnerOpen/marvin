@@ -3,6 +3,7 @@ import EntryCard from "@/components/EntryCard.astro";
 import EntryList from "@/components/EntryList.astro";
 import EntrySearchBar from "@/components/EntrySearchBar.astro";
 import ListSort from "@/components/ListSort.astro";
+import ListBar from "@/components/ListBar.astro";
 import Pagination from "@/components/Pagination.astro";
 import { ENTRY_SORTS, querySort, readEntrySort } from "@/lib/entrySort";
 import EntryViews from "@/components/EntryViews.astro";
@@ -112,7 +113,6 @@ const trashedCount = trashCollection?.entryCount ?? 0;
       </div>
 
       <EntrySearchBar conds={conds} builderData={builderData} total={search?.total ?? null} note={search?.note ?? null} />
-      {(result.total > 0 || conds.length > 0) && <ListSort options={ENTRY_SORTS} value={sort} />}
 
       {trashedParam && (
         <div class="undo-notice" id="undo-notice" data-entry-id={trashedParam} role="status">
@@ -125,7 +125,9 @@ const trashedCount = trashCollection?.entryCount ?? 0;
       {conds.length > 0 ? (
         entries.length > 0 ? (
           <>
-            <EntryViews entries={entries} typeNames={typeNames} collectionsMap={collectionsMap} storageKey="entries-search-view" />
+            <EntryViews entries={entries} typeNames={typeNames} collectionsMap={collectionsMap} storageKey="entries-search-view">
+              <ListSort slot="sort" options={ENTRY_SORTS} value={sort} />
+            </EntryViews>
             <Pagination url={Astro.url} total={result.total} label="Entries pages" />
           </>
         ) : (
@@ -143,7 +145,8 @@ const trashedCount = trashCollection?.entryCount ?? 0;
         </div>
       ) : (
         <>
-          <div class="view-toggle">
+          <ListBar>
+            <div class="view-toggle">
             <button class="toggle-btn active" id="view-grid" title="Cards">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
               Cards
@@ -153,6 +156,8 @@ const trashedCount = trashCollection?.entryCount ?? 0;
               List
             </button>
           </div>
+            {(result.total > 0 || conds.length > 0) && <Fragment slot="sort"><ListSort options={ENTRY_SORTS} value={sort} /></Fragment>}
+          </ListBar>
 
           {entries.length === 0 && trashCollection && (
             <p class="all-trashed-note" id="all-trashed-note">
