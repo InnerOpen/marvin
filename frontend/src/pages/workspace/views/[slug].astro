@@ -268,6 +268,13 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           <span data-run-text></span>
           <button type="button" class="tl-run-close" data-run-close aria-label="Dismiss">×</button>
         </div>
+        {itemRun && (
+          <div class="tl-pickbar" data-pickbar data-item-input={itemRun.item} data-noun={spec.spine.entry_type.replace(/-/g, " ")} role="status" aria-live="polite" hidden>
+            <span data-pick-text></span>
+            <button type="button" class="button" data-pick-run data-run={JSON.stringify({ workflow: itemRun.workflow, inputs: itemRun.base })} data-run-label={itemRun.label} data-run-slug={entry.slug}>▶ {itemRun.label} selected</button>
+            <button type="button" class="button secondary" data-pick-clear>Clear</button>
+          </div>
+        )}
       </header>
 
       {laid.items.length === 0 ? (
@@ -330,6 +337,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated }]}
                       role="listitem"
                       data-item={item.id}
+                      data-key={itemRun && item.key && !item.card ? item.key : undefined}
                       data-name={item.number !== null ? String(item.number) : item.title}
                       data-start={item.start}
                       style={`left:${pctIn(track, item.start)};width:${pctIn(track, track.start + item.seconds)}`}
@@ -349,6 +357,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         {item.number !== null && <span class="tl-n">{item.number}</span>}
                         {item.status && <span class="tl-dot" data-status={item.status} title={item.status} />}
                       </span>
+                      {itemRun && item.key && !item.card && (
+                        <button type="button" class="tl-pick" aria-pressed="false" aria-label={`Select ${spec.spine.entry_type.replace(/-/g, " ")} ${item.key}`} title="Select to draft several together (ctrl or cmd-click the card to toggle, shift-click for a range)"></button>
+                      )}
                       {!item.card && <a class="tl-open" href={open(item.id)} title={`Open ${item.title}`}>Open</a>}
                       {itemRun && item.key && !item.card && (
                         <button
@@ -900,6 +911,68 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         if (was) play();
       }),
     );
+    // Pick items to draft together, in any order: the checkbox on a card, ctrl or cmd-click on it, shift-click for the run between. The bar's run button
+    // is the same one a single card has, sent the picked keys (in timeline order) as a comma list.
+    const pickBar = root.querySelector<HTMLElement>("[data-pickbar]");
+    if (pickBar) {
+      const pickText = pickBar.querySelector<HTMLElement>("[data-pick-text]")!;
+      const pickRun = pickBar.querySelector<HTMLButtonElement>("[data-pick-run]")!;
+      const base = JSON.parse(pickRun.dataset.run || "{}") as { workflow: string; inputs: Record<string, unknown> };
+      const itemInput = pickBar.dataset.itemInput ?? "";
+      const noun = pickBar.dataset.noun ?? "item";
+      const cards = () => Array.from(root.querySelectorAll<HTMLElement>(".tl-item[data-key]"));
+      let anchor: HTMLElement | null = null;
+      const refresh = () => {
+        const picked = cards().filter((c) => c.classList.contains("picked"));
+        picked.length ? root.classList.add("has-picks") : root.classList.remove("has-picks");
+        cards().forEach((c) => c.querySelector(".tl-pick")?.setAttribute("aria-pressed", String(c.classList.contains("picked"))));
+        pickBar.hidden = picked.length === 0;
+        const keys = picked.map((c) => c.dataset.key ?? "");
+        pickText.textContent = `${picked.length} ${noun}${picked.length === 1 ? "" : "s"} selected: ${keys.join(", ")}`;
+        pickRun.dataset.run = JSON.stringify({ workflow: base.workflow, inputs: { ...base.inputs, [itemInput]: keys.join(",") } });
+        pickRun.dataset.runLabel = `${pickRun.dataset.runLabel?.split(" of ")[0] ?? "Draft"} of ${noun}s ${keys.join(", ")}`;
+      };
+      const choose = (card: HTMLElement, shift: boolean) => {
+        if (shift && anchor && anchor !== card) {
+          const all = cards();
+          const [a, b] = [all.indexOf(anchor), all.indexOf(card)].sort((x, y) => x - y);
+          all.slice(a, b + 1).forEach((c) => c.classList.add("picked"));
+        } else {
+          card.classList.toggle("picked");
+          anchor = card;
+        }
+        refresh();
+      };
+      root.addEventListener(
+        "click",
+        (event) => {
+          const target = event.target as HTMLElement;
+          const card = target.closest<HTMLElement>(".tl-item[data-key]");
+          if (!card) return;
+          if (target.closest(".tl-pick")) {
+            event.preventDefault();
+            event.stopPropagation();
+            choose(card, (event as MouseEvent).shiftKey);
+          } else if (target.closest(".tl-seek") && ((event as MouseEvent).ctrlKey || (event as MouseEvent).metaKey || (event as MouseEvent).shiftKey)) {
+            event.preventDefault();
+            event.stopPropagation(); // a modified click picks; it does not move the playhead
+            choose(card, (event as MouseEvent).shiftKey);
+          }
+        },
+        true,
+      );
+      const clear = () => {
+        cards().forEach((c) => c.classList.remove("picked"));
+        anchor = null;
+        refresh();
+      };
+      pickBar.querySelector("[data-pick-clear]")?.addEventListener("click", clear);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !pickBar.hidden) clear();
+      });
+      refresh();
+    }
+
     // |< << >> >|: the start, the previous beat, the next beat, the end. Playing carries on from where it lands (but not past the end).
     const jump = (action: Jump) => {
       const was = playing;
@@ -1075,7 +1148,14 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-draft { position: absolute; right: 9px; top: 28px; font: inherit; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); cursor: pointer; opacity: 0; }
   .tl-item:hover .tl-draft, .tl-item:focus-within .tl-draft { opacity: 1; }
   .tl-draft:disabled { cursor: progress; opacity: 0.5; }
-  @media (hover: none) { .tl-open, .tl-draft { opacity: 1; } }
+  .tl-pick { position: absolute; left: 7px; bottom: 7px; width: 18px; height: 18px; padding: 0; border-radius: 4px; border: 1.5px solid var(--ink); background: var(--panel); cursor: pointer; opacity: 0; display: grid; place-items: center; }
+  .tl-item:hover .tl-pick, .tl-item:focus-within .tl-pick, .has-picks .tl-pick { opacity: 0.85; }
+  .tl-pick[aria-pressed="true"] { opacity: 1; background: var(--accent); border-color: var(--accent); }
+  .tl-pick[aria-pressed="true"]::after { content: "✓"; color: #fff; font-size: 12px; line-height: 1; }
+  .tl-item.picked .tl-seek { box-shadow: 0 0 0 2px var(--accent); }
+  .tl-pickbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 144px; z-index: 41; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: min(640px, calc(100vw - 24px)); padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 6px 24px rgb(0 0 0 / 0.35); font-size: 0.875rem; }
+  .tl-pickbar[hidden] { display: none; }
+  @media (hover: none) { .tl-open, .tl-draft, .tl-pick { opacity: 1; } }
   /* Keep / Redo on a card that waits to be looked at: always visible (it is the point of looking), small, along the bottom-left of the card */
   .tl-review { position: absolute; left: 6px; bottom: 6px; display: inline-flex; gap: 4px; z-index: 2; }
   .tl-review button { font: inherit; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); cursor: pointer; }
