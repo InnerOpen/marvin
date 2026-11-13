@@ -428,6 +428,12 @@ def test_a_gallery_may_list_takes_name_them_after_a_line_and_measure_an_upload()
         ({"card_actions": [{"label": "x", "set": {}}]}, "set maps"),
         ({"card_actions": [{"label": "x", "set": {"status": [1]}}]}, "set maps"),
         ({"card_actions": [{"label": "x", "set": {"status": "x"}, "when": {"field": "status", "op": "gt", "value": "a"}}]}, "when is"),
+        ({"card_actions": [{"label": "x", "set": {"status": "x"}, "file": {"accept": "audio/*"}}]}, "card action's file needs the asset field"),
+        ({"card_actions": [{"label": "x", "set": {"status": "x"}, "file": {"field": "audio", "accept": "no"}}]}, "card action's file.accept"),
+        (
+            {"card_actions": [{"label": "x", "set": {"status": "x"}, "file": {"field": "audio", "assets": "yes"}}]},
+            "card action's file.assets is true or false",
+        ),
         ({"name": {"from": "nope", "noun": "take"}}, "name is"),
         ({"name": {"from": "line", "noun": " "}}, "name is"),
         ({"name": {"from": "line", "noun": "take", "placeholder": " "}}, "name.placeholder"),
@@ -441,6 +447,15 @@ def test_a_gallery_may_list_takes_name_them_after_a_line_and_measure_an_upload()
 )
 def test_a_wrong_takes_gallery_says_what_is_wrong(change, words):
     assert words in (payload_problem(_takes_wizard(**change), "takes") or "")
+
+
+def test_a_card_action_may_ask_for_a_file_and_an_add_form_may_offer_the_workspaces_assets():
+    action = {"label": "Use my file", "set": {"status": "approved"}, "file": {"field": "audio", "accept": "audio/*", "assets": True}}
+    assert payload_problem(_takes_wizard(card_actions=[action]), "takes") is None
+    assert payload_problem(_takes_wizard(add={"fields": ["text"], "file": {"field": "audio", "accept": "audio/*", "assets": True}}), "takes") is None
+    assert "assets is true or false" in (
+        payload_problem(_takes_wizard(add={"fields": ["text"], "file": {"field": "audio", "assets": 1}}), "takes") or ""
+    )
 
 
 def _add_wizard(**add) -> dict:

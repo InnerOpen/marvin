@@ -8,6 +8,8 @@ import SchemaFormField from "@/components/SchemaFormField.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { acceptKind, acceptsAudio } from "@/lib/acceptKind";
 import { getAuthToken } from "@/lib/api/client";
+import { getAssets } from "@/lib/api/platform";
+import { matchesAccept } from "@/lib/assetAccept";
 import { type RefOption, withCurrent } from "@/lib/refFields";
 import { refOptionsFor } from "@/lib/refFieldsApi";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
@@ -24,6 +26,7 @@ const slug = Astro.params.slug ?? "";
 
 let wizard: WizardRead | null = null;
 let problem: string | null = authToken ? null : "Sign in to use this guided setup.";
+let pickerAssets: { id: string; name: string; mimeType?: string | null }[] = []; // the workspace's assets, when a gallery lets the person choose one instead of uploading
 let galleryFields: { key?: string; accept?: string | null }[] = []; // the gallery entry type's fields: what its file field takes is what an upload takes
 let stepProblem: string | null = null; // what went wrong with the step just posted: shown inside its card
 let badFields: string[] = []; // the inputs it is about
@@ -169,6 +172,9 @@ if (authToken && def && step) {
     addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
     refs = await refsFor(addFields);
     addValues = prefillOf(step.add, entries);
+    if (step.add?.file?.assets || (step.card_actions ?? []).some((a: any) => a.file?.assets)) {
+      pickerAssets = authToken ? await getAssets(authToken, { sort: "newest" }).catch(() => []) : [];
+    }
     if (step.approve) {
       // The approvals of these workflows about the entries listed here (its takes, and what was chosen), so they are answered on this page.
       const all = await approvalCards(authToken);
@@ -230,6 +236,8 @@ const uploadNoun = { audio: "sound", image: "picture", file: "file" }[acceptKind
 // A gallery's add form may hold a file box of its own (`add.file`): it takes recordings too.
 const lengthField: string | undefined = step?.upload?.seconds ?? step?.add?.file?.seconds; // where a card's sound length lives
 const addAccept = step?.kind === "gallery" && step.add?.file ? galleryAccept({ upload: step.add.file } as any, galleryFields) : null;
+// The assets a file box may offer to choose from: those whose type fits its accept.
+const assetsFor = (accept: string | null | undefined) => pickerAssets.filter((a) => matchesAccept(accept ?? "audio/*", a));
 const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept) || acceptsAudio(addAccept);
 // What the recorder shows to read from (`add.file.script`: field keys of the add form, labelled as the form labels them): a take's words and direction.
 const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?? []) as string[]).map((key) => ({
@@ -479,14 +487,35 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       <div class="gbar">
                       {(step.card_actions ?? []).some((a: any) => cardActionShown(a, r.dataJson)) && (
                         <div class="gacts">
-                          {(step.card_actions as { label: string; when?: any }[]).map((a, n) => cardActionShown(a, r.dataJson) && (
+                          {(step.card_actions as { label: string; when?: any; file?: { accept?: string; assets?: boolean } }[]).map((a, n) => cardActionShown(a, r.dataJson) && (a.file ? (
+                            <details class="gfile">
+                              <summary class="button secondary small">{a.label}</summary>
+                              <form method="post" class="form gform" enctype="multipart/form-data">
+                                <input type="hidden" name="action" value="card" />
+                                <input type="hidden" name="card_id" value={r.id} />
+                                <input type="hidden" name="card_do" value={String(n)} />
+                                <label>Upload one</label>
+                                <input type="file" name="file" accept={a.file.accept ?? "audio/*"} />
+                                {a.file.assets && (
+                                  <>
+                                    <label>Or choose one already in your assets</label>
+                                    <select class="input" name="asset_id">
+                                      <option value="">{assetsFor(a.file.accept).length ? "Choose…" : "No sounds in your assets yet"}</option>
+                                      {assetsFor(a.file.accept).map((x) => <option value={x.id}>{x.name}</option>)}
+                                    </select>
+                                  </>
+                                )}
+                                <button class="button small" type="submit">{a.label}</button>
+                              </form>
+                            </details>
+                          ) : (
                             <form method="post" class="gact">
                               <input type="hidden" name="action" value="card" />
                               <input type="hidden" name="card_id" value={r.id} />
                               <input type="hidden" name="card_do" value={String(n)} />
                               <button class="button secondary small" type="submit">{a.label}</button>
                             </form>
-                          ))}
+                          )))}
                         </div>
                       )}
                       {step.trash && (
@@ -522,6 +551,15 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             <label>{step.add.file.label ?? "Your own take"}</label>
                             <p class="muted">{step.add.file.help ?? "Record or upload one, then use the first button. Leave it empty to have ElevenLabs make it from the words above."}</p>
                             <FileDrop accept={addAccept ?? undefined} hint={step.add.file.hint ?? "Record or upload one take."} nameFrom="add_title" required={false} script={readFrom} />
+                            {step.add.file.assets && (
+                              <>
+                                <label for="add_asset" class="gchoose">Or choose one already in your assets</label>
+                                <select class="input" id="add_asset" name="asset_id" data-asset-choice>
+                                  <option value="">{assetsFor(addAccept).length ? "Choose…" : "No sounds in your assets yet"}</option>
+                                  {assetsFor(addAccept).map((a) => <option value={a.id}>{a.name}</option>)}
+                                </select>
+                              </>
+                            )}
                           </div>
                         )}
                         <div class="actions">
@@ -678,10 +716,18 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   document.querySelectorAll<HTMLFormElement>("form").forEach((form) => {
     const buttons = [...form.querySelectorAll<HTMLButtonElement>("button[data-needs-file]")];
     if (!buttons.length) return;
-    form.addEventListener("filedrop:change", (e) => {
-      const has = (e as CustomEvent<{ hasFile: boolean }>).detail.hasFile;
+    // A file from the drop zone, or an asset chosen from the list, counts as having one.
+    const choice = form.querySelector<HTMLSelectElement>("select[data-asset-choice]");
+    let dropped = false;
+    const refresh = () => {
+      const has = dropped || !!choice?.value;
       for (const b of buttons) b.disabled = b.dataset.needsFile === "required" ? !has : b.dataset.needsFile === "none" ? has : false;
+    };
+    form.addEventListener("filedrop:change", (e) => {
+      dropped = (e as CustomEvent<{ hasFile: boolean }>).detail.hasFile;
+      refresh();
     });
+    choice?.addEventListener("change", refresh);
   });
   // A form that moves something to the Trash asks first.
   document.querySelectorAll<HTMLFormElement>("form[data-confirm]").forEach((form) => {
@@ -827,6 +873,10 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .gbar .gtrash { margin-left: auto; }
   .gacts { display: flex; flex-wrap: wrap; gap: 6px; }
   .gact { margin: 0; }
+  .gfile { margin: 0; }
+  .gfile summary { cursor: pointer; list-style: none; }
+  .gfile form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); min-width: 220px; }
+  .gfile label, .gchoose { font-size: 12px; color: var(--muted); }
   .gwrap { display: grid; gap: 4px; align-content: start; }
   .gtrash { display: flex; justify-content: flex-end; margin: 0; }
   .gtrash button { background: none; border: 0; padding: 2px 4px; color: var(--muted); font-size: 12px; cursor: pointer; }
