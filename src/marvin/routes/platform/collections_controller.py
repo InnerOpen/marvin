@@ -234,12 +234,18 @@ class CollectionsController(BaseUserController):
         return {"status": "ok", "message": "Collection deleted successfully"}
 
     @router.get("/{item_id}/members", summary="Get Collection Members")
-    def get_collection_members(self, item_id: UUID4) -> list[dict]:
+    def get_collection_members(
+        self,
+        item_id: UUID4,
+        response: Response,
+        limit: int | None = Query(None, ge=1, description="At most this many (default: all of them)"),
+        offset: int = Query(0, ge=0, description="Skip this many first (with `limit`, one page)"),
+    ) -> list[dict]:
         """Lightweight membership list for a collection of any target type.
 
         Returns ``[{id, label, slug, type}]`` — entries (title), assets (name), or resources (name)
         depending on the collection's target_type. Used by the admin UI to show membership of
-        asset/resource smart collections uniformly.
+        asset/resource smart collections uniformly. `limit`/`offset` page it; `X-Total-Count` says how many there are.
         """
         collection = self.repos.collections.get_one(item_id)
         if not collection:
@@ -265,7 +271,7 @@ class CollectionsController(BaseUserController):
             q = q.filter(trash.collection_entries_filter(collection))
         else:  # an asset or resource in the Trash keeps its membership for a restore, out of sight
             q = q.filter(model.trashed_at.is_(None))
-        rows = q.order_by(getattr(model, label_col)).all()
+        rows = paged(q.order_by(getattr(model, label_col), model.id), response, limit, offset).all()
         return [{"id": str(r.id), "label": getattr(r, label_col), "slug": r.slug, "type": target} for r in rows]
 
     @router.get("/{item_id}/entries", response_model=list[EntryRead], summary="Get Collection Entries")

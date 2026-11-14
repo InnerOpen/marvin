@@ -5,12 +5,13 @@ import {
   type CollectionMember,
   getCollection,
   getCollectionEntries,
-  getCollectionMembers,
+  getCollectionEntriesPage,
+  getCollectionMembersPage,
 } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
 import EntrySearchBar from "@/components/EntrySearchBar.astro";
 import ListSort from "@/components/ListSort.astro";
-import { COLLECTION_SORTS, querySort, readCollectionSort, sortEntries } from "@/lib/entrySort";
+import { COLLECTION_SORTS, querySort, readCollectionSort } from "@/lib/entrySort";
 import EntryViews from "@/components/EntryViews.astro";
 import TrashView from "@/components/TrashView.astro";
 import { listEntryTypes } from "@/lib/api/entryTypes";
@@ -23,6 +24,8 @@ import { EDITORS_ONLY } from "@/lib/workspaceRole";
 import { type Cond, readConds, STATUSES, toSpec } from "@/lib/entryQuery";
 import { fetchApi } from "@/lib/api/client";
 import { listTags } from "@/lib/api/tags";
+import Pagination from "@/components/Pagination.astro";
+import { pastEndHref, readPage } from "@/lib/pagination";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
@@ -33,6 +36,16 @@ const { canEdit } = access;
 let collection: CollectionRead | null = null;
 let entries: EntryRead[] = [];
 let members: CollectionMember[] = [];
+// How many the collection holds in all (the page shows one page of them): the header's count and the empty state.
+let collectionTotal = 0;
+// One page of it (?page=, ?per=): the Inbox and the like hold hundreds.
+const { per, offset } = readPage(Astro.url.searchParams);
+// The person's own search (?c=) and the order (?sort=) are read first: a search or another order asks the query engine
+// for the page; the collection's own order is the collection's list, paged.
+const own = readConds(Astro.url.searchParams).filter((c) => c.dim !== "collection");
+const sort = readCollectionSort(Astro.url.searchParams.get("sort"));
+const viaQuery = own.length > 0 || sort !== "position";
+let byQuery = false;
 let typeMap = new Map<string, string>();
 // Trash only: the entries of an internal type (a Social rule) it lists, marked as such.
 let internalBadges = new Map<string, string>();
@@ -52,11 +65,18 @@ if (!authToken) {
     collection = await getCollection(id, authToken);
     const targetType = (collection as any).targetType ?? "entry";
     if (targetType === "entry") {
-      const [ents, types] = await Promise.all([getCollectionEntries(id, authToken), listEntryTypes(authToken, Astro.locals)]);
-      entries = ents;
+      isTrash = Boolean(collection.isSystem) && collection.slug === "trash";
+      // The Trash lists everything in its tabs (restore, delete forever, empty); any other collection is paged: the list
+      // itself in the collection's order, or just the total (one row) when a search or another order is asked of the query.
+      byQuery = viaQuery && !isTrash;
+      const list = isTrash
+        ? getCollectionEntries(id, authToken).then((all) => ({ items: all, total: all.length }))
+        : getCollectionEntriesPage(id, authToken, { limit: byQuery ? 1 : per, offset: byQuery ? 0 : offset });
+      const [listed, types] = await Promise.all([list, listEntryTypes(authToken, Astro.locals)]);
+      entries = byQuery ? [] : listed.items;
+      collectionTotal = listed.total;
       typeMap = new Map(types.map((t) => [t.id, t.name]));
       internalBadges = new Map(types.flatMap((t) => { const badge = internalTypeBadge(t); return badge ? [[t.id, badge] as [string, string]] : []; }));
-      isTrash = Boolean(collection.isSystem) && collection.slug === "trash";
       if (isTrash) {
         // One Trash, three tabs: the collection lists the entries; trashed assets and resources come from /trash.
         [trashAutoEmpty, trashedAssets, trashedResources] = await Promise.all([
@@ -67,7 +87,9 @@ if (!authToken) {
       }
     } else {
       // Asset/resource smart collections: fetch the uniform member list.
-      members = await getCollectionMembers(id, authToken);
+      const page = await getCollectionMembersPage(id, authToken, { limit: per, offset });
+      members = page.items;
+      collectionTotal = page.total;
     }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -80,10 +102,8 @@ const targetType = ((collection as any)?.targetType ?? "entry") as string;
 // The entries search, on this page: the collection is pinned (always part of the search, never a row), the rest
 // (?c=) is the person's. With any of theirs, the list shows what the engine finds instead of the whole collection.
 const pinned: Cond[] = collection && targetType === "entry" && !isTrash ? [{ dim: "collection", op: "is", value: [collection.slug] }] : [];
-const own = readConds(Astro.url.searchParams).filter((c) => c.dim !== "collection");
 const conds: Cond[] = [...pinned, ...own];
 // The order (?sort=): the collection's own (positions) unless asked otherwise; a search asks the query for the same.
-const sort = readCollectionSort(Astro.url.searchParams.get("sort"));
 type QueryResult = { entries: EntryRead[]; total: number; note?: string | null };
 let search: QueryResult | null = null;
 let builderData: Record<string, unknown> | null = null;
@@ -96,15 +116,19 @@ if (pinned.length && authToken && !error) {
     tags: tags.map((t) => ({ value: t.slug, label: t.name })).sort((a, b) => a.label.localeCompare(b.label)),
     collections: [],
   };
-  if (own.length) {
+  if (byQuery) {
     try {
-      search = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: { ...toSpec(conds), sort: querySort(sort) }, limit: 500 }) }, authToken);
+      search = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: { ...toSpec(conds), sort: querySort(sort) }, limit: per, offset }) }, authToken);
     } catch (e) {
       search = { entries: [], total: 0, note: e instanceof Error ? e.message : String(e) };
     }
   }
 }
-const shown = search ? search.entries : sort === "position" ? entries : sortEntries(entries, sort);
+// What the page lists, and how many there are of it (the Pagination's total): the search's matches, or the collection.
+const shown = search ? search.entries : entries;
+const listTotal = search ? search.total : collectionTotal;
+const pastEnd = error || isTrash ? null : pastEndHref(Astro.url, listTotal);
+if (pastEnd) return Astro.redirect(pastEnd);
 const searchPath = `/workspace/collections/${id}`;
 const memberHref = (m: CollectionMember) =>
   m.type === "asset"
@@ -112,9 +136,9 @@ const memberHref = (m: CollectionMember) =>
     : m.type === "resource"
       ? `/workspace/resources/${m.id}`
       : `/workspace/entries/${m.id}`;
-const totalCount = targetType === "entry" ? entries.length : members.length;
+const totalCount = collectionTotal;
 // The Trash counts everything in it, as its tabs and the sidebar do.
-const headerCount = isTrash ? entries.length + trashedAssets.length + trashedResources.length : totalCount;
+const headerCount = isTrash ? collectionTotal + trashedAssets.length + trashedResources.length : totalCount;
 
 ---
 
@@ -155,7 +179,7 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
 
       {builderData && (
         <>
-          <EntrySearchBar conds={conds} pinned={pinned} path={searchPath} builderData={builderData} total={search?.total ?? null} note={search?.note ?? null} />
+          <EntrySearchBar conds={conds} pinned={pinned} path={searchPath} builderData={builderData} total={own.length ? (search?.total ?? null) : null} note={search?.note ?? null} />
         </>
       )}
 
@@ -172,7 +196,7 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
           canConfigure={access.canManage}
           autoEmpty={trashAutoEmpty}
         />
-      ) : search && shown.length === 0 ? (
+      ) : search && own.length > 0 && shown.length === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">🔍</div>
           <h3>No entries match</h3>
@@ -188,6 +212,7 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
         <EntryViews entries={shown} typeNames={typeMap} storageKey="collection-view" defaultView="list">
           {targetType === "entry" && !isTrash && <ListSort slot="sort" options={COLLECTION_SORTS} value={sort} />}
         </EntryViews>
+        <Pagination url={Astro.url} total={listTotal} label="Collection pages" />
       ) : (
         <ul class="inbox">
           {members.map((m) => (
@@ -205,6 +230,7 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
             </li>
           ))}
         </ul>
+        <Pagination url={Astro.url} total={listTotal} label="Collection pages" />
       )}
     </>
   ) : (

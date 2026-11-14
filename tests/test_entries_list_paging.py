@@ -225,6 +225,19 @@ def test_collection_entries_page_in_collection_order_with_the_total(lib):
     assert _ids(whole) == shown and whole.headers["x-total-count"] == "4"  # no limit: all of them, as before
 
 
+def test_collection_members_page_by_label_with_the_total(lib):
+    ids = [lib.entry(n, attach=True) for n in range(5)]  # titles E000..E004
+    lib.session.query(Entries).filter(Entries.id == uuid.UUID(ids[1])).update({"status": "trashed"})
+    lib.session.commit()
+    client = lib.sign_in()
+    url = f"/api/platform/collections/{lib.collection.id}/members"
+    pages = [client.get(url, params={"limit": 3, "offset": off}) for off in (0, 3, 6)]
+    assert [[m["label"] for m in p.json()] for p in pages] == [["E000", "E002", "E003"], ["E004"], []]
+    assert {p.headers["x-total-count"] for p in pages} == {"4"}
+    whole = client.get(url)
+    assert len(whole.json()) == 4 and whole.headers["x-total-count"] == "4"  # no limit: all of them, as before
+
+
 def test_the_upload_provider_is_built_once_per_settings_not_per_asset_url():
     """Every asset URL in a list asks for the provider; building a remote one makes a boto3 client (~20 ms), which made a
     1,300-entry list take 16 s on S3."""
