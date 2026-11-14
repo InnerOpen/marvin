@@ -329,6 +329,22 @@ class TestFromPictures:
         assert e.title == "Ornament 7" and e.data_json["medium"] == "Oil" and e.data_json["price"] == 85  # fill-empty
         assert ws.session.query(EntryAssets).filter_by(entry_id=old.id, asset_id=b.id).one().role == "featured"
 
+    def test_two_pictures_of_one_entry_fill_it_once(self, ws):
+        from marvin.db.models.platform.entry_tags import EntryTags
+
+        a, b = ws.picture("Front"), ws.picture("Back")
+        old = ws.entry("Bowl", image=str(a.id))
+        ws.session.add(EntryAssets(entry_id=old.id, asset_id=b.id, position=1))
+        ws.session.commit()
+        plan = T.plan_from_assets(ws.session, ws.gid, "artwork", "ornament", [str(a.id), str(b.id)])
+        assert [r.action for r in plan.rows] == ["fill", "skip"] and "('Front') fills it" in plan.rows[1].note
+        out = T.execute(ws.session, ws.gid, plan)
+        assert out["updated"] == 1
+        assert ws.session.query(EntryTags).filter_by(entry_id=old.id).count() == 2  # the template's two tags, once each
+        assert (
+            ws.session.query(EntryCollections).join(Collections).filter(EntryCollections.entry_id == old.id, Collections.slug == "shop").count() == 1
+        )
+
     def test_replace_overwrites_what_an_entry_has_title_included(self, ws):
         b = ws.picture("Blue Jay")
         old = ws.entry("Ornament 7", image=str(b.id), medium="Oil")

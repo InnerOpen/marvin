@@ -487,13 +487,17 @@ def plan_from_assets(session, group_id, entry_type_ref, template_slug, assets, *
                 owner[aid] = e
     collections = _collections(session, group_id, template)
     tag_names, existing_tags = _tags(session, group_id, template)
-    rows = []
+    rows, claimed = [], {}  # an existing entry gets one row: two of its pictures in one batch must not fill it twice
     for n, asset in enumerate(pictures, start=1):
         row = Row(action="create", n=n, title="", asset=asset, tags=list(tag_names), collections=list(collections))
         values = _values(asset, n, today)
         if asset.trashed_at is not None:
             row.action, row.title, row.note = "skip", asset.name, "the picture is in the Trash"
-        elif (entry := owner.get(asset.id)) is not None:
+        elif (entry := owner.get(asset.id)) is not None and entry.id in claimed:
+            row.action, row.entry, row.title = "skip", entry, entry.title
+            row.note = f"another picture of the same entry ('{claimed[entry.id]}') fills it"
+        elif entry is not None:
+            claimed[entry.id] = asset.name
             row.action, row.entry, row.title = "fill", entry, entry.title
             _fill(row, entry, entry_type, template, parsed, values, replace, collections=collections, **_held(links, entry.id))
         else:
