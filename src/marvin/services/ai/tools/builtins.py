@@ -122,8 +122,17 @@ def _as_uuids(values) -> list:
 
 
 def _asset_ref(a) -> dict:
-    """Lean asset ref: just enough to render a thumbnail and identify it."""
-    return {"id": str(a.id), "assetType": a.asset_type, "url": _asset_public_url(a), "altText": a.alt_text}
+    """Lean asset ref: just enough to render a thumbnail and identify it. It carries the asset's name, slug and filename:
+    without them an agent asked to make an entry per picture could not tell what each one was and invented titles."""
+    return {
+        "id": str(a.id),
+        "name": a.name,
+        "slug": a.slug,
+        "filename": a.original_filename or a.filename,
+        "assetType": a.asset_type,
+        "url": _asset_public_url(a),
+        "altText": a.alt_text,
+    }
 
 
 def _resource_ref(r) -> dict:
@@ -579,6 +588,8 @@ def get_entry_type(ctx: ToolContext, args: dict) -> str:
             "fields": fields,
             "schema": et.schema_json,
             "recipe": et.recipe_json,
+            # Briefly: list_templates gives each one's title pattern, field values and where its picture goes.
+            "templates": [{"slug": t.slug, "name": t.name, "description": t.description} for t in _templates_of(et)],
             **({"pageUrlPattern": et.page_url_pattern} if et.page_url_pattern else {}),
         }
     )
@@ -751,9 +762,64 @@ def list_entry_types(ctx: ToolContext, _args: dict) -> str:
     return json.dumps({"entryTypes": out, "count": len(out)})
 
 
+def _templates_of(entry_type) -> list:
+    """The type's templates (EntryTemplate), skipping any stored one that no longer reads."""
+    from marvin.schemas.platform.entry_templates import EntryTemplate
+
+    out = []
+    for t in entry_type.templates_json or []:
+        try:
+            out.append(EntryTemplate.model_validate(t))
+        except ValueError:
+            continue
+    return out
+
+
+@register_tool(
+    name="list_templates",
+    description="List the entry types' templates: presets for making an entry from a picture (title pattern such as {asset.name}, field values, the field the picture goes in and the role it is attached with, the status it starts in). Pass one to create_draft as `template` to make an entry for a picture with it.",  # noqa: E501
+    input_schema={
+        "type": "object",
+        "properties": {"entry_type": {"type": "string", "description": "only this entry type's templates (slug or id)"}},
+    },
+)
+def list_templates(ctx: ToolContext, args: dict) -> str:
+    q = ctx.session.query(EntryTypes).filter((EntryTypes.group_id == ctx.group_id) | (EntryTypes.group_id.is_(None)))
+    ref = str(args.get("entry_type") or "").strip()
+    if ref:
+        import uuid as _uuid
+
+        try:
+            q = q.filter((EntryTypes.slug == ref) | (EntryTypes.id == _uuid.UUID(ref)))
+        except ValueError:
+            q = q.filter(EntryTypes.slug == ref)
+        if q.first() is None:
+            return json.dumps({"error": f"entry type '{ref}' not found (list_entry_types lists them)"})
+    out = []
+    for et in q.order_by(EntryTypes.name).all():
+        for t in _templates_of(et):
+            out.append(
+                {
+                    "entryType": et.slug,
+                    "slug": t.slug,
+                    "name": t.name,
+                    "description": t.description,
+                    "title": t.title,
+                    "fields": list(t.fields),
+                    "assetField": t.asset_field,
+                    "assetRole": t.asset_role,
+                    "status": t.status,
+                }
+            )
+    answer: dict = {"templates": out, "count": len(out)}
+    if not out:
+        answer["note"] = "no templates yet: an admin adds them in the entry type's settings"
+    return json.dumps(answer)
+
+
 @register_tool(
     name="list_assets",
-    description="List the workspace's assets (images, files), optionally filtered by asset_type (e.g. 'image'), a filename substring (query), tags, collection, whether they are attached to any entry, and when they were created. Returns `count` (true total) plus a lightweight sample — each with a real displayable `url` for thumbnails; call get_asset for the full record. Use tags for 'all assets with tag X' — exhaustive, not a ranked search.",  # noqa: E501
+    description="List the workspace's assets (images, files), optionally filtered by asset_type (e.g. 'image'), a filename substring (query), tags, collection, whether they are attached to any entry, and when they were created. Returns `count` (true total) plus a lightweight sample — each with its `name`, `slug`, `filename` and a real displayable `url` for thumbnails; call get_asset for the full record. An entry made for a picture takes its title from the asset's `name`. Use tags for 'all assets with tag X' — exhaustive, not a ranked search.",  # noqa: E501
     input_schema={
         "type": "object",
         "properties": {

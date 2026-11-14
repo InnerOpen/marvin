@@ -34,6 +34,24 @@ AUTHORING_LINKS_RULE = (
     "inside a sentence or as [text](url) when it should stay a plain link. Never invent media URLs."
 )
 
+# An agent sent `image_url` to a type whose field is `image`; naming the field it meant saves it a guess.
+_REF_SUFFIXES = ("_ids", "_id", "_urls", "_url", "Ids", "Id", "Urls", "Url")
+
+
+def closest_field(key: str, fields) -> str | None:
+    """The real field an unknown key most likely meant: the key without a reference suffix (`image_url` → `image`) or in
+    another case, else the nearest spelling. None when nothing is close."""
+    by_lower = {f.lower(): f for f in fields}
+    for suffix in _REF_SUFFIXES:  # case-sensitive, so a key like `valid` keeps its `id`
+        if key.endswith(suffix) and len(key) > len(suffix) and (hit := by_lower.get(key[: -len(suffix)].lower())):
+            return hit
+    if hit := by_lower.get(key.lower()):
+        return hit
+    import difflib
+
+    near = difflib.get_close_matches(key.lower(), list(by_lower), n=1, cutoff=0.7)
+    return by_lower[near[0]] if near else None
+
 
 def default_authoring_model(session, group_id, provider=None) -> str | None:
     """The workspace's default model id (settings → default provider/model → platform app default).
@@ -561,13 +579,18 @@ class AuthoringService:
     def _known_fields(self, entry_type, fields: dict | None) -> dict:
         from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
 
-        allowed = EntryTypeSchemaDefinition.model_validate(entry_type.schema_json or {}).get_field_keys()
+        allowed = [f.key for f in EntryTypeSchemaDefinition.model_validate(entry_type.schema_json or {}).fields]  # schema order
         fields = dict(fields or {})
         unknown = sorted(k for k in fields if k not in allowed)
         if unknown:
+            close = {k: c for k in unknown if (c := closest_field(k, allowed))}
+            if len(unknown) == 1:
+                hint = f" Did you mean '{close[unknown[0]]}'?" if close else ""
+            else:
+                hint = f" Did you mean {', '.join(f"'{c}' for {k}" for k, c in close.items())}?" if close else ""
             raise ValueError(
-                f"{', '.join(unknown)} {'is not a field' if len(unknown) == 1 else 'are not fields'} of '{entry_type.slug}'. "
-                f"Its fields: {', '.join(sorted(allowed)) or '(none)'} (get_entry_type lists them with their types)."
+                f"{', '.join(unknown)} {'is not a field' if len(unknown) == 1 else 'are not fields'} of '{entry_type.slug}'.{hint} "
+                f"Its fields: {', '.join(allowed) or '(none)'} (get_entry_type lists them with their types)."
             )
         return {k: v for k, v in fields.items() if v not in ("", None)}
 
