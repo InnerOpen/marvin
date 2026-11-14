@@ -148,6 +148,7 @@ let offPage = 0;
 const SELECTION_SHOWN = 24;
 const selectionStep = def && step?.selection ? listStepOf(def, step.selection) : undefined;
 const selectionRows: Row[] = step?.selection ? (lists[step.selection] ?? []) : [];
+let selectionRole: string | undefined; // the role the picks' pictures are attached under, as their own step shows them
 const pickHref = (r: Row, step: Step | undefined) => (step && picksAssets(step) ? `/workspace/assets/${r.id}` : `/workspace/entries/${r.id}`);
 const LONG_LIST = 8; // a pick list longer than this puts "make a new one" above it, so it is not lost at the bottom
 let pictureCards = false; // a single pick draws picture cards, not a list of radio buttons
@@ -170,6 +171,10 @@ const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, Object.f
 
 // Drawn whatever happened to a post: an error shows above a complete page, never an empty one.
 if (authToken && def && step) {
+  if (selectionStep && selectionRows.length) {
+    const type = picksAssets(selectionStep) ? null : await typeBySlug(selectionStep.entry_type, authToken, Astro.locals);
+    selectionRole = picksAssets(selectionStep) ? "picture" : fieldRole(type, selectionStep.picture ?? pictureFieldOf(type));
+  }
   if (step.show && entries[step.show.entry]) {
     const shown = entries[step.show.entry];
     const shownType = await typeBySlug(entryTypeOf(def, step.show.entry) ?? "", authToken, Astro.locals);
@@ -417,7 +422,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               </div>
               <div class="cards">
                 {selectionRows.slice(0, SELECTION_SHOWN).map((r) => (
-                  <WizardCard href={pickHref(r, selectionStep)} title={r.title} picture={cardPicture(r.assets, selectionStep && picksAssets(selectionStep) ? "picture" : fieldRole(null, selectionStep?.picture))} />
+                  <WizardCard href={pickHref(r, selectionStep)} title={r.title} picture={cardPicture(r.assets, selectionRole)} />
                 ))}
               </div>
               {selectionRows.length > SELECTION_SHOWN && <p class="muted none">and {selectionRows.length - SELECTION_SHOWN} more</p>}
