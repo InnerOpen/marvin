@@ -162,12 +162,72 @@ export function runIdOf(params: URLSearchParams): string | null {
 const CTX_NAME = /^[a-z][a-z0-9_]{0,39}$/;
 const MAX_VALUE = 200;
 const REF = /\$\{([^}]*)\}/g;
+/** The page of a multi-select step's cards (`page`, `per`): the page's own, never a choice. */
+export const PAGE_PARAM = "page";
+export const PER_PARAM = "per";
+const OWN_PARAMS = new Set([STEP_PARAM, NOTICE_PARAM, RUN_PARAM, PAGE_PARAM, PER_PARAM]);
 
-/** The choices so far, from the address: every parameter the page does not use itself (`step`, `notice`, `run`) whose name is a context name. */
-export function readCtx(params: URLSearchParams): Ctx {
+/**
+ * A multi-select step (`choose` with `multiple`) keeps its picks in the context as ONE value: the slugs of the entries (or the ids of the
+ * assets) joined with commas, "nell,granny,the-young-man". Neither a slug nor an id has a comma in it. At most MAX_PICKS of them, so the
+ * address stays short enough for every server on the way (100 slugs of 80 characters are about 8 KB): a longer list is refused with
+ * a message, never cut short in silence, and a link that carries more than that is read as its first MAX_PICKS.
+ */
+export const MAX_PICKS = 100;
+export const LIST_SEP = ",";
+const PICK = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
+
+/** The picks a list value holds, in order, each once; anything that is not a slug or an id is left out. */
+export function listOf(value: string | null | undefined): string[] {
+  const out: string[] = [];
+  for (const part of String(value ?? "").split(LIST_SEP)) {
+    const item = part.trim();
+    if (PICK.test(item) && !out.includes(item)) out.push(item);
+  }
+  return out;
+}
+
+/** The value that carries these picks ("" for none). */
+export function joinList(items: string[]): string {
+  return listOf(items.join(LIST_SEP)).join(LIST_SEP);
+}
+
+/** What to say when a selection is longer than MAX_PICKS, or "" when it is not. */
+export function picksProblem(count: number): string {
+  return count > MAX_PICKS ? `${count} are selected; at most ${MAX_PICKS} can go on at once. Untick ${count - MAX_PICKS}, or do the rest in another round.` : "";
+}
+
+/**
+ * The selection after a page of cards was posted: what was picked on other pages stays, in its order; of the cards on this page
+ * (`onPage`), exactly the ticked ones are in, the new ones after the rest. So a page move keeps every pick and can also drop one.
+ */
+export function mergePicks(prior: string[], onPage: string[], ticked: string[]): string[] {
+  const shown = new Set(onPage);
+  const kept = prior.filter((p) => !shown.has(p) || ticked.includes(p));
+  return [...kept, ...onPage.filter((p) => ticked.includes(p) && !kept.includes(p))];
+}
+
+/** The live line under a multi-select's buttons: how many are selected, and the cap once it is passed. */
+export function pickedLine(count: number): string {
+  if (count > MAX_PICKS) return `${count} selected: at most ${MAX_PICKS} can go on at once. Untick ${count - MAX_PICKS}.`;
+  return count === 0 ? "Nothing selected yet" : `${count} selected`;
+}
+
+/** The context keys whose value is a list: those a multi-select step sets. */
+export function listKeys(def: WizardDefinition): Set<string> {
+  return new Set(def.steps.filter((s) => s.kind === "choose" && s.multiple === true && typeof s.as === "string").map((s) => s.as as string));
+}
+
+/** The choices so far, from the address: every parameter the page does not use itself (`step`, `notice`, `run`, `page`, `per`) whose name
+ *  is a context name. A list key (`lists`) is read as its picks, at most MAX_PICKS of them; any other value is cut at 200 characters. */
+export function readCtx(params: URLSearchParams, lists: Set<string> = new Set()): Ctx {
   const ctx: Ctx = {};
   for (const [key, value] of params.entries()) {
-    if (key !== STEP_PARAM && key !== NOTICE_PARAM && key !== RUN_PARAM && CTX_NAME.test(key) && value.trim()) ctx[key] = value.trim().slice(0, MAX_VALUE);
+    if (OWN_PARAMS.has(key) || !CTX_NAME.test(key) || !value.trim()) continue;
+    if (lists.has(key)) {
+      const picks = listOf(value).slice(0, MAX_PICKS);
+      if (picks.length) ctx[key] = picks.join(LIST_SEP);
+    } else ctx[key] = value.trim().slice(0, MAX_VALUE);
   }
   return ctx;
 }
@@ -198,6 +258,16 @@ export function keysAfter(def: WizardDefinition, stepId: string): string[] {
 export function withoutLater(def: WizardDefinition, ctx: Ctx, stepId: string): Ctx {
   const drop = new Set(keysAfter(def, stepId));
   return Object.fromEntries(Object.entries(ctx).filter(([k]) => !drop.has(k)));
+}
+
+/** Where "Skip without saving" goes from an optional choice or option: on, with nothing chosen there (and what later steps chose on the
+ *  strength of it dropped, as a changed choice drops it), to the next step shown without it. Null for a choice that is not optional
+ *  (the steps after it wait for it) or when nothing comes after. */
+export function skipTo(def: WizardDefinition, ctx: Ctx, step: Step): { ctx: Ctx; step: Step } | null {
+  if ((step.kind !== "option" && step.kind !== "choose") || !step.optional) return null;
+  const { [step.as]: _dropped, ...rest } = withoutLater(def, ctx, step.id);
+  const then = nextStep(def, rest, step.id);
+  return then ? { ctx: rest, step: then } : null;
 }
 
 /** The option step that sets `key`, if any. */
@@ -291,6 +361,13 @@ export function cardPicture(assets: AttachedAsset[] | undefined, pictureField: s
   return hit?.publicUrl ?? null;
 }
 
+/** The picture field a pick shows when its step names none: the type's first single asset field that takes pictures (its accept names
+ *  images, or it says nothing). A list of pictures (`asset-list`) or a sound is no face for a card. */
+export function pictureFieldOf(type: { schemaJson?: { fields?: { key?: string; type?: string; accept?: string | null }[] } | null } | null | undefined): string | undefined {
+  const takesPictures = (accept: string | null | undefined) => !accept || /image/i.test(accept);
+  return type?.schemaJson?.fields?.find((f) => f.type === "asset" && typeof f.key === "string" && takesPictures(f.accept))?.key;
+}
+
 /** The role an asset field's file is attached under: the field's own `role` when its type names one (the artwork `image` is role `featured`), else its key. */
 export function fieldRole(type: { schemaJson?: { fields?: { key?: string; role?: string }[] } } | null | undefined, key: string | undefined): string | undefined {
   if (!key) return undefined;
@@ -375,9 +452,31 @@ export function buttonHref(wizardSlug: string, button: WizardButton, entry: { sl
   return stepHref(wizardSlug, ctx, button.step ?? null);
 }
 
-/** The entry type a context key's entries are of: the `choose` step that sets it names it (an `option` choice is no entry). */
+/** The entry type a context key's entry is of: the `choose` step that sets it names it (an `option` choice is no entry, and neither is a
+ *  multi-select step's list: `listKeys`). */
 export function entryTypeOf(def: WizardDefinition, key: string): string | undefined {
-  return def.steps.find((s) => s.kind === "choose" && s.as === key)?.entry_type;
+  return def.steps.find((s) => s.kind === "choose" && s.as === key && s.multiple !== true)?.entry_type;
+}
+
+/** The step that sets a list key: a multi-select choose. */
+export function listStepOf(def: WizardDefinition, key: string): Step | undefined {
+  return def.steps.find((s) => s.kind === "choose" && s.multiple === true && s.as === key);
+}
+
+/** A multi-select step's cards come from the workspace's assets (`assets`: the Assets library's filters) instead of an entry type. */
+export function picksAssets(step: Step): boolean {
+  return step.kind === "choose" && step.multiple === true && !!step.assets && typeof step.assets === "object";
+}
+
+/** The Assets library's filters a multi-select step's `assets` may use, with the choices filled in; `unused` is "on no entry yet". */
+export const ASSET_FILTERS = ["q", "asset_type", "tag", "collection", "unattached", "unused", "origin"] as const;
+export function assetSpec(step: Step, ctx: Ctx): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const [key, raw] of Object.entries(withoutEmpty(substitute(step.assets ?? {}, ctx)))) {
+    if (!(ASSET_FILTERS as readonly string[]).includes(key)) continue;
+    out[key] = Array.isArray(raw) ? raw.map(String) : String(raw);
+  }
+  return out;
 }
 
 /** The field types a wizard page draws itself; anything else is edited in the entry's own editor. */

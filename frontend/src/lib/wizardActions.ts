@@ -1,8 +1,8 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
 import { acceptKind, assetIsKind, isKind } from "./acceptKind";
-import { type Ctx, type Step, StepError, type WizardDefinition, entryTypeOf, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
-import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, entryOfType, findEntries, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
+import { type Ctx, type Step, StepError, type WizardDefinition, assetSpec, entryTypeOf, joinList, listOf, mergePicks, picksAssets, picksProblem, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
+import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, entryOfType, findAssets, findEntries, picksOf, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
   ctx: Ctx;
@@ -11,6 +11,8 @@ export interface Outcome {
   notice?: string;
   /** The run this step started: the next page follows it. */
   run?: string;
+  /** The page of a multi-select step's cards to show next (a page move). */
+  page?: number;
 }
 
 /** What a step that started a run hands the next page: the run to follow, or just "started" when the server named none. */
@@ -24,7 +26,49 @@ async function entryFor(def: WizardDefinition, step: Step, ctx: Ctx, authToken: 
   return { entry, type: await typeBySlug(entryTypeOf(def, step.entry), authToken) };
 }
 
+/**
+ * A multi-select step posted: from Continue (`action` pick), a page move (`go`: the page to show) or the page's own Select all / Clear
+ * (`sel`, when the browser ran no script). The form names the cards it showed (`shown`) and the ticked ones (`pick`): picks on other pages
+ * stay, and of this page's exactly the ticked ones are in (`mergePicks`). Only ticked cards that are there (of the step's type, or assets
+ * of the step's filters) are taken; the list is refused past MAX_PICKS rather than cut.
+ */
+async function chooseMany(def: WizardDefinition, step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
+  if (step.optional && text(form, "action") === "skip") {
+    const { [step.as]: _dropped, ...rest } = withoutLater(def, ctx, step.id); // skipped: nothing is picked
+    return { ctx: rest, stay: false };
+  }
+  const shown = listOf(form.getAll("shown").map(String).join(","));
+  const sel = text(form, "sel"); // all | clear (the page's own buttons, without a script)
+  const cleared = sel === "clear" || text(form, "clear_all") === "1"; // Clear drops the picks on other pages too
+  const ticked = sel === "all" ? shown : sel === "clear" ? [] : listOf(form.getAll("pick").map(String).join(",")).filter((p) => shown.includes(p));
+  const prior = cleared ? [] : listOf(ctx[step.as]);
+  const fresh = ticked.filter((p) => !prior.includes(p));
+  if (fresh.length) {
+    // The new ones are checked in one request: an entry of the step's type, or an asset that (still) fits the step's filters.
+    const there = new Set(
+      picksAssets(step)
+        ? (await findAssets({ ...assetSpec(step, ctx), ids: fresh.join(",") }, authToken)).map((r) => r.slug)
+        : (await picksOf(step, fresh, authToken)).map((r) => r.slug),
+    );
+    const gone = fresh.filter((p) => !there.has(p));
+    if (gone.length) throw new StepError(`${gone.length === 1 ? "One you ticked is" : `${gone.length} you ticked are`} not there any more (or no longer fit). Tick again.`);
+  }
+  const picks = mergePicks(prior, shown, ticked);
+  const tooMany = picksProblem(picks.length);
+  if (tooMany) throw new StepError(tooMany);
+  const value = joinList(picks);
+  const next = value === (ctx[step.as] ?? "") ? { ...ctx } : withoutLater(def, ctx, step.id);
+  if (value) next[step.as] = value;
+  else delete next[step.as];
+  const go = Number.parseInt(text(form, "go"), 10);
+  if (Number.isFinite(go) && go >= 1) return { ctx: next, stay: true, page: go };
+  if (sel) return { ctx: next, stay: true, page: Number.parseInt(text(form, "page"), 10) || 1 };
+  if (!picks.length) throw new StepError(step.optional ? "Tick at least one, or skip this step." : "Tick at least one to go on.");
+  return { ctx: next, stay: false };
+}
+
 async function choose(def: WizardDefinition, step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
+  if (step.multiple === true) return chooseMany(def, step, form, ctx, authToken);
   const action = text(form, "action"); // which button: pick | create | skip (each form has one, so a ticked radio can't beat Create)
   let value: string | undefined;
   if (action === "create") {

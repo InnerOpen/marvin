@@ -25,13 +25,37 @@ export interface Row {
 export const MAX_TEXT_UPLOAD_BYTES = 1_000_000;
 const MAX_ROWS = 200;
 
-export async function findEntries(spec: Record<string, unknown>, authToken: string, limit = MAX_ROWS): Promise<{ entries: Row[]; total: number }> {
+export async function findEntries(spec: Record<string, unknown>, authToken: string, limit = MAX_ROWS, offset = 0): Promise<{ entries: Row[]; total: number }> {
   const found = await fetchApi<{ entries?: Row[]; total?: number }>(
     "/api/platform/entries/query",
-    { method: "POST", body: JSON.stringify({ spec, limit }) },
+    { method: "POST", body: JSON.stringify(offset > 0 ? { spec, limit, offset } : { spec, limit }) },
     authToken,
   ).catch(() => ({ entries: [], total: 0 }));
   return { entries: found.entries ?? [], total: found.total ?? found.entries?.length ?? 0 };
+}
+
+/** The workspace's library assets that match the Assets library's filters (`params`: `asset_type`, `unused`, `ids`, …), by name, as cards:
+ *  an asset is a Row whose picture is itself. Empty when the API says no (a filter that cannot match is a 422 that says why). */
+export async function findAssets(params: Record<string, string | string[]>, authToken: string): Promise<Row[]> {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) for (const v of Array.isArray(value) ? value : [value]) qs.append(key, v);
+  const found = await fetchApi<{ id: string; slug: string; name?: string | null; publicUrl?: string | null; mimeType?: string | null }[]>(
+    `/api/platform/assets?${qs}`,
+    {},
+    authToken,
+  ).catch(() => []);
+  return found.map((a) => ({ id: a.id, slug: a.id, title: a.name || a.slug, assets: [{ role: "picture", publicUrl: a.publicUrl, mimeType: a.mimeType, name: a.name }] }));
+}
+
+/** Of these picks of a multi-select step (entry slugs, or asset ids), the ones that are there, as rows in the order picked: ONE request
+ *  for them all. An entry must be of the step's type; a pick that is gone is left out. */
+export async function picksOf(step: { entry_type?: string; assets?: unknown; [key: string]: unknown }, picks: string[], authToken: string): Promise<Row[]> {
+  if (!picks.length) return [];
+  const rows = step.assets
+    ? await findAssets({ ids: picks.join(",") }, authToken)
+    : (await findEntries({ entry_type: step.entry_type, entries: picks }, authToken, picks.length)).entries;
+  const bySlug = new Map(rows.map((r) => [r.slug, r]));
+  return picks.flatMap((p) => (bySlug.has(p) ? [bySlug.get(p)!] : []));
 }
 
 export async function entryBySlug(slug: string | undefined, authToken: string): Promise<Row | null> {

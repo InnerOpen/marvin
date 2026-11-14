@@ -19,13 +19,15 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
+  MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets, pictureFieldOf, skipTo,
   StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { jobLead, leftOutLine, listLine, nothingLine, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
 import { getRunState, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { runKey, runLine } from "@/lib/runState";
-import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, runSelection, typeBySlug, workflowState } from "@/lib/wizardApi";
+import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, picksOf, runSelection, typeBySlug, workflowState } from "@/lib/wizardApi";
+import { lastPage, rangeText, readPage } from "@/lib/pagination";
 
 const authToken = getAuthToken(Astro.cookies);
 const slug = Astro.params.slug ?? "";
@@ -52,10 +54,21 @@ const runId = runIdOf(Astro.url.searchParams);
 // The address is only trusted once checked: each choice must be an entry of the type its step picks (or one of an option's values), or it
 // is dropped, so a stale or crafted link cannot point a later step at something else.
 const entries: Record<string, Row> = {};
+// A multi-select step's picks (a list key): the ones that are still there, in the order picked, read in one request.
+const lists: Record<string, Row[]> = {};
 async function checkedCtx(raw: Ctx): Promise<Ctx> {
   if (!def || !authToken) return {};
   const out: Ctx = {};
   for (const [key, value] of Object.entries(raw)) {
+    const many = listStepOf(def, key);
+    if (many) {
+      const rows = await picksOf(many, listOf(value), authToken);
+      if (rows.length) {
+        out[key] = rows.map((r) => r.slug).join(",");
+        lists[key] = rows;
+      }
+      continue;
+    }
     const type = entryTypeOf(def, key);
     if (type) {
       const found = await entryOfType(type, value, authToken);
@@ -69,7 +82,7 @@ async function checkedCtx(raw: Ctx): Promise<Ctx> {
   }
   return out;
 }
-const ctx = await checkedCtx(readCtx(Astro.url.searchParams));
+const ctx = await checkedCtx(readCtx(Astro.url.searchParams, def ? listKeys(def) : undefined));
 const step: Step | null = def ? currentStep(def, ctx, Astro.url.searchParams.get("step")) : null;
 
 if (Astro.request.method === "POST" && authToken && def && step) {
@@ -84,7 +97,9 @@ if (Astro.request.method === "POST" && authToken && def && step) {
     }
     const done = await runStep(def, step, form, ctx, authToken);
     const target = done.stay ? step : (nextStep(def, done.ctx, step.id) ?? step);
-    return Astro.redirect(stepHref(slug, done.ctx, target.id, { ...(done.notice ? { [NOTICE_PARAM]: done.notice } : {}), ...(done.run ? { [RUN_PARAM]: done.run } : {}) }));
+    // A page move of a multi-select step keeps its page size (`per`) as the address had it.
+    const paging = done.page ? { [PAGE_PARAM]: String(done.page), ...(Astro.url.searchParams.get(PER_PARAM) ? { [PER_PARAM]: Astro.url.searchParams.get(PER_PARAM)! } : {}) } : {};
+    return Astro.redirect(stepHref(slug, done.ctx, target.id, { ...(done.notice ? { [NOTICE_PARAM]: done.notice } : {}), ...(done.run ? { [RUN_PARAM]: done.run } : {}), ...paging }));
   } catch (e) {
     stepProblem = describeFailure(e);
     badFields = e instanceof StepError ? e.fields : [];
@@ -123,7 +138,20 @@ let leftSays: string | null = null; // and why some are not in it, in the packag
 let jobSays: { lead: string; more: boolean; all: string } | null = null; // what the worker job the run started said
 let report: { label: string; text: string; title: string; href: string } | null = null; // the field the run writes, to read here
 let cards: Row[] = [];
+// A multi-select step: this page of its cards, how many there are in all, the page, and what is picked (on this page and on others).
+let pageRows: Row[] = [];
+let pageTotal = 0;
+let pageAt = { page: 1, per: 50, offset: 0 };
+let picked0: string[] = [];
+let offPage = 0;
+// A step's `selection`: a multi-select step's picks shown as cards (the first SELECTION_SHOWN), with a link back to change them.
+const SELECTION_SHOWN = 24;
+const selectionStep = def && step?.selection ? listStepOf(def, step.selection) : undefined;
+const selectionRows: Row[] = step?.selection ? (lists[step.selection] ?? []) : [];
+let selectionRole: string | undefined; // the role the picks' pictures are attached under, as their own step shows them
+const pickHref = (r: Row, step: Step | undefined) => (step && picksAssets(step) ? `/workspace/assets/${r.id}` : `/workspace/entries/${r.id}`);
 const LONG_LIST = 8; // a pick list longer than this puts "make a new one" above it, so it is not lost at the bottom
+let pictureCards = false; // a single pick draws picture cards, not a list of radio buttons
 let pictureRole: string | undefined; // the role the picture field's file is attached under (a field's `role` may differ from its key)
 let currentPicture: string | null = null; // an upload step's picture as it is now
 let createFirst = false; // the choose step's make-a-new-one form comes before the list
@@ -138,10 +166,15 @@ let showLines: { key: string; label: string; value: string }[] = [];
 // A shown text field that holds another entry's slug (`ref`) is a pick list. In a wizard the list is narrowed by the entries chosen so
 // far that the referenced type has a field for (a cast member's actor comes from the chosen world's troupe, not every actor).
 let refs: Record<string, RefOption[]> = {};
-const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, ctx);
+// (A multi-select's list is no one entry: it narrows nothing.)
+const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, Object.fromEntries(Object.entries(ctx).filter(([k]) => !(k in lists))));
 
 // Drawn whatever happened to a post: an error shows above a complete page, never an empty one.
 if (authToken && def && step) {
+  if (selectionStep && selectionRows.length) {
+    const type = picksAssets(selectionStep) ? null : await typeBySlug(selectionStep.entry_type, authToken, Astro.locals);
+    selectionRole = picksAssets(selectionStep) ? "picture" : fieldRole(type, selectionStep.picture ?? pictureFieldOf(type));
+  }
   if (step.show && entries[step.show.entry]) {
     const shown = entries[step.show.entry];
     const shownType = await typeBySlug(entryTypeOf(def, step.show.entry) ?? "", authToken, Astro.locals);
@@ -149,14 +182,46 @@ if (authToken && def && step) {
     showHref = `/workspace/entries/${shown.id}`;
     showLines = shownLines(shown.dataJson, shownType?.schemaJson as any, step.show.fields);
   }
-  if (step.kind === "choose" || step.kind === "list") {
+  if (step.kind === "choose" && step.multiple === true) {
+    // A page at a time (`page`, `per`): entries are paged by the query (by title), assets read once and cut here.
+    pageAt = readPage(Astro.url.searchParams);
+    picked0 = listOf(ctx[step.as]);
+    if (picksAssets(step)) {
+      typeName = "file";
+      pictureRole = "picture";
+      const all = await findAssets(assetSpec(step, ctx), authToken);
+      pageTotal = all.length;
+      pageAt = readPage(new URLSearchParams({ page: String(Math.min(pageAt.page, lastPage(pageTotal, pageAt.per))), per: String(pageAt.per) }));
+      pageRows = all.slice(pageAt.offset, pageAt.offset + pageAt.per);
+    } else {
+      const type = await typeBySlug(step.entry_type, authToken, Astro.locals);
+      missingType = !type;
+      typeName = type?.name ?? step.entry_type;
+      pictureRole = fieldRole(type, step.picture ?? pictureFieldOf(type));
+      const spec = { ...chooseSpec(step, ctx), sort: { by: "title" } };
+      let found = await findEntries(spec, authToken, pageAt.per, pageAt.offset);
+      if (!found.entries.length && found.total > 0) {
+        // Past the end (the list got shorter): the last page.
+        pageAt = readPage(new URLSearchParams({ page: String(lastPage(found.total, pageAt.per)), per: String(pageAt.per) }));
+        found = await findEntries(spec, authToken, pageAt.per, pageAt.offset);
+      }
+      pageTotal = found.total;
+      pageRows = step.sort === "natural" ? naturalByTitle(found.entries) : found.entries;
+    }
+    const here = new Set(pageRows.map((r) => r.slug));
+    offPage = picked0.filter((p) => !here.has(p)).length;
+  } else if (step.kind === "choose" || step.kind === "list") {
     const type = await typeBySlug(step.entry_type, authToken, Astro.locals);
     missingType = !type;
     typeName = type?.name ?? step.entry_type;
     if (step.kind === "choose") {
       choices = (await findEntries(chooseSpec(step, ctx), authToken)).entries;
       if (step.sort === "natural") choices = naturalByTitle(choices);
-      pictureRole = fieldRole(type, step.picture);
+      // A pick is cards with pictures when the step names its picture field, or when the type has a picture field and the entries have
+      // pictures in it (a character with its master): never radio buttons for things that have a face.
+      const picture = step.picture ?? pictureFieldOf(type);
+      pictureRole = fieldRole(type, picture);
+      pictureCards = !!step.picture || (!!picture && choices.some((c) => !!cardPicture(c.assets, pictureRole)));
       createFirst = !!step.create && (!!step.create.upload || choices.length > LONG_LIST);
       formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields, Object.keys(suppliedData(step, ctx)))));
       refs = await refsFor(formFields);
@@ -217,8 +282,8 @@ if (authToken && def && step) {
     }
   } else if (step.kind === "run") {
     flow = await workflowState(step.workflow, authToken);
-    // The approvals this run raises are about the entries the step hands it: those are the cards shown here.
-    const about = inputKeys(step).map((k) => entries[k]).filter((e): e is Row => !!e).map((e) => e.id);
+    // The approvals this run raises are about the entries the step hands it (each of a list's): those are the cards shown here.
+    const about = inputKeys(step).flatMap((k) => (entries[k] ? [entries[k]] : (lists[k] ?? []))).map((e) => e.id);
     watchIds = about;
     if (step.requires) {
       const needed = entries[step.requires.entry];
@@ -256,6 +321,9 @@ const here = step ? steps.findIndex((s) => s.id === step.id) : -1;
 const before = def && step ? previousStep(def, ctx, step.id) : null;
 const after = def && step ? nextStep(def, ctx, step.id) : null;
 const allPass = checks.length > 0 && checks.every((c) => c.ok);
+// The step the steps list (or a link) asked for, when it opened on the one that must be answered before it.
+const askedId = Astro.url.searchParams.get("step");
+const jumpedFrom = def && step && askedId && askedId !== step.id ? (steps.find((s) => s.id === askedId) ?? null) : null;
 // A run step with a card waiting holds the later steps: answering first keeps the card from going stale (an entry edited after the
 // question was asked makes the approval count as neither yes nor no).
 const held = (step?.kind === "run" || step?.kind === "gallery") && pendingCards.length > 0;
@@ -268,6 +336,18 @@ const continues = !!after && !held && (nothingToDo || decidedCards.length > 0 ||
 const made = Object.entries(entries).map(([key, e]) => ({ key, ...e }));
 const opened = def?.open ? entries[def.open.entry] ?? null : null;
 const submitLabel = after ? "Continue" : "Save";
+// One way to skip, the same on every step: a link at the bottom. An optional choice or option skipped is no choice (what was picked, and
+// what later steps picked on the strength of it, is dropped, as a changed choice drops it), so the step after it is worked out without it.
+// A choice that is not optional cannot be skipped (the steps after it wait for it); a run's link shows only while it has not run.
+const skipHref: string | null = (() => {
+  if (!def || !step) return null;
+  if (step.kind === "option" || step.kind === "choose") {
+    const skip = skipTo(def, ctx, step);
+    return skip ? stepHref(slug, skip.ctx, skip.step.id) : null;
+  }
+  if (!after || (step.kind === "run" && (held || continues))) return null;
+  return stepHref(slug, ctx, after.id);
+})();
 // A column heading is the field's label without its explanation in brackets (the full label stays as the hover text).
 const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || label;
 const uploadAccept = step?.kind === "gallery" && step.upload ? galleryAccept(step, galleryFields) : null;
@@ -315,14 +395,10 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
         <ol class="stepper" aria-label="Steps">
           {steps.map((s, i) => (
             <li class:list={[i === here && "current", i < here && "past", isDone(s, ctx) && "done"]}>
-              {blocker(def, ctx, s.id) || (held && i > here) ? (
-                <span class="wait" title="Answer the steps before it first"><span class="n">{i + 1}</span><span class="t">{s.title}</span></span>
-              ) : (
-                <a href={stepHref(slug, ctx, s.id)} aria-current={i === here ? "step" : undefined}>
-                  <span class="n" aria-hidden="true">{isDone(s, ctx) && i !== here ? "✓" : i + 1}</span>
-                  <span class="t">{s.title}</span>
-                </a>
-              )}
+              <a href={stepHref(slug, ctx, s.id)} aria-current={i === here ? "step" : undefined} title={blocker(def, ctx, s.id) ? `Needs “${blocker(def, ctx, s.id)!.title}” answered first` : undefined}>
+                <span class="n" aria-hidden="true">{isDone(s, ctx) && i !== here ? "✓" : i + 1}</span>
+                <span class="t">{s.title}</span>
+              </a>
             </li>
           ))}
         </ol>
@@ -331,11 +407,26 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           <p class="eyebrow">Step {here + 1} of {steps.length}</p>
           <h3>{step.title}</h3>
           {step.help && <p class="help">{step.help}</p>}
+          {jumpedFrom && <div class="alert alert-info">“{jumpedFrom.title}” needs this step answered first, so it opened here.</div>}
           {showTitle && (
             <aside class="showcard" aria-label={showTitle}>
               <div class="showhead"><strong>{showTitle}</strong><a class="muted" href={showHref}>Open ↗</a></div>
               <dl>{showLines.map((l) => (<><dt>{l.label}</dt><dd>{l.value}</dd></>))}</dl>
             </aside>
+          )}
+          {selectionRows.length > 0 && (
+            <section class="picks" aria-label="What you picked">
+              <div class="showhead">
+                <p class="label">{selectionRows.length === 1 ? "The one you picked" : `The ${selectionRows.length} you picked`}</p>
+                {selectionStep && <a class="muted" href={stepHref(slug, ctx, selectionStep.id)}>Change</a>}
+              </div>
+              <div class="cards">
+                {selectionRows.slice(0, SELECTION_SHOWN).map((r) => (
+                  <WizardCard href={pickHref(r, selectionStep)} title={r.title} picture={cardPicture(r.assets, selectionRole)} />
+                ))}
+              </div>
+              {selectionRows.length > SELECTION_SHOWN && <p class="muted none">and {selectionRows.length - SELECTION_SHOWN} more</p>}
+            </section>
           )}
           {stepProblem && <div class="step-error" role="alert">{stepProblem}</div>}
 
@@ -351,14 +442,54 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
             </form>
           )}
-          {step.kind === "option" && step.optional && (
-            <form method="post" class="actions">
-              <input type="hidden" name="action" value="skip" />
-              <button class="button secondary" type="submit">Skip this</button>
-            </form>
+
+          {step.kind === "choose" && step.multiple === true && (
+            <div class="form">
+              {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet, so there is nothing to pick. Install the package’s types first.</div>}
+              {!missingType && pageRows.length === 0 && <p class="muted none">{step.empty ?? `There is nothing to pick here yet.`}</p>}
+              {!missingType && pageRows.length > 0 && (
+                <form method="post" class="form" data-multi data-off={String(offPage)}>
+                  <input type="hidden" name="page" value={String(pageAt.page)} />
+                  <input type="hidden" name="clear_all" value="" data-clear-flag />
+                  {/* The form's first button, so Enter (in the search box, on a box) keeps the ticks and stays on this page: never Select all. */}
+                  <button class="enter-stays" type="submit" name="go" value={String(pageAt.page)} tabindex="-1" aria-hidden="true">Keep</button>
+                  {pageRows.map((r) => <input type="hidden" name="shown" value={r.slug} />)}
+                  <div class="multibar">
+                    <p class="label">Tick as many as you like</p>
+                    <button class="button secondary small" type="submit" name="sel" value="all" data-select-page>Select all on this page</button>
+                    <button class="button secondary small" type="submit" name="sel" value="clear" data-clear>Clear</button>
+                    <span class:list={["picked", { over: picked0.length > MAX_PICKS }]} role="status" aria-live="polite" data-picked>{pickedLine(picked0.length)}</span>
+                  </div>
+                  {pageRows.length > LONG_LIST && <input type="search" class="input pick-search" placeholder="Search this page by name…" data-pick-search aria-label="Search this page by name" autocomplete="off" />}
+                  <div class="tiles multi">
+                    {pageRows.map((c) => {
+                      const pic = cardPicture(c.assets, pictureRole);
+                      const sub = subtitleOf(step.subtitle, c.dataJson);
+                      return (
+                        <label class="tile" data-pick-item>
+                          <input type="checkbox" name="pick" value={c.slug} checked={picked0.includes(c.slug)} />
+                          <span class="tpic">{pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(c.title || "?").slice(0, 1)}</span>}</span>
+                          <strong>{c.title}</strong>
+                          {sub && <span class="muted gsub">{sub}</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {pageTotal > pageAt.per && (
+                    <nav class="multipager" aria-label="Pages">
+                      <span>{rangeText(pageAt.page, pageAt.per, pageTotal)}</span>
+                      {pageAt.page > 1 && <button class="button secondary small" type="submit" name="go" value={String(pageAt.page - 1)}>← Previous</button>}
+                      {pageAt.page < lastPage(pageTotal, pageAt.per) && <button class="button secondary small" type="submit" name="go" value={String(pageAt.page + 1)}>Next →</button>}
+                      <span class="muted">What you tick stays ticked when you change page.</span>
+                    </nav>
+                  )}
+                  <div class="actions"><button class="button" type="submit" name="action" value="pick">{submitLabel}</button></div>
+                </form>
+              )}
+            </div>
           )}
 
-          {step.kind === "choose" && (
+          {step.kind === "choose" && step.multiple !== true && (
             <div class="form">
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet, so there is nothing to pick. Install the package’s types first.</div>}
               {step.create && !missingType && createFirst && <WizardCreate step={step} typeName={typeName} hasChoices={choices.length > 0} first={true} formFields={formFields} refs={refs} badFields={badFields} />}
@@ -367,7 +498,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   <input type="hidden" name="action" value="pick" />
                   <p class="label">{createFirst ? `Or pick one you have (${choices.length})` : "Pick one you have"}</p>
                   {choices.length > LONG_LIST && <input type="search" class="input pick-search" placeholder={`Search ${typeName.toLowerCase()}s by name…`} data-pick-search aria-label="Search by name" autocomplete="off" />}
-                  {step.picture ? (
+                  {pictureCards ? (
                     <div class="tiles" role="radiogroup">
                       {choices.map((c) => {
                         const pic = cardPicture(c.assets, pictureRole);
@@ -395,12 +526,6 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 </form>
               )}
               {step.create && !missingType && !createFirst && <WizardCreate step={step} typeName={typeName} hasChoices={choices.length > 0} first={false} formFields={formFields} refs={refs} badFields={badFields} />}
-              {step.optional && (
-                <form method="post" class="actions">
-                  <input type="hidden" name="action" value="skip" />
-                  <button class="button secondary" type="submit">Skip this</button>
-                </form>
-              )}
             </div>
           )}
 
@@ -436,7 +561,6 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 <FileDrop accept={(step.accept ?? []).join(",") || undefined} hint={step.accept?.length ? `One ${step.accept.join(", ")} file.` : "One file."} />
                 <div class="actions">
                   <button class="button" type="submit">Upload</button>
-                  {after && <a class="button secondary" href={stepHref(slug, ctx, after.id)}>Skip</a>}
                 </div>
               </form>
             ) : <div class="alert alert-info">Choose the {step.entry} in an earlier step first.</div>
@@ -789,8 +913,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
 
           <div class="nav">
             {before ? <a class="button secondary" href={stepHref(slug, ctx, before.id)}>← Previous step</a> : <span />}
-            {after && !["option", "choose", "run"].includes(step.kind) && <a class="muted" href={stepHref(slug, ctx, after.id)}>Next step without saving →</a>}
-            {after && step.kind === "run" && !held && !continues && <a class="muted" href={stepHref(slug, ctx, after.id)}>Next step without running →</a>}
+            {skipHref && <a class="muted" href={skipHref}>Skip without saving →</a>}
           </div>
         </section>
       </>
@@ -801,7 +924,38 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
 </AppLayout>
 
 <script>
-  import { fileButtonNote, fileButtonOff } from "@/lib/wizard";
+  import { MAX_PICKS, fileButtonNote, fileButtonOff, pickedLine } from "@/lib/wizard";
+
+  // A multi-select step: the count says how many are picked as boxes are ticked (with those picked on other pages, `data-off`). Select all
+  // and Clear work here without a round trip; without a script they post and the server does the same. Clear drops the picks on other
+  // pages too (`clear_all`), when the form is next posted.
+  document.querySelectorAll<HTMLFormElement>("form[data-multi]").forEach((form) => {
+    const boxes = [...form.querySelectorAll<HTMLInputElement>('input[type="checkbox"][name="pick"]')];
+    const line = form.querySelector<HTMLElement>("[data-picked]");
+    const flag = form.querySelector<HTMLInputElement>("[data-clear-flag]");
+    let off = Number(form.dataset.off ?? "0");
+    const update = () => {
+      const count = off + boxes.filter((b) => b.checked).length;
+      if (line) {
+        line.textContent = pickedLine(count);
+        line.classList.toggle("over", count > MAX_PICKS);
+      }
+    };
+    form.querySelector<HTMLButtonElement>("[data-select-page]")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      for (const b of boxes) if (!b.closest<HTMLElement>("[data-pick-item]")?.hidden) b.checked = true; // a search narrows "all"
+      update();
+    });
+    form.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      for (const b of boxes) b.checked = false;
+      off = 0;
+      if (flag) flag.value = "1";
+      update();
+    });
+    form.addEventListener("change", update);
+    update();
+  });
 
   /** A sound's length in seconds: what its recorder counted, else by decoding the file; null when it cannot be told. */
   async function soundSeconds(file: File): Promise<number | null> {
@@ -1007,8 +1161,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
 
 <style>
   .stepper { list-style: none; margin: 0 0 24px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-  .stepper a, .stepper .wait { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: var(--panel); }
-  .stepper .wait { border-style: dashed; opacity: 0.6; }
+  .stepper a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: var(--panel); }
   .stepper .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--panel-2); font-size: 12px; }
   .stepper .past a { color: var(--ink); }
   .stepper .current a { border-color: var(--accent); color: var(--ink); font-weight: 600; }
@@ -1033,6 +1186,16 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .current img { max-width: min(100%, 22rem); max-height: 20rem; border-radius: var(--radius); object-fit: contain; background: var(--bg); }
   .current figcaption { color: var(--muted); font-size: 14px; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+  /* A multi-select: each card has its own checkbox, top left, and the card itself toggles it. */
+  .tiles.multi .tile input { inset: auto; top: 10px; left: 10px; width: 20px; height: 20px; opacity: 1; accent-color: var(--accent); z-index: 1; }
+  .tiles.multi .tile:has(input:checked)::after { content: none; }
+  .multibar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+  .multibar .label { margin-right: auto; }
+  .picked { font-size: 14px; font-weight: 500; }
+  .picked.over { color: var(--color-error, #c0392b); }
+  .multipager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 14px; color: var(--muted); }
+  .picks { display: grid; gap: 8px; }
+  .enter-stays { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); border: 0; padding: 0; }
   .tile { position: relative; display: grid; justify-items: center; align-content: start; gap: 8px; padding: 14px 10px 12px; text-align: center; cursor: pointer; border: 1px solid transparent; border-radius: calc(var(--radius) + 4px); background: var(--bg); font-size: 15px; transition: border-color 0.15s, background-color 0.15s; }
   .tile:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
   .tile input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
