@@ -1,6 +1,6 @@
 // The Resources page's view, kept in the URL: the name search, the type button, the option rows (tag, has a link,
-// has an external id), the sort, and the Trash. The list API takes no filters, so the page loads them all and this
-// picks. Pure, so `npm test` covers it (resourceView.test.mjs).
+// has an external id), the sort, and the Trash. The page asks GET /api/platform/resources for exactly that view, one
+// page at a time (resourceListParams). Pure, so `npm test` covers it (resourceView.test.mjs).
 
 export interface ResourceView {
   q: string;
@@ -31,30 +31,17 @@ export function readResourceView(params: URLSearchParams): ResourceView {
   };
 }
 
-interface ResourceLike {
-  name: string;
-  resourceType: string;
-  description?: string | null;
-  url?: string | null;
-  externalId?: string | null;
-  tags?: string[];
-}
-
-const matchesYesNo = (want: string, has: boolean) => !want || (want === "yes") === has;
-
-/** The resources this view shows, sorted. The name search also looks in the description. */
-export function filterResources<T extends ResourceLike>(resources: T[], view: ResourceView): T[] {
-  const q = view.q.toLowerCase();
-  const shown = resources.filter(
-    (r) =>
-      (!q || r.name.toLowerCase().includes(q) || (r.description ?? "").toLowerCase().includes(q)) &&
-      (!view.type || r.resourceType === view.type) &&
-      (!view.tag || (r.tags ?? []).includes(view.tag)) &&
-      matchesYesNo(view.link, Boolean(r.url)) &&
-      matchesYesNo(view.external, Boolean(r.externalId)),
-  );
-  const byName = (a: T, b: T) => a.name.localeCompare(b.name);
-  return shown.sort(view.sort === "type" ? (a, b) => a.resourceType.localeCompare(b.resourceType) || byName(a, b) : byName);
+/** What to ask GET /api/platform/resources for: the view's filters and order (the search reads names, slugs and
+ *  descriptions; a tag the workspace doesn't have matches nothing). The page adds `limit`/`offset`. */
+export function resourceListParams(view: ResourceView): Record<string, string | boolean> {
+  const out: Record<string, string | boolean> = { sort: view.sort };
+  if (view.q) out.q = view.q;
+  if (view.type) out.resource_type = view.type;
+  if (view.tag) out.tag = view.tag;
+  if (view.link) out.has_url = view.link === "yes";
+  if (view.external) out.has_external_id = view.external === "yes";
+  if (view.status === "trashed") out.trashed = true;
+  return out;
 }
 
 /** A link to this view with some filters changed ("" drops one). */

@@ -49,11 +49,11 @@ test("the decision filter (what an approval said about a picture) reaches the AP
 });
 
 
-test("'not searchable yet' filters on the page, not in the API query, and survives links", () => {
+test("'not searchable yet' is asked of the API (so it pages), and survives links", () => {
   const v = view("searchable=no&type=image");
   assert.equal(v.searchable, "no");
   assert.equal(isFiltered(v), true);
-  assert.equal("searchable" in listParams(v), false);
+  assert.equal(listParams(v).searchable, false);
   assert.equal(viewHref(v, { sort: "newest" }), "/workspace/assets?type=image&searchable=no&sort=newest");
   assert.equal(view("searchable=maybe").searchable, "");
 });
@@ -63,4 +63,10 @@ test("a picture with no alt text or description is not searchable; anything else
   assert.equal(isUnsearchableImage({ mimeType: "image/jpeg", altText: "Hands at a sewing machine" }), false);
   assert.equal(isUnsearchableImage({ mimeType: "image/png", description: "A worn knee" }), false);
   assert.equal(isUnsearchableImage({ mimeType: "application/pdf" }), false);
+});
+
+test("the Trash is asked of the API with the filters, and never folds versions (a trashed version of a live original shows)", () => {
+  assert.deepEqual(listParams(view("status=trashed")), { sort: "name", trashed: true });
+  assert.deepEqual(listParams(view("status=trashed&q=pier&sort=newest")), { sort: "newest", trashed: true, q: "pier" });
+  assert.equal("trashed" in listParams(view("")), false);
 });
