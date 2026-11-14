@@ -2,6 +2,9 @@
 
 import { acceptKind, assetIsKind, isKind } from "./acceptKind";
 import { type Ctx, type Step, StepError, type WizardDefinition, assetSpec, entryTypeOf, joinList, listOf, mergePicks, picksAssets, picksProblem, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
+import { changedKeys, editableKeys, listParams, readListState, scopedSpecs, isScopedList, unionRows, SCOPED_PER } from "./wizardScopedList";
+import { fieldTypeMap } from "./schemaFields";
+import { PAGE_SIZES } from "./pagination";
 import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, fromTemplate, entryOfType, findAssets, findEntries, picksOf, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
@@ -13,6 +16,8 @@ export interface Outcome {
   run?: string;
   /** The page of a multi-select step's cards to show next (a page move). */
   page?: number;
+  /** More of the address to keep on the next page: a list's filter, search and page. */
+  params?: Record<string, string>;
 }
 
 /** What a step that started a run hands the next page: the run to follow, or just "started" when the server named none. */
@@ -154,6 +159,71 @@ async function editList(step: Step, form: FormData, ctx: Ctx, authToken: string)
   return { ctx, stay: !!title && !!text(form, "again") };
 }
 
+/**
+ * A list without a parent posted: Save this page, a page move, a filter, a facet value, a search, or Continue. Whatever the button,
+ * the cards' changes are saved first, so moving around never loses an edit. Only entries the list itself lists can change (the posted
+ * ids are read again through its own queries, now) and only its `columns` and `check` field: never a required field, a status or a
+ * page. Each changed card is ONE update with only what changed on it, merged into the entry as it is now (a sale marked meanwhile
+ * stays), one after the other: a save never sends the API a burst, and each update is one `entry_updated` (one Square listing at most).
+ */
+async function editScopedList(step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
+  const type = await typeBySlug(step.entry_type, authToken);
+  if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
+  const types = fieldTypeMap(type.schemaJson);
+  const keys = editableKeys(step).filter((k) => k in types);
+  const booleans = keys.filter((k) => types[k] === "boolean");
+  const ids = [...new Set([...form.keys()].flatMap((k) => /^row\.([0-9a-f-]{36})\.__was$/.exec(k)?.[1] ?? []))];
+  const wasOf = (id: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(text(form, `row.${id}.__was`) || "null");
+    } catch {
+      return null;
+    }
+  };
+  const changedOf = (id: string) =>
+    changedKeys(Object.fromEntries(keys.map((k) => [k, form.has(`row.${id}.${k}`) ? String(form.get(`row.${id}.${k}`)) : null])), wasOf(id) ?? {}, booleans);
+  const listed = ids.length
+    ? unionRows((await Promise.all(scopedSpecs(step, ctx).map((spec) => findEntries({ ...spec, entries: ids }, authToken, ids.length)))).map((f) => f.entries))
+    : [];
+  let saved = 0;
+  for (const row of listed) {
+    if (!wasOf(row.id)) continue;
+    const changed = changedOf(row.id);
+    if (!changed.length) continue;
+    await setData(row, postedData(form, type, changed, `row.${row.id}.`), authToken).catch((e) => {
+      const before = saved ? ` The ${saved} before it ${saved === 1 ? "is" : "are"} saved.` : "";
+      throw new StepError(`“${row.title}” could not be saved: ${e instanceof Error ? e.message : String(e)}.${before}`);
+    });
+    saved++;
+  }
+  const gone = ids.filter((id) => !listed.some((r) => r.id === id) && changedOf(id).length > 0).length;
+  if (gone) {
+    const kept = saved ? ` The other change${saved === 1 ? " is" : "s are"} saved.` : "";
+    throw new StepError(`${gone === 1 ? "One piece you changed is" : `${gone} pieces you changed are`} no longer in this list (it may have sold, or been unpublished), so ${gone === 1 ? "it was" : "they were"} not saved.${kept}`);
+  }
+  const notice = saved ? { notice: "saved" } : {};
+  if (text(form, "action") === "next") return { ctx, stay: false, ...notice };
+  // Where to go next: the button pressed (a filter, a facet value, a page, a page size) on top of where the page was.
+  const asked = new URLSearchParams();
+  const pick = (name: string, was: string) => (form.has(name) ? text(form, name) : text(form, was));
+  asked.set("filter", pick("filter", "cur_filter"));
+  asked.set("facet", pick("facet", "cur_facet"));
+  asked.set("q", text(form, "q"));
+  const state = readListState(asked, step);
+  const before = readListState(new URLSearchParams({ filter: text(form, "cur_filter"), facet: text(form, "cur_facet"), q: text(form, "cur_q") }), step);
+  const moved = state.filter !== before.filter || state.facet !== before.facet || state.q !== before.q;
+  const sizeOf = (name: string) => PAGE_SIZES.find((n) => n === Number(text(form, name)));
+  const size = sizeOf("per_go") ?? sizeOf("per") ?? SCOPED_PER; // a page-size button, else the size the page had
+  const go = Number.parseInt(text(form, "go"), 10);
+  const page = moved || form.has("per_go") || !(go >= 1) ? 1 : go;
+  return {
+    ctx,
+    stay: true,
+    ...notice,
+    params: { ...listParams(state), ...(page > 1 ? { page: String(page) } : {}), ...(size !== SCOPED_PER ? { per: String(size) } : {}) },
+  };
+}
+
 const MAX_UPLOAD_BYTES = 25_000_000;
 const UPLOAD_WORDS = {
   image: { noun: "picture", notOne: "That is not a picture." },
@@ -280,7 +350,7 @@ export async function runStep(def: WizardDefinition, step: Step, form: FormData,
   if (step.kind === "choose") return choose(def, step, form, ctx, authToken);
   if (step.kind === "upload") return upload(def, step, form, ctx, authToken);
   if (step.kind === "run") return startedRun(ctx, await runWorkflow(step.workflow, runInputs(step, ctx), authToken));
-  if (step.kind === "list") return editList(step, form, ctx, authToken);
+  if (step.kind === "list") return isScopedList(step) ? editScopedList(step, form, ctx, authToken) : editList(step, form, ctx, authToken);
   if (step.kind === "gallery") return gallery(step, form, ctx, authToken);
   if (step.kind === "form") {
     const { entry, type } = await entryFor(def, step, ctx, authToken);

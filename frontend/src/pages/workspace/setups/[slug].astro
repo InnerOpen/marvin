@@ -5,6 +5,7 @@ import ImageCropper from "@/components/ImageCropper.astro";
 import LinkedItemsField from "@/components/schema-fields/LinkedItemsField.astro";
 import WizardCard from "@/components/WizardCard.astro";
 import WizardCreate from "@/components/WizardCreate.astro";
+import WizardScopedList from "@/components/WizardScopedList.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import SchemaFormField from "@/components/SchemaFormField.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -26,7 +27,8 @@ import { jobLead, leftOutLine, listLine, nothingLine, runButton } from "@/lib/ru
 import { runStep } from "@/lib/wizardActions";
 import { getRunState, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { runKey, runLine } from "@/lib/runState";
-import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, picksOf, runSelection, typeBySlug, workflowState } from "@/lib/wizardApi";
+import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
+import { isScopedList } from "@/lib/wizardScopedList";
 import { lastPage, rangeText, readPage } from "@/lib/pagination";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -99,7 +101,7 @@ if (Astro.request.method === "POST" && authToken && def && step) {
     const target = done.stay ? step : (nextStep(def, done.ctx, step.id) ?? step);
     // A page move of a multi-select step keeps its page size (`per`) as the address had it.
     const paging = done.page ? { [PAGE_PARAM]: String(done.page), ...(Astro.url.searchParams.get(PER_PARAM) ? { [PER_PARAM]: Astro.url.searchParams.get(PER_PARAM)! } : {}) } : {};
-    return Astro.redirect(stepHref(slug, done.ctx, target.id, { ...(done.notice ? { [NOTICE_PARAM]: done.notice } : {}), ...(done.run ? { [RUN_PARAM]: done.run } : {}), ...paging }));
+    return Astro.redirect(stepHref(slug, done.ctx, target.id, { ...(done.notice ? { [NOTICE_PARAM]: done.notice } : {}), ...(done.run ? { [RUN_PARAM]: done.run } : {}), ...paging, ...(done.params ?? {}) }));
   } catch (e) {
     stepProblem = describeFailure(e);
     badFields = e instanceof StepError ? e.fields : [];
@@ -138,6 +140,9 @@ let leftSays: string | null = null; // and why some are not in it, in the packag
 let jobSays: { lead: string; more: boolean; all: string } | null = null; // what the worker job the run started said
 let report: { label: string; text: string; title: string; href: string } | null = null; // the field the run writes, to read here
 let cards: Row[] = [];
+// A list without a parent: its page of cards, the fields they edit and its check field (the type's own, when it has it).
+let scoped: ScopedListPage | null = null;
+let checkField: string | undefined;
 // A multi-select step: this page of its cards, how many there are in all, the page, and what is picked (on this page and on others).
 let pageRows: Row[] = [];
 let pageTotal = 0;
@@ -210,6 +215,16 @@ if (authToken && def && step) {
     }
     const here = new Set(pageRows.map((r) => r.slug));
     offPage = picked0.filter((p) => !here.has(p)).length;
+  } else if (isScopedList(step)) {
+    scoped = await scopedListPage(step, ctx, Astro.url.searchParams, authToken, Astro.locals);
+    missingType = !scoped;
+    const type = scoped?.type ?? null;
+    const own = (type?.schemaJson as { fields?: any[] } | null)?.fields ?? [];
+    // Exactly the step's columns (and its check), in its order, of the kinds a card can draw: never a field the type requires besides.
+    columns = (step.columns as string[]).flatMap((k) => own.filter((f) => f.key === k && SIMPLE_FIELD_TYPES.includes(f.type)));
+    checkField = step.check?.field && own.some((f) => f.key === step.check.field && f.type === "boolean") ? step.check.field : undefined;
+    pictureRole = fieldRole(type, step.picture ?? pictureFieldOf(type));
+    refs = await refsFor(columns.filter((c) => c.type !== "boolean"));
   } else if (step.kind === "choose" || step.kind === "list") {
     const type = await typeBySlug(step.entry_type, authToken, Astro.locals);
     missingType = !type;
@@ -566,7 +581,13 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
             ) : <div class="alert alert-info">Choose the {step.entry} in an earlier step first.</div>
           )}
 
-          {step.kind === "list" && (
+          {isScopedList(step) && (
+            missingType || !scoped
+              ? <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>
+              : <WizardScopedList step={step} list={scoped} columns={columns} checkField={checkField} pictureRole={pictureRole} refs={refs} submitLabel={submitLabel} />
+          )}
+
+          {step.kind === "list" && !isScopedList(step) && (
             <form method="post" class="form">
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
               {!missingType && (

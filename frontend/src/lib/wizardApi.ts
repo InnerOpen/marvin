@@ -12,7 +12,9 @@ import type { RequestScope } from "./requestCache";
 import { coerceDataJsonValue, fieldTypeMap } from "./schemaFields";
 import { createSdkClient } from "./sdk";
 import { inOrder } from "./runList";
-import type { ApprovalCard } from "./wizard";
+import type { ApprovalCard, Ctx, Step } from "./wizard";
+import { type Flag, type ListState, type ListView, flagSpec, listView, readListState, scopedSpecs, unionRows, SCOPED_PER } from "./wizardScopedList";
+import { PAGE_SIZES, readPage } from "./pagination";
 
 export interface Row {
   id: string;
@@ -215,4 +217,41 @@ export async function runSelection(
   if (!selection?.found) return null;
   const rows = selection.ids.length ? (await findEntries({ entries: selection.ids }, authToken, selection.ids.length)).entries : [];
   return { selection, rows: inOrder(rows, selection.ids) };
+}
+
+/** What a page of a list without a parent shows (lib/wizardScopedList.ts). */
+export interface ScopedListPage {
+  type: EntryTypeRead;
+  view: ListView<Row>;
+  /** Per flag, the ids of the listed entries that meet it (the server's answer). */
+  flagged: Set<string>[];
+  state: ListState;
+  per: number;
+  /** The list is longer than one read takes: only the first MAX_ROWS of a query are shown. */
+  capped: boolean;
+}
+
+/**
+ * Read a list without a parent: its query (and its `or_where` one) once, up to MAX_ROWS entries, then one query per flag over exactly
+ * those entries, which says which of them meet it. The filter, facet, search and page are worked out from these answers
+ * (`listView`), so a page costs the same few reads whichever filter is on. Null when the workspace has no such type.
+ */
+export async function scopedListPage(step: Step, ctx: Ctx, params: URLSearchParams, authToken: string, scope?: RequestScope): Promise<ScopedListPage | null> {
+  const type = await typeBySlug(step.entry_type, authToken, scope);
+  if (!type) return null;
+  const found = await Promise.all(scopedSpecs(step, ctx).map((spec) => findEntries(spec, authToken, MAX_ROWS)));
+  const rows = unionRows(found.map((f) => f.entries));
+  const ids = rows.map((r) => r.id);
+  const flags = (step.flags ?? []) as Flag[];
+  const flagged = await Promise.all(
+    flags.map(async (f) => new Set(ids.length ? (await findEntries(flagSpec(step, f, ids), authToken, ids.length)).entries.map((e) => e.id) : [])),
+  );
+  const state = readListState(params, step);
+  const asked = Number.parseInt(params.get("per") ?? "", 10);
+  const per = (PAGE_SIZES as readonly number[]).includes(asked) ? asked : SCOPED_PER;
+  const options = (((type.schemaJson as { fields?: { key?: string; options?: unknown[] }[] } | null)?.fields ?? []).find((f) => f.key === step.facet)?.options ?? []).map((o) =>
+    typeof o === "string" ? o : String((o as { value?: unknown })?.value ?? ""),
+  );
+  const view = listView(rows, step, flagged, state, { page: readPage(params).page, per }, options);
+  return { type, view, flagged, state, per, capped: found.some((f) => f.total > f.entries.length) };
 }

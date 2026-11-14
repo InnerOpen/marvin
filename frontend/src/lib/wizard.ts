@@ -147,6 +147,7 @@ export const NOTICES: Record<string, string> = {
   added: "Added.",
   trashed: "Moved to the Trash. You can bring it back from the Trash.",
   changed: "Done.",
+  saved: "Saved.",
 };
 /** Address parameters that are not choices: the step asked for, and the line to show after a step that started something. */
 export const NOTICE_PARAM = "notice";
@@ -165,7 +166,11 @@ const REF = /\$\{([^}]*)\}/g;
 /** The page of a multi-select step's cards (`page`, `per`): the page's own, never a choice. */
 export const PAGE_PARAM = "page";
 export const PER_PARAM = "per";
-const OWN_PARAMS = new Set([STEP_PARAM, NOTICE_PARAM, RUN_PARAM, PAGE_PARAM, PER_PARAM]);
+/** A list step without a parent: its filter, the facet value shown and the search (lib/wizardScopedList.ts). */
+export const FILTER_PARAM = "filter";
+export const FACET_PARAM = "facet";
+export const SEARCH_PARAM = "q";
+const OWN_PARAMS = new Set([STEP_PARAM, NOTICE_PARAM, RUN_PARAM, PAGE_PARAM, PER_PARAM, FILTER_PARAM, FACET_PARAM, SEARCH_PARAM]);
 
 /**
  * A multi-select step (`choose` with `multiple`) keeps its picks in the context as ONE value: the slugs of the entries (or the ids of the
@@ -218,7 +223,7 @@ export function listKeys(def: WizardDefinition): Set<string> {
   return new Set(def.steps.filter((s) => s.kind === "choose" && s.multiple === true && typeof s.as === "string").map((s) => s.as as string));
 }
 
-/** The choices so far, from the address: every parameter the page does not use itself (`step`, `notice`, `run`, `page`, `per`) whose name
+/** The choices so far, from the address: every parameter the page does not use itself (`step`, `notice`, `run`, `page`, `per`, `filter`, `facet`, `q`) whose name
  *  is a context name. A list key (`lists`) is read as its picks, at most MAX_PICKS of them; any other value is cut at 200 characters. */
 export function readCtx(params: URLSearchParams, lists: Set<string> = new Set()): Ctx {
   const ctx: Ctx = {};

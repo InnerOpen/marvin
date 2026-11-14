@@ -741,3 +741,161 @@ def test_a_single_choose_step_is_checked_as_before():
     payload = copy.deepcopy(WIZARD)
     payload["steps"][0]["multiple"] = False
     assert payload_problem(payload, "narrate") is None
+
+
+# --- a list without a parent (Art price check) ----------------------------------------------------------------------------------------
+
+PRICE_CHECK = {
+    "title": "Art price check",
+    "steps": [
+        {
+            "id": "pieces",
+            "kind": "list",
+            "title": "Check each piece",
+            "entry_type": "artwork",
+            "where": [{"field": "publish_status", "op": "eq", "value": "published"}, {"field": "status", "op": "eq", "value": "available"}],
+            "or_where": [
+                {"field": "publish_status", "op": "eq", "value": "published"},
+                {"field": "status", "op": "eq", "value": "sold"},
+                {"field": "sellOnline", "op": "eq", "value": True},
+            ],
+            "columns": ["price", "shippingFee", "sellOnline"],
+            "check": {"field": "priceChecked", "label": "Looks right"},
+            "flags": [
+                {"label": "No price", "where": [{"field": "price", "op": "missing"}]},
+                {"label": "Not for sale online", "where": [{"field": "sellOnline", "op": "neq", "value": True}], "attention": False},
+            ],
+            "facet": "group",
+            "fill": ["shippingFee"],
+            "picture": "image",
+            "subtitle": ["size", "medium"],
+        },
+        {
+            "id": "done",
+            "kind": "review",
+            "title": "How it stands",
+            "checks": [
+                {
+                    "label": "Every piece for sale has a price",
+                    "query": {
+                        "entry_type": "artwork",
+                        "status": "published",
+                        "fields": {"status": "available"},
+                        "where": [{"field": "price", "op": "missing"}],
+                    },
+                    "op": "eq",
+                    "value": 0,
+                    "step": "pieces",
+                }
+            ],
+        },
+    ],
+}
+
+
+def _price_check(change) -> str | None:
+    payload = copy.deepcopy(PRICE_CHECK)
+    change(payload["steps"][0])
+    return payload_problem(payload, "check-prices")
+
+
+def test_a_list_without_a_parent_lists_the_entries_a_where_finds_and_edits_only_its_columns():
+    assert payload_problem(PRICE_CHECK, "check-prices") is None
+    assert _price_check(lambda s: [s.pop(k) for k in ("or_where", "flags", "check", "facet", "fill", "picture", "subtitle")]) is None
+    assert _price_check(lambda s: s.pop("where") and s.pop("or_where")) is None  # every entry of the type
+    assert _price_check(lambda s: s.update(add=False)) is None
+    # A where may read an earlier single choice, as a scope does.
+    payload = copy.deepcopy(PRICE_CHECK)
+    payload["steps"].insert(0, {"id": "s", "kind": "choose", "title": "Series", "as": "series", "entry_type": "series"})
+    payload["steps"][1]["where"].append({"field": "series", "op": "eq", "value": "${series}"})
+    assert payload_problem(payload, "check-prices") is None
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [
+        (lambda s: s.update(add={"fields": ["price"]}), "adds nothing"),
+        (lambda s: s.update(create_data={"group": "available"}), "adds nothing"),
+        (lambda s: s.update(where=[]), "1 to 6 conditions"),
+        (lambda s: s.update(where=[{"field": "price", "op": "about"}]), "op is one of"),
+        (lambda s: s.update(where=[{"field": "the price", "op": "eq"}]), "on a field key"),
+        (lambda s: s.update(where=[{"field": "price", "op": "eq", "value": "${nope}"}]), "nope"),
+        (lambda s: s.pop("where"), "give where too"),
+        (lambda s: s.update(flags=[]), "1 to 6 flags"),
+        (lambda s: s.update(flags=[{"label": "", "where": [{"field": "price", "op": "missing"}]}]), "needs a label"),
+        (lambda s: s.update(flags=[{"label": "No price", "where": [{"field": "price", "op": "eq", "value": "${x}"}]}]), "uses no"),
+        (lambda s: s.update(flags=[{"label": "No price", "where": [{"field": "price", "op": "missing"}], "attention": "yes"}]), "attention"),
+        (lambda s: s.update(check={"field": "priceChecked"}), "check is {field, label}"),
+        (lambda s: s.update(check={"field": "price checked", "label": "Looks right"}), "check is {field, label}"),
+        (lambda s: s.update(facet="the group"), "facet"),
+        (lambda s: s.update(fill=["note"]), "which columns does not have"),
+        (lambda s: s.update(picture="Main Image"), "picture must be a field key"),
+        (lambda s: s.update(subtitle=["a", "b", "c", "d"]), "up to three"),
+        (lambda s: s.update(columns=[]), "columns"),
+        (lambda s: s.update(entry_type=""), "entry_type"),
+        (lambda s: s.update(parent="x"), "needs parent_field"),
+        (lambda s: s.update(parent="story", parent_field="x"), "for a list without a parent"),
+    ],
+)
+def test_a_wrong_list_without_a_parent_says_what_is_wrong(change, words):
+    problem = _price_check(change)
+    assert problem is not None and words in problem, problem
+
+
+def test_a_parents_list_is_checked_as_before_and_takes_none_of_the_scoped_settings():
+    assert payload_problem(WIZARD, "narrate") is None
+    for key, value in (
+        ("where", [{"field": "a", "op": "eq", "value": "b"}]),
+        ("check", {"field": "done", "label": "Done"}),
+        ("facet", "role"),
+        ("picture", "face"),
+    ):
+        payload = copy.deepcopy(WIZARD)
+        payload["steps"][5][key] = value
+        problem = payload_problem(payload, "narrate")
+        assert problem is not None and "for a list without a parent" in problem, problem
+
+
+@pytest.mark.parametrize("key", ["q", "filter", "facet"])
+def test_a_list_s_own_address_parameters_are_never_a_context_key(key):
+    payload = copy.deepcopy(WIZARD)
+    payload["steps"][2]["as"] = key
+    assert "the page uses that name" in payload_problem(payload, "narrate")
+
+
+def test_a_package_brings_the_price_check_with_the_yes_no_field_it_marks(db_session, workspace):  # noqa: F811
+    """The check field arrives with the package (entry_fields adds what the type lacks and leaves the rest), and the wizard is data."""
+    artwork = EntryTypes(
+        session=db_session,
+        group_id=workspace.id,
+        name="Artwork",
+        slug="artwork",
+        schema_json={
+            "fields": [{"key": "price", "label": "Price", "type": "text"}, {"key": "sellOnline", "label": "Sell online", "type": "boolean"}]
+        },
+    )
+    db_session.add(artwork)
+    db_session.commit()
+    manifest = _manifest("gallery")
+    manifest["blueprints"] = [
+        {
+            "kind": "entry_fields",
+            "slug": "price-check-field",
+            "name": "Price checked",
+            "payload": {
+                "entry_type": "artwork",
+                "fields": [
+                    {"key": "priceChecked", "label": "Price checked", "type": "boolean"},
+                    {"key": "price", "label": "Something else", "type": "number"},
+                ],
+            },
+        },
+        _wizard_blueprint("check-prices", PRICE_CHECK),
+    ]
+    service.install(db_session, workspace.id, service.parse_manifest(manifest), actor_id=workspace.user_id)
+    db_session.commit()
+    db_session.refresh(artwork)
+    fields = {f["key"]: f for f in artwork.schema_json["fields"]}
+    assert fields["priceChecked"]["type"] == "boolean"
+    assert fields["price"] == {"key": "price", "label": "Price", "type": "text"}  # an existing field is never changed
+    assert [w.slug for w in service.list_wizards(db_session, workspace.id)] == ["check-prices"]
