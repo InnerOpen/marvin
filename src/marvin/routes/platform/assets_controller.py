@@ -9,10 +9,11 @@ from pydantic import UUID4
 
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
-from marvin.routes._base.checks import require_workspace_editor, require_workspace_role
+from marvin.routes._base.checks import has_workspace_role, require_can_edit_entry, require_workspace_editor, require_workspace_role
 from marvin.routes._base.paging import paged
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
 from marvin.schemas.platform.assets import AssetUsage, TypeCount
+from marvin.schemas.platform.picture_presets import ApplyPresetRequest, ApplyPresetResult, PresetJob
 from marvin.services import trash
 from marvin.services.assets import scope
 from marvin.services.assets import usage as asset_usage
@@ -221,6 +222,61 @@ class AssetsController(BaseUserController):
         )
 
         return asset
+
+    @router.post("/apply-preset", response_model=ApplyPresetResult, summary="Treat pictures with a picture preset")
+    def apply_preset(self, body: ApplyPresetRequest) -> dict:
+        """Treat pictures with one of an entry type's picture presets (crop, size, grade, format in one pass), or with the
+        preset a template names. Each original makes ONE new picture, kept as its version (`<original>--preset-<hash8>`,
+        the same steps on the same picture reused); the original is never changed and no `asset_uploaded` is sent. With
+        `entries`, each entry's picture is treated and the treated one takes its place (the role, featured by default, and
+        the template's asset field) where they still hold the original. `preview` (the default) answers one row per
+        picture and changes nothing; with `preview: false` the work starts in the background and `job` says how it goes
+        (GET /assets/apply-preset/jobs/{id}). At most 200. Making a treated picture is making an asset (AUTHOR, as
+        uploading one): an AUTHOR treats the pictures they uploaded and their own draft entries, an EDITOR any.
+        Declared before `/{item_id}`."""
+        from marvin.services.assets import picture_presets as presets
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
+        try:
+            if body.entries:
+                plan = presets.plan_for_entries(
+                    self.session, self.group_id, body.entry_type, body.entries, preset=body.preset, template=body.template, role=body.role
+                )
+            else:
+                plan = presets.plan_for_assets(self.session, self.group_id, body.entry_type, body.assets, preset=body.preset, template=body.template)
+        except presets.PresetNotFound as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+        except presets.PresetError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+        if body.preview:
+            return presets.describe(plan)
+        if not has_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR):
+            for r in plan.rows:
+                if r.action == "skip":
+                    continue
+                if r.entry is not None:
+                    require_can_edit_entry(self.user, self.group_id, r.entry)
+                elif r.source.uploaded_by != self.user.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"“{r.source.name}” was uploaded by someone else: an editor treats it (an author treats their own pictures)",
+                    )
+        work = presets.work_of(plan)
+        job = presets.start_job(self.group_id, work, actor_id=self.user.id) if work.items else None
+        return presets.describe(plan, preview=False, job=job)
+
+    @router.get("/apply-preset/jobs/{job_id}", response_model=PresetJob, summary="A picture treatment's progress")
+    def preset_job(self, job_id: str) -> dict:
+        """A treatment started by POST /assets/apply-preset (or by making entries with a template that has a picture
+        preset): queued, running, done or failed, how many are done, and each original's treated picture as it is made.
+        Kept in memory: 404 after a server restart (run it again; what was made is reused)."""
+        from marvin.services.assets import picture_presets as presets
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
+        job = presets.job_status(self.group_id, job_id)
+        if job is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such treatment here (the server may have restarted: run it again)")
+        return job
 
     @router.get("/types", response_model=list[TypeCount], summary="Asset types in use")
     def asset_types(self) -> list[TypeCount]:

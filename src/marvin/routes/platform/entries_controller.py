@@ -219,12 +219,17 @@ class EntriesController(BaseUserController):
         `preview: false` the entries are made, in the template's status (Inbox by default), each with the picture in the
         template's asset field and attached with its role at position 0. A picture an entry of this type already has fills
         that entry instead (only empty values, unless `replace`). Nothing is made while any row has an `error`. At most
-        200 pictures; no `entry_created` each: one `entry_template_applied`. Declared before `/{item_id}`."""
+        200 pictures; no `entry_created` each: one `entry_template_applied`. A template with a picture preset gives each
+        entry the treated picture (in its treated role and asset field; the original is kept as its source): the one made
+        before, or the original until the treated one is made in the background (`treatment_job`). `mark_unnamed` tags
+        an entry titled only by its file name (IMG_4491) "Needs a name". Declared before `/{item_id}`."""
         from marvin.services.entries import templates
 
         require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
         try:
-            plan = templates.plan_from_assets(self.session, self.group_id, body.entry_type, body.template, body.assets, replace=body.replace)
+            plan = templates.plan_from_assets(
+                self.session, self.group_id, body.entry_type, body.template, body.assets, replace=body.replace, mark_unnamed=body.mark_unnamed
+            )
         except templates.TemplateNotFound as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
         except templates.TemplateError as e:

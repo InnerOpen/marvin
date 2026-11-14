@@ -36,6 +36,12 @@ class EntryTemplate(_MarvinModel):
     """The role the picture is attached with (entry_assets.role), e.g. featured."""
     asset_field: str | None = None
     """The type's asset field the picture is put in (e.g. image), or none."""
+    picture_preset: TemplateSlug | None = None
+    """One of the type's picture presets (by slug): each picture is treated with it (crop, size, grade, format) and the
+    treated picture is the one the entry shows; the original is kept, unchanged, as the version it was made from."""
+    treated_role: str | None = Field(default="featured", max_length=40)
+    """With a picture preset: the role the treated picture is attached with (it also goes in the asset field). The
+    original is not attached; it stays in the library as the treated picture's source."""
 
 
 class EntriesFromTemplateRequest(_MarvinModel):
@@ -51,6 +57,8 @@ class EntriesFromTemplateRequest(_MarvinModel):
     preview: bool = True
     replace: bool = False
     """Fill only empty values (the default), or replace what an existing entry already has."""
+    mark_unnamed: bool = False
+    """Tag an entry whose title came out as its picture's file name (IMG_4491) with needs-a-name, and say so on its row."""
 
 
 class EntriesApplyTemplateRequest(_MarvinModel):
@@ -94,6 +102,9 @@ class EntryTemplateRow(_MarvinModel):
     """Why it is skipped, or what is left out."""
     error: str | None = None
     """What stops it (nothing is made while any row has one)."""
+    treated: EntryTemplatePicture | None = None
+    """With a picture preset: the treated picture the entry gets (made before); none yet when it is still to be made (it
+    is then made in the background and takes the original's place when ready)."""
 
 
 class EntryTemplateResult(_MarvinModel):
@@ -119,3 +130,7 @@ class EntryTemplateResult(_MarvinModel):
     seconds: float | None = None
     text: str = ""
     """In words: "make 12 artworks, fill 2, leave 1"."""
+    picture_preset: str | None = None
+    """The template's picture preset, when it has one."""
+    treatment_job: str | None = None
+    """After a create or apply: the background job treating the pictures not treated yet (GET /assets/apply-preset/jobs/{id})."""

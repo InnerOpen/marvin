@@ -29,6 +29,7 @@ import re
 import uuid
 
 from marvin.schemas.group.automation_definition import MEDIA_OP_ARGS
+from marvin.services.ai.media.transforms import GRADE_SETTINGS
 
 from ..matcher import interpolate
 from .base import AutomationActionError, register_action
@@ -261,19 +262,67 @@ def derive_args(session, group_id, op: str, action: dict, context: dict) -> dict
         if aspect is None:
             raise AutomationActionError("crop needs an aspect like 1:1, 4:5 or 16:9")
         args["aspect"] = f"{aspect[0]}:{aspect[1]}"  # 4x5 and 4:5 are one derivative
-        args["focus"] = args.get("focus") or "center"
+        args["focus"] = crop_focus(interpolate(args.get("focus"), context))
     elif op == "convert" and not args.get("format"):
         raise AutomationActionError("convert needs a format (jpeg, png or webp)")
     elif op == "grade":
+        args.update(grade_settings(args, context))
         preset = str(interpolate(args.get("preset") or "", context) or "").strip()
-        if not preset:
-            raise AutomationActionError("grade needs a preset")
-        from marvin.services.ai.media.enrichment import grade_presets
+        if preset:
+            from marvin.services.ai.media.enrichment import grade_presets
 
-        if preset not in grade_presets(session, group_id):
-            raise AutomationActionError(f"no grade preset “{preset}” (presets: {', '.join(sorted(grade_presets(session, group_id)))})")
-        args["preset"] = preset
+            if preset not in grade_presets(session, group_id):
+                raise AutomationActionError(f"no grade preset “{preset}” (presets: {', '.join(sorted(grade_presets(session, group_id)))})")
+            args["preset"] = preset
+        else:
+            args.pop("preset", None)
+            if not any(k in args for k in GRADE_SETTINGS):
+                raise AutomationActionError(f"grade needs a preset or a setting ({', '.join(GRADE_SETTINGS)})")
     return args
+
+
+def crop_focus(value) -> str:
+    """A crop's focus in canonical form: center (the default), subject, or a fixed point "x,y" ("0.5,0.5" is the centre)."""
+    from marvin.services.ai.media import transforms
+
+    if value in (None, ""):
+        return "center"
+    focus = transforms.parse_focus(value)
+    if focus is None:
+        raise AutomationActionError(f"focus must be center, subject or a point x,y between 0 and 1 (like 0.5,0.3), not {value!r}")
+    if isinstance(focus, tuple):
+        text = transforms.focus_text(focus)
+        return "center" if text == "0.5,0.5" else text
+    return focus
+
+
+def grade_settings(args: dict, context: dict | None = None) -> dict:
+    """A grade's free settings (brightness, contrast, saturation, warmth, vignette) as numbers in range, rounded to 3 places;
+    one at its neutral value is left out, so it never makes a second derivative of the same picture."""
+    out = {}
+    for key, (low, high, neutral) in GRADE_SETTINGS.items():
+        raw = interpolate(args.get(key), context or {})
+        if raw in (None, ""):
+            continue
+        try:
+            value = round(float(raw), 3)
+        except (TypeError, ValueError) as e:
+            raise AutomationActionError(f"{key} must be a number from {low:g} to {high:g}") from e
+        if not low <= value <= high:
+            raise AutomationActionError(f"{key} must be from {low:g} to {high:g} ({neutral:g} leaves it as it is), not {value:g}")
+        if value != neutral:
+            out[key] = value
+    for key in GRADE_SETTINGS:
+        args.pop(key, None)
+    return out
+
+
+def grade_params(session, group_id, args: dict) -> dict:
+    """What a grade does: its named preset's settings (built-in or the workspace's), with its own settings over them."""
+    from marvin.services.ai.media.enrichment import grade_presets
+
+    base = dict(grade_presets(session, group_id)[args["preset"]]) if args.get("preset") else {}
+    return {**base, **{k: args[k] for k in GRADE_SETTINGS if k in args}}
 
 
 def _attach_role(action: dict, context: dict) -> str | None:
@@ -358,7 +407,8 @@ def _produce(session, group_id, op: str, args: dict, src, data: bytes, detector,
         elif op == "convert":
             produced = ops.convert(data, fmt, quality=quality)
         elif op == "crop":
-            focus = (0.5, 0.5)
+            focus = transforms.parse_focus(args["focus"])
+            focus = focus if isinstance(focus, tuple) else (0.5, 0.5)
             if detector is not None:
                 known = context.setdefault(SUBJECTS, {})
                 if str(src.id) not in known:
@@ -368,9 +418,7 @@ def _produce(session, group_id, op: str, args: dict, src, data: bytes, detector,
                     focus = (box[0] + box[2] / 2, box[1] + box[3] / 2)
             produced = ops.reencode(transforms.crop_to_aspect(data, parse_aspect(args["aspect"]), focus=focus), fmt, quality)
         else:  # grade
-            from marvin.services.ai.media.enrichment import grade_presets
-
-            graded = transforms.color_grade_params(data, grade_presets(session, group_id)[args["preset"]])
+            graded = transforms.color_grade_params(data, grade_params(session, group_id, args))
             if graded is None:
                 raise AutomationActionError(f"grade preset “{args['preset']}” has no settings")
             produced = ops.reencode(graded, fmt, quality)
@@ -414,9 +462,13 @@ def _describe(op: str, args: dict) -> str:
     if op == "resize":
         what = f"resize {args.get('width') or 'auto'}×{args.get('height') or 'auto'}"
     elif op == "crop":
-        what = f"crop {args['aspect']}" + (" subject" if args.get("focus") == "subject" else "")
+        focus = args.get("focus") or "center"
+        what = f"crop {args['aspect']}" + ("" if focus == "center" else " subject" if focus == "subject" else f" at {focus}")
+    elif op == "preset":
+        return f"preset {args['preset']}"
     elif op == "grade":
-        what = f"grade {args['preset']}"
+        settings = " ".join(f"{k} {args[k]:g}" for k in GRADE_SETTINGS if k in args)
+        what = " ".join(w for w in ("grade", args.get("preset"), settings) if w)
     else:
         return str(args["format"])
     return f"{what} {args['format']}" if args.get("format") else what
