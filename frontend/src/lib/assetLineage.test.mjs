@@ -8,6 +8,9 @@ import { assetRefs, decisionOf, describeDerivation, lineageOf, metaLink } from "
 test("a media step's derivation reads as words", () => {
   assert.equal(describeDerivation("media:resize:fit=inside,format=webp,width=800"), "resize webp, 800 wide");
   assert.equal(describeDerivation("media:crop:aspect=1:1,focus=subject"), "crop 1:1, on the subject");
+  assert.equal(describeDerivation("media:crop:aspect=4:5,focus=0.5,0.3"), "crop 4:5, at 0.5,0.3");
+  assert.equal(describeDerivation("media:grade:brightness=1.1,preset=warm"), "grade brightness 1.1, warm");
+  assert.equal(describeDerivation("media:preset:preset=ornament-look"), "preset ornament-look");
   assert.equal(describeDerivation("media:convert:format=webp,quality=82"), "convert webp, quality 82");
   assert.equal(describeDerivation("grade:rustic-warm"), "grade rustic-warm");
 });

@@ -54,3 +54,40 @@ An entry type can keep **templates**: named presets for the entries you make fro
 ## Storage
 
 Templates are kept on the entry type, in a JSON column (`entry_types.templates_json`, migration `4b537ff0c66a`), next to the type's schema, rendering and recipe. That way they travel with the type: a package exports and installs them with it, and a package update adds the templates a type lacks, by slug, without changing the ones the workspace edited.
+
+## Picture presets
+
+A **picture preset** treats every picture the same way: the same crop, the same size, the same brightness and colour, the same format. Give a template a preset, and each entry it makes shows the treated picture. The original stays in the library, unchanged, as the picture the treated one was made from (it is listed under it as a version).
+
+**Where they live.** A preset is kept on the entry type, beside its templates (`entry_types.picture_presets_json`, migration `7c2e5a91d4f3`), and an admin edits it in the type's settings, in the **Picture presets** section. Every template of the type can use it, so one preset serves an Ornament template and a Vase template alike. A package brings presets with its type, and a package update adds the presets a type lacks, by slug, without changing the ones the workspace edited. A template can only name a preset its own type has, and a preset a template uses cannot be removed until the template stops using it.
+
+**What a preset holds.** A `name`, a `slug`, an optional `description`, and `steps`, in order (at most 12). Each step takes what a workflow's media step takes for that op:
+
+- `crop`: `aspect` (`1:1`, `4:5`, `16:9`…) and `focus`: `center` (the default), `subject` (a vision model finds it; one AI call per picture), or a fixed point `x,y` from 0 to 1 (`0.5,0.3` keeps the upper middle).
+- `resize`: `width` and/or `height` (never larger than the picture), `fit` `inside` (the default) or `cover`.
+- `grade`: a named grade (`warm`, `cool`, `muted`, `rustic-warm` or one of the workspace's own) and/or `brightness`, `contrast`, `saturation` (1 leaves it as it is, 1.1 is 10% more, 0.9 10% less), `warmth` (above 1 warmer, below 1 cooler) and `vignette` (0 to 1: how much the corners darken).
+- `convert`: `format` (`jpeg`, `webp` or `png`) and `quality`.
+
+All the steps run on the picture in one pass and it is saved once, at the end, so nothing is lost between steps.
+
+**One new picture per original, made once.** The treated picture is named `<original>--preset-<hash>`, the hash over the steps and the original's file. Running a preset again on the same picture reuses what it made; editing the preset's steps makes new pictures. A treated picture asked for again is traced back to its original first, so a picture is never treated twice. Treated pictures send no `asset_uploaded`, so a workflow that starts when a picture is added does not run for them.
+
+**In a template.** `picturePreset` names the preset and `treatedRole` (`featured` by default) the role the treated picture is attached with; it also goes in the template's asset field, and the original is not attached. When the treated picture was made before, the entry gets it straight away. When it was not, the entry gets the original for now, the treatment runs in the background and the treated picture then takes the original's place, but only where the entry still holds the original: a picture someone changed in the meantime is left as it is. The answer's `treatmentJob` names that background job. Running the template again on the original fills the entry it made, never a second one.
+
+**Treating pictures without making entries.** `POST /api/platform/assets/apply-preset` takes `entryType`, `preset` (or `template`, to use its preset), and `assets` (pictures) or `entries` (each entry's picture is treated and the treated one takes its place), at most 200, and `preview` (true by default). The preview changes nothing: one row per picture, `create` or `reuse` (made before) or `skip` with the reason. With `preview: false` the work starts in the background and the answer carries the `job`; `GET /api/platform/assets/apply-preset/jobs/{id}` says how it goes and, for each original, its treated picture. A workspace runs one treatment at a time; others wait their turn. A job lives in memory, so after a restart run it again (what was made is reused). An AUTHOR treats the pictures they uploaded and their own draft entries; an EDITOR treats any. Approved, published and archived entries are left alone.
+
+**How long.** On the development machine, 50 phone photos (4032×3024 JPEGs, about 7 MB each) were cropped, graded with all five settings, resized and saved as WebP in 27 seconds, about half a second each. The request that started it answered in 25 ms, and the app went on answering meanwhile (`GET /api/self`: median 9 ms, slowest 42 ms).
+
+**On upload.** The **Upload Asset** page has **Make an entry for each**: `none` (the default, which changes nothing) or one of the workspace's templates. With a template chosen, once the files are up Marvin:
+
+1. names each picture: the AI looks at it and gives it a short name ("Red cardinal ornament"; one AI call each, and it can be switched off). Without one, the picture keeps a tidied file name ("IMG 4491") and its entry is tagged **Needs a name**;
+2. treats the pictures with the template's preset, when it has one, and waits for that (the batch's own "apply my last adjustments" is switched off, so nothing is treated twice);
+3. shows the entries the template would make, with their titles and the treated pictures, and makes them as Inbox drafts when you say so.
+
+A guided setup's gallery can do the same for its upload button: `upload.template` names one of the type's templates, and the uploaded picture's entry is made with it, preset and all.
+
+**Pictures and entries you already have.** The Assets and Entries pages have no way to select several items yet, so for those use a guided setup: a gallery or choose step with `multiple: true` (multi-select cards, PR #239) for the picks, then a run step whose workflow has an `apply_picture_preset` step (`entries: ${picks}` or `assets: ${picks}`, preview then apply) or an `apply_template` step. Applying a template that has a preset to existing entries treats their pictures and puts the treated ones in place in the same way. `POST /api/platform/assets/apply-preset` with `entries` does it too.
+
+**In a workflow.** The step **Treat pictures with a preset** (`apply_picture_preset`) works like the REST call: `mode: preview`, then `mode: apply` with `confirm_total` (the preview's `todo`). It runs in the run itself (a run is already in the background) and outputs `treated` (original → treated id) and `ids`. The media step's `grade` takes the free settings and its `crop` the fixed focus point too.
+
+**The assistants.** `apply_preset` previews a preset on pictures and, with `confirm`, starts the treatment. `list_templates` says which preset a template uses.

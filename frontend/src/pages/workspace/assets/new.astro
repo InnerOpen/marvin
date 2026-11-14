@@ -4,7 +4,9 @@ import ImageCropper from "@/components/ImageCropper.astro";
 import SlugInput from "@/components/SlugInput.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { listEntryTypes } from "@/lib/api/entryTypes";
 import { FULL_CONTENT_ACCESS, getContentAccess, getCurrentWorkspace } from "@/lib/api/workspaces";
+import { templateChoices, type TemplateChoice } from "@/lib/uploadTemplate";
 import { AUTHORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -16,6 +18,13 @@ try {
   if (authToken) workspaceId = (await getCurrentWorkspace(authToken, Astro.locals))?.id ?? "";
 } catch {
   /* without it a failed upload just fails, as before */
+}
+// "Make an entry for each": the entry types' templates (lib/uploadTemplate). None listed (no templates, or no type list) keeps the page as it was.
+let choices: TemplateChoice[] = [];
+try {
+  if (authToken && access.canAuthor) choices = templateChoices((await listEntryTypes(authToken, Astro.locals)) as any[]);
+} catch {
+  /* the upload works without them */
 }
 ---
 
@@ -67,6 +76,18 @@ try {
         </div>
         <p class="form-help" id="batchHelp" style="display: none;">Each file is named after its filename; alt text, description and metadata below apply to all of them. Edit any of them afterwards in the library.</p>
       </div>
+
+      {choices.length > 0 && (
+        <div class="form-group make-entries">
+          <label for="makeFor">Make an entry for each</label>
+          <select id="makeFor" name="make_for" data-choices={JSON.stringify(choices)}>
+            <option value="" selected>none</option>
+            {choices.map((c) => <option value={c.value}>{c.label}</option>)}
+          </select>
+          <p class="form-help" id="makeForHelp">Leave it at none to just upload. Choose a template and each picture becomes an Inbox entry made with it, after you check the list.</p>
+          <label class="batch-adjust" id="nameWithAi" hidden><input type="checkbox" id="nameWithAiOn" checked /> <span>Name each picture with AI (one AI call each). Without a name an entry is titled after its file and tagged “Needs a name”.</span></label>
+        </div>
+      )}
 
       <!-- Name Field (Auto-populated from filename) -->
       <div class="form-group">
@@ -137,6 +158,20 @@ try {
         <a href="/workspace/assets" class="button secondary">Cancel</a>
       </div>
     </form>
+  </section>
+
+  <!-- After an upload with "Make an entry for each": naming, treating, then the entries the template would make, to check. -->
+  <section class="form-section entries-step" id="entriesStep" hidden aria-live="polite">
+    <h3 id="entriesTitle">Making entries</h3>
+    <p class="entries-status" id="entriesStatus"></p>
+    <div class="table-wrap"><table class="entries-table" id="entriesTable" hidden>
+      <thead><tr><th>Picture</th><th>Title</th><th>What happens</th></tr></thead>
+      <tbody id="entriesRows"></tbody>
+    </table></div>
+    <div class="form-actions" id="entriesActions" hidden>
+      <button type="button" class="button" id="entriesCreate">Make them</button>
+      <a href="/workspace/assets" class="button secondary">Not now, open the library</a>
+    </div>
   </section>
 
   <ImageCropper />
@@ -245,8 +280,19 @@ try {
   }
 
   .upload-batch { text-align: left; }
+  .make-entries select { padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 0.875rem; max-width: 100%; }
+  .entries-step { margin-top: 1.5rem; padding: 1.25rem; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+  .entries-step h3 { margin: 0 0 0.5rem; }
+  .entries-status { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.875rem; }
+  .table-wrap { overflow-x: auto; }
+  .entries-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  .entries-table th, .entries-table td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .entries-table :global(img) { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; background: var(--panel-2); }
+  .entries-table :global(.note) { color: var(--muted); font-size: 0.8rem; }
+  .entries-table :global(.error) { color: var(--danger, #b42318); font-size: 0.8rem; }
   .batch-summary { margin: 0 0 0.5rem; font-weight: 600; }
   .batch-adjust { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0 0 0.75rem; font-size: 0.875rem; font-weight: 400; }
+  .batch-adjust[hidden] { display: none; } /* display: flex would otherwise show a hidden option */
   .batch-list { margin: 0 0 1rem; padding: 0; list-style: none; max-height: 240px; overflow: auto; font-size: 0.875rem; }
   .batch-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-bottom: 1px solid var(--line); }
   .batch-size { color: var(--muted); white-space: nowrap; }
@@ -300,6 +346,7 @@ try {
   import { isRetryable } from '@/lib/uploadQueue';
   import { queueUpload } from '@/lib/uploadQueueClient';
   import { uploadTooBig } from '@/lib/uploadLimit';
+  import { batchAdjustAllowed, chosen, jobLine, jobOver, pictureName, type TemplateChoice } from '@/lib/uploadTemplate';
 
   const sdk = createSdkClient();
   const form = document.getElementById('uploadForm') as HTMLFormElement;
@@ -333,7 +380,7 @@ try {
   const rememberedAdjust = () => ((window as any).ImageCropper?.rememberedFilter?.() ?? null) as { filter: string; summary: string } | null;
   batchAdjustOn?.addEventListener('change', () => (batchKeep.hidden = !batchAdjustOn.checked));
   function showBatchAdjust() {
-    const kept = rememberedAdjust();
+    const kept = batchAdjustAllowed(choice()) ? rememberedAdjust() : null; // a template's preset does the treating instead
     batchAdjust.hidden = !kept;
     batchKeep.hidden = !kept || !batchAdjustOn.checked;
     if (kept) batchAdjustText.textContent = `Apply my last adjustments (${kept.summary}) to every picture, fitted within ${maxBox().w}×${maxBox().h} (JPEG; a PNG stays PNG), like a single cropped upload`;
@@ -362,6 +409,31 @@ try {
     const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, type, q));
     return blob ? new File([blob], keep ? file.name : file.name.replace(/\.[a-z0-9]+$/i, '') + '.jpg', { type }) : file;
   }
+  // "Make an entry for each" (lib/uploadTemplate): none (the default) leaves the upload as it always was.
+  const makeFor = document.getElementById('makeFor') as HTMLSelectElement | null;
+  const makeForHelp = document.getElementById('makeForHelp');
+  const nameWithAi = document.getElementById('nameWithAi');
+  const nameWithAiOn = document.getElementById('nameWithAiOn') as HTMLInputElement | null;
+  const choices: TemplateChoice[] = (() => {
+    try { return JSON.parse(makeFor?.dataset.choices ?? '[]'); } catch { return []; }
+  })();
+  const choice = (): TemplateChoice | null => chosen(choices, makeFor?.value);
+  makeFor?.addEventListener('change', () => {
+    const c = choice();
+    if (nameWithAi) nameWithAi.hidden = !c;
+    if (makeForHelp) {
+      makeForHelp.textContent = !c
+        ? 'Leave it at none to just upload. Choose a template and each picture becomes an Inbox entry made with it, after you check the list.'
+        : c.picturePreset
+          ? `After the upload each picture is named, treated with ${c.presetName} (crop, size, colour and format, in the background; the original is kept as its source), and you check the ${c.entryTypeName.toLowerCase()} entries before they are made.`
+          : `After the upload each picture is named, and you check the ${c.entryTypeName.toLowerCase()} entries the template makes before they are made.`;
+    }
+    if (!batchAdjustAllowed(c)) {
+      batchAdjustOn.checked = false;
+      batchKeepOn.checked = false;
+    }
+    showBatchAdjust();
+  });
   const batchHelp = document.getElementById('batchHelp') as HTMLElement;
   const changeFilesBtn = document.getElementById('changeFiles') as HTMLButtonElement;
   const nameGroup = nameInput.closest('.form-group') as HTMLElement | null;
@@ -680,6 +752,12 @@ try {
       }
 
       progressFill.style.width = '100%';
+      const making = choice();
+      if (making) {
+        progressText.textContent = 'Uploaded.';
+        await makeEntries(making, [{ id: (asset as { id: string }).id, fileName: selectedFile.name, isImage: selectedFile.type.startsWith('image/') }]);
+        return;
+      }
       progressText.textContent = 'Upload complete! Redirecting...';
 
       setTimeout(() => {
@@ -723,7 +801,8 @@ try {
     const taken = new Set<string>();
     const failed: Array<{ name: string; reason: string }> = [];
     let done = 0;
-    const look = batchAdjustOn.checked ? rememberedAdjust() : null;
+    const look = batchAdjustOn.checked && batchAdjustAllowed(choice()) ? rememberedAdjust() : null;
+    const uploaded: Array<{ id: string; fileName: string; isImage: boolean }> = [];
     const keepOriginals = !!look && batchKeepOn.checked;
     for (const file of selectedFiles) {
       const name = nameFor(file);
@@ -751,7 +830,8 @@ try {
       let tries = 0;
       while (true) {
         try {
-          await sdk.assets.upload(toSend, { slug, name, altText: altText || undefined, description: description || undefined, metadata: lineage ? { ...(metadata ?? {}), ...lineage } : metadata });
+          const up = await sdk.assets.upload(toSend, { slug, name, altText: altText || undefined, description: description || undefined, metadata: lineage ? { ...(metadata ?? {}), ...lineage } : metadata });
+          uploaded.push({ id: (up as { id: string }).id, fileName: file.name, isImage: file.type.startsWith('image/') });
           taken.add(slug);
           break;
         } catch (error: any) {
@@ -767,6 +847,16 @@ try {
       }
       done += 1;
       progressFill.style.width = `${Math.round((done / total) * 100)}%`;
+    }
+    const making = choice();
+    if (making && uploaded.length) {
+      progressText.textContent = failed.length ? `${total - failed.length} of ${total} uploaded.` : `${total} uploaded.`;
+      if (failed.length) {
+        errorMessage.textContent = `Could not upload: ${failed.map((f) => `${f.name} (${f.reason})`).join('; ')}`;
+        errorMessage.style.display = 'block';
+      }
+      await makeEntries(making, uploaded);
+      return;
     }
     if (failed.length === 0) {
       progressText.textContent = `${total} uploaded. Opening the library…`;
@@ -791,6 +881,125 @@ try {
       window.location.href = '/workspace/assets';
     });
   }
+  // ── Make an entry for each ────────────────────────────────────────────────────────────────────────────────────
+  // After the files are up: name each picture (the AI's short name, else its cleaned file name, which the server then
+  // tags "Needs a name"), treat them with the template's picture preset in the background and wait for it, then show
+  // the entries the template would make (POST /entries/from-template, a preview) and make them when asked.
+  const entriesStep = document.getElementById('entriesStep') as HTMLElement;
+  const entriesTitle = document.getElementById('entriesTitle') as HTMLElement;
+  const entriesStatus = document.getElementById('entriesStatus') as HTMLElement;
+  const entriesTable = document.getElementById('entriesTable') as HTMLElement;
+  const entriesRows = document.getElementById('entriesRows') as HTMLElement;
+  const entriesActions = document.getElementById('entriesActions') as HTMLElement;
+  const entriesCreate = document.getElementById('entriesCreate') as HTMLButtonElement;
+
+  async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const res = await fetch(`/api/platform${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' }, ...init });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((body && (typeof body.detail === 'string' ? body.detail : body.detail?.message || body.error)) || `HTTP ${res.status}`);
+    return body as T;
+  }
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const say = (text: string) => (entriesStatus.textContent = text);
+
+  async function makeEntries(c: TemplateChoice, items: Array<{ id: string; fileName: string; isImage: boolean }>) {
+    submitButton.disabled = true;
+    entriesStep.hidden = false;
+    entriesTitle.textContent = `Making ${c.entryTypeName.toLowerCase()} entries with ${c.templateName}`;
+    entriesStep.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const ids = items.map((i) => i.id);
+    const titles: Record<string, string> = {};
+    const formAlt = (document.getElementById('alt_text') as HTMLInputElement).value;
+    const formDescription = (document.getElementById('description') as HTMLTextAreaElement).value;
+    // 1. A name for each picture, one after another (and saved on the picture when this person may edit it).
+    let n = 0;
+    for (const item of items) {
+      n += 1;
+      if (!item.isImage) continue;
+      say(`Naming picture ${n} of ${items.length}…`);
+      let described: Record<string, unknown> | null = null;
+      if (nameWithAiOn?.checked) {
+        try {
+          const exec: any = await sdk.ai.operations.execute('generate-alt-text', { entityType: 'asset', entityId: item.id });
+          described = exec?.outputJson ?? exec?.output_json ?? null;
+        } catch { /* no AI, or it failed: the file name stands in */ }
+      }
+      const { name, named } = pictureName(described, item.fileName);
+      if (named) titles[item.id] = name;
+      const patch: Record<string, unknown> = { name };
+      if (!formAlt && typeof described?.alt_text === 'string') patch.altText = described.alt_text;
+      if (!formDescription && typeof described?.description === 'string') patch.description = described.description;
+      try { await sdk.assets.update(item.id, patch as any); } catch { /* an author can't rename a picture; the entry still gets the name */ }
+    }
+    // 2. The template's picture preset, in the background: wait for it, so the entries get the treated pictures.
+    if (c.picturePreset) {
+      try {
+        say(`Treating the pictures with ${c.presetName}…`);
+        const started: any = await api('/assets/apply-preset', { method: 'POST', body: JSON.stringify({ entryType: c.entryType, template: c.template, assets: ids, preview: false }) });
+        let job = started.job;
+        while (job && !jobOver(job)) {
+          say(jobLine(job));
+          await wait(1000);
+          job = await api(`/assets/apply-preset/jobs/${job.id}`);
+        }
+        if (job) say(jobLine(job));
+      } catch (e: any) {
+        say(`The pictures could not be treated now (${e?.message || e}); the entries get them when they are.`);
+      }
+    }
+    // 3. What the template would make: checked before anything is made.
+    const request = { entryType: c.entryType, template: c.template, assets: ids, markUnnamed: true, titles };
+    let preview: any;
+    try {
+      preview = await api('/entries/from-template', { method: 'POST', body: JSON.stringify(request) });
+    } catch (e: any) {
+      say(`Uploaded, but the template could not be used: ${e?.message || e}`);
+      return;
+    }
+    showRows(preview);
+    say(`${preview.text[0].toUpperCase()}${preview.text.slice(1)}.`);
+    entriesActions.hidden = false;
+    entriesCreate.textContent = preview.create ? `Make ${preview.create} ${preview.create === 1 ? 'entry' : 'entries'}${preview.fill ? `, fill ${preview.fill}` : ''}` : 'Fill them';
+    entriesCreate.disabled = preview.errors > 0 || preview.todo === 0;
+    entriesCreate.onclick = async () => {
+      entriesCreate.disabled = true;
+      say('Making them…');
+      try {
+        const made: any = await api('/entries/from-template', { method: 'POST', body: JSON.stringify({ ...request, preview: false }) });
+        showRows(made);
+        entriesActions.replaceChildren(
+          Object.assign(document.createElement('a'), { className: 'button', href: '/workspace/entries?status=inbox', textContent: 'Open the Inbox' }),
+          Object.assign(document.createElement('a'), { className: 'button secondary', href: '/workspace/assets', textContent: 'Open the library' }),
+        );
+        say(`Done: ${made.text}.${made.treatmentJob ? ' Some pictures are still being treated; they take their place in the entries when ready.' : ''}`);
+      } catch (e: any) {
+        entriesCreate.disabled = false;
+        say(`Nothing was made: ${e?.message || e}`);
+      }
+    };
+  }
+
+  function showRows(result: any) {
+    entriesRows.replaceChildren(
+      ...(result.rows ?? []).map((r: any) => {
+        const tr = document.createElement('tr');
+        const pic = document.createElement('td');
+        const url = r.treated?.url ?? r.asset?.url;
+        if (url) pic.append(Object.assign(document.createElement('img'), { src: url, alt: r.asset?.name ?? '', loading: 'lazy' }));
+        const title = document.createElement('td');
+        title.textContent = r.title;
+        const what = document.createElement('td');
+        what.textContent = r.action === 'create' ? 'New entry' : r.action === 'fill' ? 'Fills the entry it already has' : 'Left as it is';
+        if (r.tags?.length) what.append(Object.assign(document.createElement('div'), { className: 'note', textContent: `Tags: ${r.tags.join(', ')}` }));
+        if (r.note) what.append(Object.assign(document.createElement('div'), { className: 'note', textContent: r.note }));
+        if (r.error) what.append(Object.assign(document.createElement('div'), { className: 'error', textContent: r.error }));
+        tr.append(pic, title, what);
+        return tr;
+      }),
+    );
+    entriesTable.hidden = false;
+  }
+
   // Simulate upload progress (since fetch doesn't support progress tracking)
   function simulateProgress() {
     let progress = 0;

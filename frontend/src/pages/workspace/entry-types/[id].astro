@@ -8,6 +8,7 @@ import { type MarvinAsset, getAssets } from "@/lib/api/platform";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { lockReason, usedBy } from "@/lib/entryTypeListing";
 import { TEMPLATE_VARIABLES, assetFields, valueFields } from "@/lib/entryTemplates";
+import { ASPECTS, GRADES, SLIDERS, type GradeSetting } from "@/lib/picturePresets";
 import { splitRecipe } from "@/lib/recipeForm";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
@@ -77,6 +78,24 @@ const templateData = json({
   sample: samplePicture ? { name: samplePicture.name, originalFilename: samplePicture.originalFilename, filename: samplePicture.filename } : null,
 });
 const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
+
+// Picture presets (lib/picturePresets): named recipes of treatments a template can name. Saved on their own
+// (api/entry-types/[id]/picture-presets), like the templates; picturePresetsJson is newer than the pinned SDK too.
+const picturePresets = ((entryType as { picturePresetsJson?: unknown } | null)?.picturePresetsJson ?? []) as unknown[];
+const presetData = json({
+  id,
+  presets: picturePresets,
+  canEdit: canEditTemplates,
+  sample: samplePicture?.publicUrl ? { url: samplePicture.publicUrl, name: samplePicture.name } : null,
+});
+const gradeNames = Object.keys(GRADES);
+const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
+  { key: "brightness", label: "Brightness", help: "" },
+  { key: "contrast", label: "Contrast", help: "" },
+  { key: "saturation", label: "Saturation", help: "" },
+  { key: "warmth", label: "Warmth", help: "Above 0 warmer, below 0 cooler." },
+  { key: "vignette", label: "Dark corners (vignette)", help: "" },
+];
 ---
 
 <AppLayout
@@ -429,6 +448,176 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
         )}
       </section>
 
+      {/* Picture presets: their own section and form, saved on their own, before the templates (which name them). The list
+          and the editor's values are drawn by the script below from #pp-data. */}
+      <section class="form-section templates-section" id="picture-presets">
+        <div class="form">
+          <details id="pp-details" open={picturePresets.length > 0}>
+            <summary class="section-heading">Picture presets (<span id="pp-count">{picturePresets.length}</span>)</summary>
+            <div class="config-fields">
+              <p class="form-help">
+                Treat each picture the same way: crop, size, colour, format. Each picture gets one new version made with the steps
+                in order; the original is never changed. A template can use a preset for every picture it makes an entry from.
+              </p>
+              <ul class="tpl-list" id="pp-list"></ul>
+              <p class="form-help" id="pp-empty" hidden>No picture presets yet.</p>
+              <div class="tpl-message" id="pp-message" role="alert" hidden></div>
+              {canEditTemplates && (
+                <button type="button" class="button secondary tpl-add" id="pp-add">Add picture preset</button>
+              )}
+
+              {canEditTemplates && (
+                <form class="tpl-editor" id="pp-editor" novalidate hidden>
+                  <h3 class="tpl-editor-title" id="pp-editor-title">New picture preset</h3>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="pp_name">Name *</label>
+                      <input type="text" id="pp_name" required maxlength="120" />
+                    </div>
+                    <div class="form-group">
+                      <label for="pp_slug">Slug *</label>
+                      <input type="text" id="pp_slug" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*" spellcheck="false" />
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="pp_description">What it is for</label>
+                    <input type="text" id="pp_description" maxlength="500" placeholder="Shown where the preset is picked" />
+                  </div>
+                  <label class="checkbox-label"><input type="checkbox" id="pp_json_mode" /> Edit the steps as JSON</label>
+                  <p class="tpl-warning" id="pp_json_note" hidden></p>
+
+                  <div class="pp-steps" id="pp_steps">
+                    <fieldset class="tpl-group">
+                      <legend><label class="checkbox-label"><input type="checkbox" id="pp_crop" data-pp-toggle /> Crop</label></legend>
+                      <div class="pp-body" data-pp-body="pp_crop">
+                        <div class="form-row">
+                          <div class="form-group">
+                            <label for="pp_aspect">Shape</label>
+                            <select id="pp_aspect">
+                              {ASPECTS.map((a) => <option value={a}>{a === "1:1" ? "1:1 (square)" : a}</option>)}
+                              <option value="other">Other…</option>
+                            </select>
+                          </div>
+                          <div class="form-group" id="pp_aspect_other_box" hidden>
+                            <label for="pp_aspect_other">Other shape</label>
+                            <input type="text" id="pp_aspect_other" maxlength="9" placeholder="5:7" spellcheck="false" />
+                          </div>
+                        </div>
+                        <fieldset class="pp-radios">
+                          <legend>Keep in the frame</legend>
+                          <label class="checkbox-label"><input type="radio" name="pp_focus" value="center" checked /> The middle</label>
+                          <label class="checkbox-label"><input type="radio" name="pp_focus" value="subject" /> The subject (AI finds it; costs one AI call per picture)</label>
+                          <label class="checkbox-label"><input type="radio" name="pp_focus" value="point" /> A fixed point</label>
+                        </fieldset>
+                        <div class="form-row" id="pp_point_box" hidden>
+                          <div class="form-group">
+                            <label for="pp_focus_x">Across <output id="pp_focus_x_out" for="pp_focus_x"></output></label>
+                            <input type="range" id="pp_focus_x" min="0" max="1" step="0.01" value="0.5" />
+                          </div>
+                          <div class="form-group">
+                            <label for="pp_focus_y">Down <output id="pp_focus_y_out" for="pp_focus_y"></output></label>
+                            <input type="range" id="pp_focus_y" min="0" max="1" step="0.01" value="0.5" />
+                          </div>
+                        </div>
+                      </div>
+                    </fieldset>
+
+                    <fieldset class="tpl-group">
+                      <legend><label class="checkbox-label"><input type="checkbox" id="pp_resize" data-pp-toggle /> Resize</label></legend>
+                      <div class="pp-body" data-pp-body="pp_resize">
+                        <div class="form-row">
+                          <div class="form-group">
+                            <label for="pp_width">Width (px)</label>
+                            <input type="number" id="pp_width" min="1" max="10000" step="1" inputmode="numeric" placeholder="auto" />
+                          </div>
+                          <div class="form-group">
+                            <label for="pp_height">Height (px)</label>
+                            <input type="number" id="pp_height" min="1" max="10000" step="1" inputmode="numeric" placeholder="auto" />
+                          </div>
+                        </div>
+                        <div class="form-group">
+                          <label for="pp_fit">Fit</label>
+                          <select id="pp_fit">
+                            <option value="inside">Fit inside (the whole picture, no bigger than this)</option>
+                            <option value="cover">Fill the box exactly (the rest is cut off)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </fieldset>
+
+                    <fieldset class="tpl-group">
+                      <legend><label class="checkbox-label"><input type="checkbox" id="pp_grade" data-pp-toggle /> Colour</label></legend>
+                      <div class="pp-body" data-pp-body="pp_grade">
+                        <div class="form-group">
+                          <label for="pp_grade_preset">Named look</label>
+                          <select id="pp_grade_preset">
+                            <option value="">None</option>
+                            {gradeNames.map((g) => <option value={g}>{g}</option>)}
+                          </select>
+                          <p class="form-help">The sliders go on top of the named look.</p>
+                        </div>
+                        <div class="pp-sliders">
+                          {presetSliders.map((s) => (
+                            <div class="form-group">
+                              <label for={`pp_${s.key}`}>{s.label} <output id={`pp_${s.key}_out`} for={`pp_${s.key}`}></output></label>
+                              <input type="range" id={`pp_${s.key}`} data-pp-slider={s.key} min={SLIDERS[s.key].min} max={SLIDERS[s.key].max} step="1" value="0" />
+                              {s.help && <p class="form-help">{s.help}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </fieldset>
+
+                    <fieldset class="tpl-group">
+                      <legend>Format</legend>
+                      <div class="form-row">
+                        <div class="form-group">
+                          <label for="pp_format">Save as</label>
+                          <select id="pp_format">
+                            <option value="">Keep the picture's format</option>
+                            <option value="jpeg">JPEG</option>
+                            <option value="webp">WebP</option>
+                            <option value="png">PNG</option>
+                          </select>
+                        </div>
+                        <div class="form-group">
+                          <label for="pp_quality">Quality (1 to 100)</label>
+                          <input type="number" id="pp_quality" min="1" max="100" step="1" inputmode="numeric" placeholder="default" />
+                        </div>
+                      </div>
+                    </fieldset>
+                  </div>
+
+                  <div class="form-group" id="pp_json_box" hidden>
+                    <label for="pp_json">Steps (JSON)</label>
+                    <textarea id="pp_json" rows="10" spellcheck="false" class="pp-json"></textarea>
+                    <p class="form-help">A list of steps, done in order: crop (aspect, focus), resize (width, height, fit), grade (preset, brightness, contrast, saturation, warmth, vignette), convert (format, quality).</p>
+                  </div>
+
+                  <p class="form-help tpl-preview" id="pp_words" aria-live="polite"></p>
+                  {samplePicture?.publicUrl && (
+                    <div class="pp-preview" id="pp_preview">
+                      <div class="pp-frame" id="pp_frame">
+                        <img id="pp_preview_img" src={samplePicture.publicUrl} alt="" loading="lazy" />
+                        <div class="pp-tint" id="pp_tint"></div>
+                        <div class="pp-vignette" id="pp_vignette"></div>
+                      </div>
+                      <p class="form-help">Approximate preview on the newest picture in the library; the real one is made on the server.</p>
+                    </div>
+                  )}
+                  <div class="tpl-message" id="pp-editor-message" role="alert" hidden></div>
+                  <div class="form-actions">
+                    <button type="submit" class="button" id="pp-save">Save picture preset</button>
+                    <button type="button" class="button secondary" id="pp-cancel">Cancel</button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </details>
+        </div>
+        <script type="application/json" id="pp-data" is:inline set:html={presetData}></script>
+      </section>
+
       {/* Templates: their own section and form (forms can't nest), saved on their own. The list and the editor's values
           are drawn by the script below from #tpl-data. */}
       <section class="form-section templates-section" id="templates">
@@ -505,6 +694,21 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
                       <p class="form-help">Comma separated; missing tags are made.</p>
                     </div>
                   </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="tpl_picture_preset">Picture preset</label>
+                      <select id="tpl_picture_preset">
+                        <option value="">None</option>
+                      </select>
+                    </div>
+                    <div class="form-group" id="tpl_treated_role_box" hidden>
+                      <label for="tpl_treated_role">Treated picture's role</label>
+                      <input type="text" id="tpl_treated_role" maxlength="40" placeholder="featured" spellcheck="false" />
+                    </div>
+                  </div>
+                  <p class="form-help" id="tpl_preset_help" hidden>
+                    Each picture is treated with it (in the background); the entry shows the treated picture and the original is kept as its source.
+                  </p>
                   <fieldset class="tpl-group">
                     <legend>Collections</legend>
                     <div class="tpl-checks" id="tpl_collections">
@@ -845,6 +1049,45 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
     .tpl-list :global(.tpl-row-actions .button) { min-height: 36px; }
     .tpl-add { width: 100%; min-height: 44px; }
   }
+
+  /* Picture presets: the Templates rules above, plus a switch in each treatment's legend, the sliders and the preview. */
+  .tpl-group legend .checkbox-label { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; cursor: pointer; }
+  .pp-steps { display: grid; gap: 1rem; }
+  .pp-steps[hidden], .pp-body[hidden], #pp_point_box[hidden], #pp_aspect_other_box[hidden],
+  #pp_json_box[hidden], #tpl_treated_role_box[hidden], #tpl_preset_help[hidden] { display: none; }
+  .pp-body { display: grid; gap: 0.75rem; }
+  .pp-radios {
+    display: grid;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .pp-radios legend { font-size: 0.875rem; font-weight: 500; padding: 0; margin-bottom: 0.25rem; }
+  .pp-sliders {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+  }
+  .pp-sliders input[type="range"], #pp_point_box input[type="range"] { width: 100%; }
+  .pp-steps output { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 0.25rem; }
+  .pp-json { font-family: ui-monospace, monospace; font-size: 0.8125rem; }
+  .pp-preview { display: grid; gap: 0.25rem; justify-items: start; }
+  .pp-frame {
+    position: relative;
+    width: min(100%, 320px);
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+  }
+  .pp-frame img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .pp-tint, .pp-vignette { position: absolute; inset: 0; pointer-events: none; }
+  .pp-tint { mix-blend-mode: soft-light; opacity: 0; }
+  @media (max-width: 640px) {
+    .pp-sliders { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>
 
 <script>
@@ -1001,6 +1244,337 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
 </script>
 
 <script>
+  // Picture presets: the list, the editor and saving (lib/picturePresets), as the Templates script below does it. Each Save or
+  // Delete sends the whole list to api/entry-types/[id]/picture-presets; the server's message is shown here (also its
+  // "a template names it" when a preset in use is deleted or its slug changed). After a save the Templates editor is told
+  // (`picture-presets:change`), so its preset select and rows follow.
+  import { slugify } from '@/lib/entryTemplates';
+  import {
+    GRADE_SETTINGS,
+    formFits,
+    formFromPreset,
+    parseSteps,
+    presetFromForm,
+    previewLook,
+    putPreset,
+    sliderLabel,
+    stepsFromForm,
+    stepsWords,
+    validateForm,
+    type GradeSetting,
+    type PicturePreset,
+    type PresetForm,
+    type PresetStep,
+  } from '@/lib/picturePresets';
+
+  const dataEl = document.getElementById('pp-data');
+  const data = dataEl ? JSON.parse(dataEl.textContent || '{}') : null;
+  if (data) {
+    const canEdit: boolean = data.canEdit === true;
+    let presets: PicturePreset[] = Array.isArray(data.presets) ? data.presets : [];
+    let editing: string | null = null; // the slug being edited; null for a new preset
+    let slugTouched = false;
+
+    const listEl = document.getElementById('pp-list') as HTMLUListElement;
+    const emptyEl = document.getElementById('pp-empty') as HTMLElement;
+    const countEl = document.getElementById('pp-count');
+    const messageEl = document.getElementById('pp-message') as HTMLElement;
+    const editor = document.getElementById('pp-editor') as HTMLFormElement | null;
+    const editorMessage = document.getElementById('pp-editor-message') as HTMLElement | null;
+    const addButton = document.getElementById('pp-add') as HTMLButtonElement | null;
+    const el = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as T;
+    const jsonMode = () => el('pp_json_mode').checked;
+
+    function show(target: HTMLElement | null, text: string, ok = false) {
+      if (!target) return;
+      target.textContent = text;
+      target.classList.toggle('is-ok', ok);
+      target.hidden = !text;
+    }
+
+    function announce() {
+      document.dispatchEvent(new CustomEvent('picture-presets:change', { detail: presets }));
+    }
+
+    function renderList() {
+      listEl.replaceChildren(
+        ...presets.map((p) => {
+          const li = document.createElement('li');
+          li.className = 'tpl-row';
+          const text = document.createElement('div');
+          text.className = 'tpl-row-text';
+          const name = document.createElement('div');
+          name.className = 'tpl-row-name';
+          name.textContent = p.name;
+          const slug = document.createElement('div');
+          slug.className = 'tpl-row-slug';
+          slug.textContent = p.slug;
+          const steps = document.createElement('div');
+          steps.className = 'tpl-row-title';
+          steps.textContent = `Steps: ${stepsWords(p.steps)}`;
+          text.append(name, slug, steps);
+          li.append(text);
+          if (canEdit) {
+            const actions = document.createElement('div');
+            actions.className = 'tpl-row-actions';
+            const edit = document.createElement('button');
+            edit.type = 'button';
+            edit.className = 'button secondary';
+            edit.textContent = 'Edit';
+            edit.addEventListener('click', () => openEditor(p));
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'button secondary danger';
+            del.textContent = 'Delete';
+            del.addEventListener('click', () => remove(p));
+            actions.append(edit, del);
+            li.append(actions);
+          }
+          return li;
+        }),
+      );
+      emptyEl.hidden = presets.length > 0;
+      if (countEl) countEl.textContent = String(presets.length);
+    }
+
+    function sliders() {
+      return [...document.querySelectorAll<HTMLInputElement>('[data-pp-slider]')];
+    }
+
+    // A stored value the select doesn't offer (a workspace's named grade) is shown, not lost.
+    function keepOption(select: HTMLSelectElement, value: string) {
+      if (value && ![...select.options].some((o) => o.value === value)) select.add(new Option(value, value));
+    }
+
+    function fillEditor(form: PresetForm) {
+      el('pp_name').value = form.name;
+      el('pp_slug').value = form.slug;
+      el('pp_description').value = form.description;
+      el('pp_crop').checked = form.crop;
+      el<HTMLSelectElement>('pp_aspect').value = form.aspect;
+      el('pp_aspect_other').value = form.aspectOther;
+      for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="pp_focus"]')) radio.checked = radio.value === form.focus;
+      el('pp_focus_x').value = String(form.focusX);
+      el('pp_focus_y').value = String(form.focusY);
+      el('pp_resize').checked = form.resize;
+      el('pp_width').value = form.width;
+      el('pp_height').value = form.height;
+      el<HTMLSelectElement>('pp_fit').value = form.fit;
+      el('pp_grade').checked = form.grade;
+      const grade = el<HTMLSelectElement>('pp_grade_preset');
+      keepOption(grade, form.gradePreset);
+      grade.value = form.gradePreset;
+      for (const input of sliders()) input.value = String(form[input.dataset.ppSlider as keyof PresetForm]);
+      el<HTMLSelectElement>('pp_format').value = form.format;
+      el('pp_quality').value = form.quality;
+    }
+
+    function readEditor(): PresetForm {
+      const form = {
+        name: el('pp_name').value,
+        slug: el('pp_slug').value,
+        description: el('pp_description').value,
+        crop: el('pp_crop').checked,
+        aspect: el<HTMLSelectElement>('pp_aspect').value,
+        aspectOther: el('pp_aspect_other').value,
+        focus: (document.querySelector<HTMLInputElement>('input[name="pp_focus"]:checked')?.value ?? 'center') as PresetForm['focus'],
+        focusX: Number(el('pp_focus_x').value),
+        focusY: Number(el('pp_focus_y').value),
+        resize: el('pp_resize').checked,
+        width: el('pp_width').value,
+        height: el('pp_height').value,
+        fit: el<HTMLSelectElement>('pp_fit').value === 'cover' ? 'cover' : 'inside',
+        grade: el('pp_grade').checked,
+        gradePreset: el<HTMLSelectElement>('pp_grade_preset').value,
+        format: el<HTMLSelectElement>('pp_format').value,
+        quality: el('pp_quality').value,
+      } as PresetForm;
+      for (const s of GRADE_SETTINGS) form[s] = Number(el(`pp_${s}`).value);
+      return form;
+    }
+
+    /** The steps being edited: from the JSON box in JSON mode (null while it doesn't read), else from the form. */
+    function currentSteps(): PresetStep[] | null {
+      if (!jsonMode()) return stepsFromForm(readEditor(), storedPreset());
+      const parsed = parseSteps(el<HTMLTextAreaElement>('pp_json').value);
+      return 'steps' in parsed ? parsed.steps : null;
+    }
+
+    function storedPreset() {
+      return editing == null ? null : presets.find((p) => p.slug === editing) ?? null;
+    }
+
+    /** Show what is switched on, the slider values, the steps in words and the preview. */
+    function refresh() {
+      const json = jsonMode();
+      el('pp_steps').hidden = json;
+      el('pp_json_box').hidden = !json;
+      for (const toggle of document.querySelectorAll<HTMLInputElement>('[data-pp-toggle]')) {
+        const body = document.querySelector<HTMLElement>(`[data-pp-body="${toggle.id}"]`);
+        if (body) body.hidden = !toggle.checked;
+      }
+      el('pp_aspect_other_box').hidden = el<HTMLSelectElement>('pp_aspect').value !== 'other';
+      el('pp_point_box').hidden = document.querySelector<HTMLInputElement>('input[name="pp_focus"]:checked')?.value !== 'point';
+      el('pp_quality').disabled = !el<HTMLSelectElement>('pp_format').value;
+      el<HTMLOutputElement>('pp_focus_x_out').value = el('pp_focus_x').value;
+      el<HTMLOutputElement>('pp_focus_y_out').value = el('pp_focus_y').value;
+      for (const input of sliders()) {
+        el<HTMLOutputElement>(`${input.id}_out`).value = sliderLabel(input.dataset.ppSlider as GradeSetting, Number(input.value));
+      }
+      const steps = currentSteps();
+      el('pp_words').textContent = steps == null ? '' : steps.length ? `Steps: ${stepsWords(steps)}` : 'Nothing switched on yet.';
+      const img = document.getElementById('pp_preview_img') as HTMLImageElement | null;
+      if (img && steps) {
+        const look = previewLook(steps);
+        el('pp_frame').style.aspectRatio = look.aspectRatio ?? '';
+        img.style.height = look.aspectRatio ? '100%' : 'auto';
+        img.style.objectPosition = look.objectPosition;
+        img.style.filter = look.filter;
+        const tint = el('pp_tint');
+        tint.style.background = look.tint?.color ?? 'transparent';
+        tint.style.opacity = String(look.tint?.opacity ?? 0);
+        el('pp_vignette').style.background = look.vignette
+          ? `radial-gradient(ellipse at center, transparent 45%, rgb(0 0 0 / ${look.vignette}) 100%)`
+          : 'none';
+      }
+    }
+
+    /** JSON mode on: the box gets the steps as they are. Off: back to the form, only when the steps fit it. */
+    function setJsonMode(on: boolean, steps?: PresetStep[]) {
+      const box = el<HTMLTextAreaElement>('pp_json');
+      if (on) {
+        box.value = JSON.stringify(steps ?? stepsFromForm(readEditor(), storedPreset()), null, 2);
+        el('pp_json_mode').checked = true;
+      } else {
+        const parsed = parseSteps(box.value);
+        if ('error' in parsed || !formFits(parsed.steps)) {
+          el('pp_json_mode').checked = true;
+          show(
+            el('pp_json_note'),
+            'error' in parsed
+              ? `${parsed.error} Fix it to go back to the form.`
+              : "These steps don't fit the form (a treatment twice, out of the form's order, or a value its controls can't hold), so they stay as JSON.",
+          );
+          return;
+        }
+        const form = formFromPreset({ slug: '', name: '', steps: parsed.steps });
+        const kept = readEditor();
+        fillEditor({ ...form, name: kept.name, slug: kept.slug, description: kept.description });
+        el('pp_json_mode').checked = false;
+        show(el('pp_json_note'), '');
+      }
+      refresh();
+    }
+
+    function openEditor(preset: PicturePreset | null) {
+      if (!editor) return;
+      editing = preset ? preset.slug : null;
+      slugTouched = preset != null;
+      fillEditor(formFromPreset(preset));
+      const fits = !preset || formFits(preset.steps);
+      el('pp_json_mode').checked = false;
+      show(el('pp_json_note'), '');
+      if (!fits && preset) {
+        setJsonMode(true, preset.steps);
+        show(
+          el('pp_json_note'),
+          "This preset's steps don't fit the form (a treatment twice, out of the form's order, or a value its controls can't hold), so they are shown as JSON to keep them as they are.",
+        );
+      }
+      (document.getElementById('pp-editor-title') as HTMLElement).textContent = preset ? `Edit ${preset.name}` : 'New picture preset';
+      show(editorMessage, '');
+      show(messageEl, '');
+      refresh();
+      editor.hidden = false;
+      if (addButton) addButton.hidden = true;
+      editor.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      el('pp_name').focus({ preventScroll: true });
+    }
+
+    function closeEditor() {
+      if (!editor) return;
+      editor.hidden = true;
+      editing = null;
+      if (addButton) addButton.hidden = false;
+    }
+
+    /** Send the whole list; true when the server took it (and the list is then what it stored). */
+    async function save(next: PicturePreset[], messageTarget: HTMLElement | null): Promise<boolean> {
+      show(messageTarget, '');
+      try {
+        const res = await fetch(`/api/entry-types/${encodeURIComponent(data.id)}/picture-presets`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ presets: next }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          show(messageTarget, body.error || `The picture presets could not be saved (${res.status}).`);
+          return false;
+        }
+        presets = Array.isArray(body.presets) ? body.presets : next;
+        renderList();
+        announce();
+        return true;
+      } catch {
+        show(messageTarget, 'The picture presets could not be saved: no answer from the server.');
+        return false;
+      }
+    }
+
+    async function remove(preset: PicturePreset) {
+      if (!confirm(`Delete the picture preset "${preset.name}"? Pictures already made with it are kept.`)) return;
+      if (await save(presets.filter((p) => p.slug !== preset.slug), messageEl)) {
+        if (editing === preset.slug) closeEditor();
+        show(messageEl, `Deleted "${preset.name}".`, true);
+      }
+    }
+
+    if (editor) {
+      addButton?.addEventListener('click', () => openEditor(null));
+      el('pp-cancel').addEventListener('click', closeEditor);
+      el('pp_json_mode').addEventListener('change', () => setJsonMode(el('pp_json_mode').checked));
+      editor.addEventListener('input', refresh);
+      editor.addEventListener('change', refresh);
+      el('pp_name').addEventListener('input', () => {
+        if (!slugTouched) el('pp_slug').value = slugify(el('pp_name').value);
+      });
+      el('pp_slug').addEventListener('input', () => {
+        slugTouched = el('pp_slug').value !== '';
+      });
+      editor.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const form = readEditor();
+        const stored = storedPreset();
+        let preset: PicturePreset;
+        if (jsonMode()) {
+          const parsed = parseSteps(el<HTMLTextAreaElement>('pp_json').value);
+          // The name and slug are checked as the form checks them; the steps by the server.
+          const errors = validateForm({ ...form, crop: false, resize: false, grade: false, format: 'jpeg', quality: '' });
+          if ('error' in parsed) errors.push(parsed.error);
+          if (errors.length) return show(editorMessage, errors.join(' '));
+          preset = { ...presetFromForm(form, stored), steps: 'steps' in parsed ? parsed.steps : [] };
+        } else {
+          const errors = validateForm(form);
+          if (errors.length) return show(editorMessage, errors.join(' '));
+          preset = presetFromForm(form, stored);
+        }
+        const saveButton = el<HTMLButtonElement>('pp-save');
+        saveButton.disabled = true;
+        const ok = await save(putPreset(presets, preset, editing), editorMessage);
+        saveButton.disabled = false;
+        if (ok) {
+          closeEditor();
+          show(messageEl, `Saved "${preset.name}".`, true);
+        }
+      });
+    }
+
+    renderList();
+  }
+</script>
+
+<script>
   // Templates: the list, the editor and saving (lib/entryTemplates). Each Save or Delete sends the whole list to
   // api/entry-types/[id]/templates; the server checks it against the saved schema and its message is shown here.
   import {
@@ -1024,6 +1598,12 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
     const sample = sampleValues(data.sample);
     let templates: EntryTemplate[] = Array.isArray(data.templates) ? data.templates : [];
     let editing: string | null = null; // the slug being edited; null for a new template
+    // The type's picture presets (#pp-data), kept current by the Picture presets script above as they are saved.
+    const presetsEl = document.getElementById('pp-data');
+    let presets: { slug: string; name: string }[] = (() => {
+      const list = presetsEl ? JSON.parse(presetsEl.textContent || '{}').presets : null;
+      return Array.isArray(list) ? list : [];
+    })();
     let slugTouched = false;
 
     const listEl = document.getElementById('tpl-list') as HTMLUListElement;
@@ -1063,6 +1643,10 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
           const code = document.createElement('code');
           code.textContent = t.title || '{asset.name}';
           title.append('Title: ', code);
+          if (t.picturePreset) {
+            const preset = presets.find((p) => p.slug === t.picturePreset);
+            title.append(` · treated with ${preset?.name ?? t.picturePreset}`);
+          }
           text.append(name, slug, title);
           li.append(text);
           if (canEdit) {
@@ -1124,6 +1708,9 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
       keepOption(assetField, form.assetField);
       assetField.value = form.assetField;
       input('tpl_asset_role').value = form.assetRole;
+      fillPresetOptions(form.picturePreset);
+      input('tpl_treated_role').value = form.treatedRole;
+      showTreatedRole();
       input('tpl_tags').value = form.tags;
       // A collection the template names that isn't a hand-picked one here (a package's) gets a box of its own, kept until unticked.
       const box = document.getElementById('tpl_collections') as HTMLElement;
@@ -1146,6 +1733,24 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
       }
     }
 
+    /** The preset select lists the type's presets by name, with `chosen` picked (shown even when it is no longer there). */
+    function fillPresetOptions(chosen = (document.getElementById('tpl_picture_preset') as HTMLSelectElement | null)?.value ?? '') {
+      const select = document.getElementById('tpl_picture_preset') as HTMLSelectElement | null;
+      if (!select) return;
+      select.replaceChildren(new Option('None', ''), ...presets.map((p) => new Option(p.name, p.slug)));
+      keepOption(select, chosen);
+      select.value = chosen;
+    }
+
+    /** The role box and the help line show only when a preset is picked. */
+    function showTreatedRole() {
+      const picked = !!(document.getElementById('tpl_picture_preset') as HTMLSelectElement | null)?.value;
+      for (const id of ['tpl_treated_role_box', 'tpl_preset_help']) {
+        const box = document.getElementById(id);
+        if (box) box.hidden = !picked;
+      }
+    }
+
     // A stored value the select doesn't offer (an option since removed) is shown, not lost.
     function keepOption(select: HTMLSelectElement, value: string) {
       if (value && ![...select.options].some((o) => o.value === value)) select.add(new Option(value, value));
@@ -1164,6 +1769,8 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
         status: (document.getElementById('tpl_status') as HTMLSelectElement).value,
         assetField: (document.getElementById('tpl_asset_field') as HTMLSelectElement).value,
         assetRole: input('tpl_asset_role').value,
+        picturePreset: (document.getElementById('tpl_picture_preset') as HTMLSelectElement).value,
+        treatedRole: input('tpl_treated_role').value,
         tags: input('tpl_tags').value,
         collections: collectionBoxes().filter((cb) => cb.checked).map((cb) => cb.value),
         fields: fieldValues,
@@ -1227,6 +1834,7 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
       addButton?.addEventListener('click', () => openEditor(null));
       document.getElementById('tpl-cancel')?.addEventListener('click', closeEditor);
       titleInput.addEventListener('input', renderPreview);
+      document.getElementById('tpl_picture_preset')?.addEventListener('change', showTreatedRole);
       nameInput.addEventListener('input', () => {
         if (!slugTouched) slugInput.value = slugify(nameInput.value);
       });
@@ -1247,6 +1855,13 @@ const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
         }
       });
     }
+
+    document.addEventListener('picture-presets:change', (event) => {
+      const list = (event as CustomEvent).detail;
+      presets = Array.isArray(list) ? list : [];
+      fillPresetOptions();
+      renderList();
+    });
 
     renderList();
   }
