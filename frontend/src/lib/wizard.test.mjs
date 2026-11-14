@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem } from "./wizard.ts";
+import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -400,4 +400,30 @@ test("a step without multiple is today's single pick: one value, an entry of its
   assert.deepEqual([...listKeys(def)], []);
   assert.equal(entryTypeOf(def, "story"), "story");
   assert.deepEqual(chooseSpec(def.steps[2], { world: "w", series: "" }), { entry_type: "story", fields: { world: "w" } });
+});
+
+test("an optional choice is skipped by a link: nothing chosen there, later picks dropped, the next step worked out without it", () => {
+  const steps = {
+    title: "T",
+    steps: [
+      { id: "world", kind: "choose", title: "World", as: "world", entry_type: "world" },
+      { id: "how", kind: "option", title: "How", as: "how", optional: true, options: [{ value: "up", label: "Upload" }, { value: "no", label: "No" }] },
+      { id: "file", kind: "upload", title: "File", entry: "world", when: { ctx: "how", op: "eq", value: "up" } },
+      { id: "cast", kind: "choose", title: "Cast", as: "cast", entry_type: "actor", optional: true, multiple: true },
+      { id: "end", kind: "review", title: "End", checks: [] },
+    ],
+  };
+  const ctx = { world: "w", how: "up", cast: "a,b" };
+  const fromHow = skipTo(steps, ctx, steps.steps[1]);
+  assert.deepEqual(fromHow, { ctx: { world: "w" }, step: steps.steps[3] }, "the upload that followed the answer is hidden without it");
+  assert.deepEqual(skipTo(steps, ctx, steps.steps[3]), { ctx: { world: "w", how: "up" }, step: steps.steps[4] });
+  assert.equal(skipTo(steps, ctx, steps.steps[0]), null, "a choice that is not optional is not skipped");
+  assert.equal(skipTo(steps, ctx, steps.steps[2]), null, "other kinds skip to the next step as they are");
+});
+
+test("a pick with no picture named shows the type's first single picture field, never a sound or a list", () => {
+  assert.equal(pictureFieldOf({ schemaJson: { fields: [{ key: "name", type: "text" }, { key: "sheets", type: "asset-list" }, { key: "voice", type: "asset", accept: "audio/*" }, { key: "master", type: "asset", accept: "image/*" }] } }), "master");
+  assert.equal(pictureFieldOf({ schemaJson: { fields: [{ key: "image", type: "asset" }] } }), "image");
+  assert.equal(pictureFieldOf({ schemaJson: { fields: [{ key: "sheets", type: "asset-list" }] } }), undefined);
+  assert.equal(pictureFieldOf(null), undefined);
 });

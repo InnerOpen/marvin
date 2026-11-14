@@ -260,6 +260,16 @@ export function withoutLater(def: WizardDefinition, ctx: Ctx, stepId: string): C
   return Object.fromEntries(Object.entries(ctx).filter(([k]) => !drop.has(k)));
 }
 
+/** Where "Skip without saving" goes from an optional choice or option: on, with nothing chosen there (and what later steps chose on the
+ *  strength of it dropped, as a changed choice drops it), to the next step shown without it. Null for a choice that is not optional
+ *  (the steps after it wait for it) or when nothing comes after. */
+export function skipTo(def: WizardDefinition, ctx: Ctx, step: Step): { ctx: Ctx; step: Step } | null {
+  if ((step.kind !== "option" && step.kind !== "choose") || !step.optional) return null;
+  const { [step.as]: _dropped, ...rest } = withoutLater(def, ctx, step.id);
+  const then = nextStep(def, rest, step.id);
+  return then ? { ctx: rest, step: then } : null;
+}
+
 /** The option step that sets `key`, if any. */
 export function optionStepOf(def: WizardDefinition, key: string): Step | undefined {
   return def.steps.find((s) => s.kind === "option" && s.as === key);
@@ -349,6 +359,13 @@ export function cardPicture(assets: AttachedAsset[] | undefined, pictureField: s
   if (!pictureField) return null;
   const hit = (assets ?? []).find((a) => a.role === pictureField && a.publicUrl && (a.mimeType ?? "").startsWith("image/"));
   return hit?.publicUrl ?? null;
+}
+
+/** The picture field a pick shows when its step names none: the type's first single asset field that takes pictures (its accept names
+ *  images, or it says nothing). A list of pictures (`asset-list`) or a sound is no face for a card. */
+export function pictureFieldOf(type: { schemaJson?: { fields?: { key?: string; type?: string; accept?: string | null }[] } | null } | null | undefined): string | undefined {
+  const takesPictures = (accept: string | null | undefined) => !accept || /image/i.test(accept);
+  return type?.schemaJson?.fields?.find((f) => f.type === "asset" && typeof f.key === "string" && takesPictures(f.accept))?.key;
 }
 
 /** The role an asset field's file is attached under: the field's own `role` when its type names one (the artwork `image` is role `featured`), else its key. */

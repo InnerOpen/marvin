@@ -19,7 +19,7 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets,
+  MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets, pictureFieldOf, skipTo,
   StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { jobLead, leftOutLine, listLine, nothingLine, runButton } from "@/lib/runList";
@@ -150,6 +150,7 @@ const selectionStep = def && step?.selection ? listStepOf(def, step.selection) :
 const selectionRows: Row[] = step?.selection ? (lists[step.selection] ?? []) : [];
 const pickHref = (r: Row, step: Step | undefined) => (step && picksAssets(step) ? `/workspace/assets/${r.id}` : `/workspace/entries/${r.id}`);
 const LONG_LIST = 8; // a pick list longer than this puts "make a new one" above it, so it is not lost at the bottom
+let pictureCards = false; // a single pick draws picture cards, not a list of radio buttons
 let pictureRole: string | undefined; // the role the picture field's file is attached under (a field's `role` may differ from its key)
 let currentPicture: string | null = null; // an upload step's picture as it is now
 let createFirst = false; // the choose step's make-a-new-one form comes before the list
@@ -190,7 +191,7 @@ if (authToken && def && step) {
       const type = await typeBySlug(step.entry_type, authToken, Astro.locals);
       missingType = !type;
       typeName = type?.name ?? step.entry_type;
-      pictureRole = fieldRole(type, step.picture);
+      pictureRole = fieldRole(type, step.picture ?? pictureFieldOf(type));
       const spec = { ...chooseSpec(step, ctx), sort: { by: "title" } };
       let found = await findEntries(spec, authToken, pageAt.per, pageAt.offset);
       if (!found.entries.length && found.total > 0) {
@@ -210,7 +211,11 @@ if (authToken && def && step) {
     if (step.kind === "choose") {
       choices = (await findEntries(chooseSpec(step, ctx), authToken)).entries;
       if (step.sort === "natural") choices = naturalByTitle(choices);
-      pictureRole = fieldRole(type, step.picture);
+      // A pick is cards with pictures when the step names its picture field, or when the type has a picture field and the entries have
+      // pictures in it (a character with its master): never radio buttons for things that have a face.
+      const picture = step.picture ?? pictureFieldOf(type);
+      pictureRole = fieldRole(type, picture);
+      pictureCards = !!step.picture || (!!picture && choices.some((c) => !!cardPicture(c.assets, pictureRole)));
       createFirst = !!step.create && (!!step.create.upload || choices.length > LONG_LIST);
       formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields, Object.keys(suppliedData(step, ctx)))));
       refs = await refsFor(formFields);
@@ -310,6 +315,9 @@ const here = step ? steps.findIndex((s) => s.id === step.id) : -1;
 const before = def && step ? previousStep(def, ctx, step.id) : null;
 const after = def && step ? nextStep(def, ctx, step.id) : null;
 const allPass = checks.length > 0 && checks.every((c) => c.ok);
+// The step the steps list (or a link) asked for, when it opened on the one that must be answered before it.
+const askedId = Astro.url.searchParams.get("step");
+const jumpedFrom = def && step && askedId && askedId !== step.id ? (steps.find((s) => s.id === askedId) ?? null) : null;
 // A run step with a card waiting holds the later steps: answering first keeps the card from going stale (an entry edited after the
 // question was asked makes the approval count as neither yes nor no).
 const held = (step?.kind === "run" || step?.kind === "gallery") && pendingCards.length > 0;
@@ -322,6 +330,18 @@ const continues = !!after && !held && (nothingToDo || decidedCards.length > 0 ||
 const made = Object.entries(entries).map(([key, e]) => ({ key, ...e }));
 const opened = def?.open ? entries[def.open.entry] ?? null : null;
 const submitLabel = after ? "Continue" : "Save";
+// One way to skip, the same on every step: a link at the bottom. An optional choice or option skipped is no choice (what was picked, and
+// what later steps picked on the strength of it, is dropped, as a changed choice drops it), so the step after it is worked out without it.
+// A choice that is not optional cannot be skipped (the steps after it wait for it); a run's link shows only while it has not run.
+const skipHref: string | null = (() => {
+  if (!def || !step) return null;
+  if (step.kind === "option" || step.kind === "choose") {
+    const skip = skipTo(def, ctx, step);
+    return skip ? stepHref(slug, skip.ctx, skip.step.id) : null;
+  }
+  if (!after || (step.kind === "run" && (held || continues))) return null;
+  return stepHref(slug, ctx, after.id);
+})();
 // A column heading is the field's label without its explanation in brackets (the full label stays as the hover text).
 const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || label;
 const uploadAccept = step?.kind === "gallery" && step.upload ? galleryAccept(step, galleryFields) : null;
@@ -369,14 +389,10 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
         <ol class="stepper" aria-label="Steps">
           {steps.map((s, i) => (
             <li class:list={[i === here && "current", i < here && "past", isDone(s, ctx) && "done"]}>
-              {blocker(def, ctx, s.id) || (held && i > here) ? (
-                <span class="wait" title="Answer the steps before it first"><span class="n">{i + 1}</span><span class="t">{s.title}</span></span>
-              ) : (
-                <a href={stepHref(slug, ctx, s.id)} aria-current={i === here ? "step" : undefined}>
-                  <span class="n" aria-hidden="true">{isDone(s, ctx) && i !== here ? "✓" : i + 1}</span>
-                  <span class="t">{s.title}</span>
-                </a>
-              )}
+              <a href={stepHref(slug, ctx, s.id)} aria-current={i === here ? "step" : undefined} title={blocker(def, ctx, s.id) ? `Needs “${blocker(def, ctx, s.id)!.title}” answered first` : undefined}>
+                <span class="n" aria-hidden="true">{isDone(s, ctx) && i !== here ? "✓" : i + 1}</span>
+                <span class="t">{s.title}</span>
+              </a>
             </li>
           ))}
         </ol>
@@ -385,6 +401,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           <p class="eyebrow">Step {here + 1} of {steps.length}</p>
           <h3>{step.title}</h3>
           {step.help && <p class="help">{step.help}</p>}
+          {jumpedFrom && <div class="alert alert-info">“{jumpedFrom.title}” needs this step answered first, so it opened here.</div>}
           {showTitle && (
             <aside class="showcard" aria-label={showTitle}>
               <div class="showhead"><strong>{showTitle}</strong><a class="muted" href={showHref}>Open ↗</a></div>
@@ -417,12 +434,6 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 ))}
               </div>
               <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
-            </form>
-          )}
-          {step.kind === "option" && step.optional && (
-            <form method="post" class="actions">
-              <input type="hidden" name="action" value="skip" />
-              <button class="button secondary" type="submit">Skip this</button>
             </form>
           )}
 
@@ -469,12 +480,6 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   <div class="actions"><button class="button" type="submit" name="action" value="pick">{submitLabel}</button></div>
                 </form>
               )}
-              {step.optional && (
-                <form method="post" class="actions">
-                  <input type="hidden" name="action" value="skip" />
-                  <button class="button secondary" type="submit">Skip this</button>
-                </form>
-              )}
             </div>
           )}
 
@@ -487,7 +492,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   <input type="hidden" name="action" value="pick" />
                   <p class="label">{createFirst ? `Or pick one you have (${choices.length})` : "Pick one you have"}</p>
                   {choices.length > LONG_LIST && <input type="search" class="input pick-search" placeholder={`Search ${typeName.toLowerCase()}s by name…`} data-pick-search aria-label="Search by name" autocomplete="off" />}
-                  {step.picture ? (
+                  {pictureCards ? (
                     <div class="tiles" role="radiogroup">
                       {choices.map((c) => {
                         const pic = cardPicture(c.assets, pictureRole);
@@ -515,12 +520,6 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 </form>
               )}
               {step.create && !missingType && !createFirst && <WizardCreate step={step} typeName={typeName} hasChoices={choices.length > 0} first={false} formFields={formFields} refs={refs} badFields={badFields} />}
-              {step.optional && (
-                <form method="post" class="actions">
-                  <input type="hidden" name="action" value="skip" />
-                  <button class="button secondary" type="submit">Skip this</button>
-                </form>
-              )}
             </div>
           )}
 
@@ -556,7 +555,6 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 <FileDrop accept={(step.accept ?? []).join(",") || undefined} hint={step.accept?.length ? `One ${step.accept.join(", ")} file.` : "One file."} />
                 <div class="actions">
                   <button class="button" type="submit">Upload</button>
-                  {after && <a class="button secondary" href={stepHref(slug, ctx, after.id)}>Skip</a>}
                 </div>
               </form>
             ) : <div class="alert alert-info">Choose the {step.entry} in an earlier step first.</div>
@@ -909,8 +907,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
 
           <div class="nav">
             {before ? <a class="button secondary" href={stepHref(slug, ctx, before.id)}>← Previous step</a> : <span />}
-            {after && !["option", "choose", "run"].includes(step.kind) && <a class="muted" href={stepHref(slug, ctx, after.id)}>Next step without saving →</a>}
-            {after && step.kind === "run" && !held && !continues && <a class="muted" href={stepHref(slug, ctx, after.id)}>Next step without running →</a>}
+            {skipHref && <a class="muted" href={skipHref}>Skip without saving →</a>}
           </div>
         </section>
       </>
@@ -1158,8 +1155,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
 
 <style>
   .stepper { list-style: none; margin: 0 0 24px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-  .stepper a, .stepper .wait { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: var(--panel); }
-  .stepper .wait { border-style: dashed; opacity: 0.6; }
+  .stepper a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: var(--panel); }
   .stepper .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--panel-2); font-size: 12px; }
   .stepper .past a { color: var(--ink); }
   .stepper .current a { border-color: var(--accent); color: var(--ink); font-weight: 600; }
