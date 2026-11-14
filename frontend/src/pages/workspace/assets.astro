@@ -2,30 +2,35 @@
 import AssetList from "@/components/AssetList.astro";
 import PlayButton from "@/components/PlayButton.astro";
 import FilterSearch from "@/components/FilterSearch.astro";
+import Pagination from "@/components/Pagination.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { listAssetTypes } from "@/lib/api/assets";
-import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { getAuthToken } from "@/lib/api/client";
 import { listCollections } from "@/lib/api/collections";
-import { getAssets } from "@/lib/api/platform";
+import { getAssetsPage } from "@/lib/api/platform";
 import { listTags } from "@/lib/api/tags";
-import { listTrashedAssets } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { getMimeCategory } from "@/lib/assetCategory";
 import ListSort from "@/components/ListSort.astro";
 import ListBar from "@/components/ListBar.astro";
 import { DECISIONS, isFiltered, isUnsearchableImage, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
 import { decisionOf } from "@/lib/assetLineage";
+import { pastEndHref, readPage } from "@/lib/pagination";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; uploading is AUTHOR+, editing and deleting assets EDITOR+.
 const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 // The filters live in the URL (lib/assetLibraryView.ts): the API returns exactly the matching assets, with versions
-// folded under their original unless shown.
+// folded under their original unless shown, one page of them (?page=, ?per=; lib/pagination.ts).
 const view = readLibraryView(Astro.url.searchParams);
+const inTrash = view.status === "trashed";
+const { per, offset } = readPage(Astro.url.searchParams);
 
-let assets: any[] = [];
-let trashedAssets: any[] = [];
+let rows: any[] = [];
+// How many match in all (every page), and the counts the page shows: each a one-row page's X-Total-Count.
+let total = 0;
+let trashedCount = 0;
 let tags: any[] = [];
 let collections: any[] = [];
 let sourceAsset: any = null;
@@ -33,20 +38,27 @@ let error: string | null = null;
 
 // Ask files (chat attachments) live apart from the library: a link to them, with their count.
 let askFiles = 0;
+// "Not searchable yet": pictures in this view search and the assistants can't find, having no alt text or description.
+let unsearchableCount = 0;
 let typesInUse: { type: string; count: number }[] = [];
+const countOf = (params: Record<string, string | number | boolean | string[]>) =>
+  getAssetsPage(authToken, { ...params, limit: 1 }).then((p) => p.total).catch(() => 0);
 try {
-  const [library, asks, trashed, tagList, collectionList, types] = await Promise.all([
-    view.status === "trashed" ? Promise.resolve([]) : getAssets(authToken, listParams(view)),
-    fetchApi<unknown[]>("/api/platform/assets?scope=ask", {}, authToken).catch(() => []),
-    listTrashedAssets(authToken).catch(() => []),
+  const [page, asks, trashed, unsearchable, tagList, collectionList, types] = await Promise.all([
+    getAssetsPage(authToken, { ...listParams(view), limit: per, offset }),
+    countOf({ scope: "ask" }),
+    countOf({ trashed: true }),
+    inTrash || view.searchable === "no" ? Promise.resolve(0) : countOf({ ...listParams(view), searchable: false }),
     listTags(authToken).catch(() => []),
     listCollections(authToken, Astro.locals).catch(() => []),
     listAssetTypes(authToken).catch(() => []),
   ]);
   typesInUse = types;
-  assets = library;
-  askFiles = asks.length;
-  trashedAssets = trashed;
+  rows = page.items;
+  total = page.total;
+  askFiles = asks;
+  trashedCount = trashed;
+  unsearchableCount = unsearchable;
   tags = tagList;
   collections = collectionList.filter((c: any) => (c.targetType ?? "entry") === "asset");
   if (view.source) sourceAsset = await createSdkClient(authToken).assets.get(view.source).catch(() => null);
@@ -54,10 +66,8 @@ try {
   error = e instanceof Error ? e.message : String(e);
   console.error("[Assets] Failed to load:", error);
 }
-const listed = view.status === "trashed" ? trashedAssets : assets;
-// "Not searchable yet": pictures search and the assistants can't find, having no alt text or description.
-const rows = view.searchable === "no" ? listed.filter(isUnsearchableImage) : listed;
-const unsearchable = view.status === "trashed" ? [] : assets.filter(isUnsearchableImage);
+const pastEnd = error ? null : pastEndHref(Astro.url, total);
+if (pastEnd) return Astro.redirect(pastEnd);
 
 // The search bar (FilterSearch): the types in use as buttons (the chosen one too, if none are left), the other filters
 // as rows. Each takes one value, the list API's shape.
@@ -86,12 +96,12 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
     <>
       <div class="toolbar">
         <div>
-          <h2>{view.source ? `Versions of ${sourceAsset?.name ?? "an asset"}` : view.status === "trashed" ? "Assets in the Trash" : "Media library"}</h2>
+          <h2>{view.source ? `Versions of ${sourceAsset?.name ?? "an asset"}` : inTrash ? "Assets in the Trash" : "Media library"}</h2>
           <p style="margin:4px 0 0;color:var(--muted);">
             {view.source ? (
               <>Made from it by workflows and the media pipeline · <a href={viewHref(view, { source: "" })}>Back to the library</a></>
             ) : (
-              <>{rows.length} {rows.length === 1 ? "asset" : "assets"}{!view.versions && view.status !== "trashed" ? " (versions folded under their original)" : ""}.</>
+              <>{total.toLocaleString("en-US")} {total === 1 ? "asset" : "assets"}{!view.versions && !inTrash ? " (versions folded under their original)" : ""}.</>
             )}
           </p>
         </div>
@@ -113,18 +123,18 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
       >
         <Fragment slot="extras">
           <label><input type="checkbox" name="versions" value="show" checked={view.versions} /> Show versions</label>
-          {(trashedAssets.length > 0 || view.status === "trashed") && (
-            <label><input type="checkbox" name="status" value="trashed" checked={view.status === "trashed"} /> The Trash ({trashedAssets.length})</label>
+          {(trashedCount > 0 || inTrash) && (
+            <label><input type="checkbox" name="status" value="trashed" checked={inTrash} /> The Trash ({trashedCount})</label>
           )}
         </Fragment>
       </FilterSearch>
 
-      {rows.length === 0 && (isFiltered(view) || view.status) ? (
+      {total === 0 && (isFiltered(view) || view.status) ? (
         <div class="empty-state">
           <h3>Nothing matches</h3>
           <p><a href="/workspace/assets">Clear the filters</a></p>
         </div>
-      ) : assets.length === 0 && trashedAssets.length === 0 ? (
+      ) : total === 0 && trashedCount === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">🖼️</div>
           <h3>No assets yet</h3>
@@ -133,10 +143,10 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
         </div>
       ) : (
         <>
-          {unsearchable.length > 0 && view.searchable !== "no" && (
+          {unsearchableCount > 0 && view.searchable !== "no" && (
             <p class="search-nudge">
-              {unsearchable.length === 1 ? "1 picture has" : `${unsearchable.length} pictures have`} no alt text or description, so search and
-              the assistants can't find {unsearchable.length === 1 ? "it" : "them"}. <a href={viewHref(view, { searchable: "no" })}>Show {unsearchable.length === 1 ? "it" : "them"}</a>
+              {unsearchableCount === 1 ? "1 picture has" : `${unsearchableCount} pictures have`} no alt text or description, so search and
+              the assistants can't find {unsearchableCount === 1 ? "it" : "them"}. <a href={viewHref(view, { searchable: "no" })}>Show {unsearchableCount === 1 ? "it" : "them"}</a>
             </p>
           )}
           {view.searchable === "no" && rows.length > 0 && access.canEdit && (
@@ -144,9 +154,10 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
               <p>
                 Give each a description so it can be found: open one and type it, or let AI look at {rows.length === 1 ? "it" : "them"} and
                 write one ({rows.length === 1 ? "one AI call" : `one AI call each, ${rows.length} in all`}). The text is saved straight away; edit it any time.
+                {total > rows.length && ` This does the ${rows.length} on this page of ${total}; once they're described, the next ones move up.`}
               </p>
               <button type="button" class="button" id="describe-all" data-ids={rows.map((a: any) => a.id).join(",")}>
-                ✨ Describe and save {rows.length === 1 ? "it" : `these ${rows.length}`} with AI
+                ✨ Describe and save {rows.length === 1 ? "it" : total > rows.length ? `these ${rows.length} on this page` : `these ${rows.length}`} with AI
               </button>
               <p id="describe-status" class="describe-status" aria-live="polite"></p>
             </div>
@@ -166,14 +177,14 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
           </ListBar>
 
           <div id="table-view" class="view-section" style="display:none;">
-            <AssetList assets={rows} inTrash={view.status === "trashed"} canEdit={access.canEdit} versionsHref={(asset) => viewHref(view, { source: asset.id, versions: false })} />
+            <AssetList assets={rows} inTrash={inTrash} canEdit={access.canEdit} versionsHref={(asset) => viewHref(view, { source: asset.id, versions: false })} />
           </div>
 
           <div id="grid-view" class="view-section">
             <ul class="asset-grid">
               {rows.map((asset: any) => (
-                <li class="asset-card" data-href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} data-in-trash={view.status === "trashed" ? "" : undefined}>
-                  <a class="thumb" href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>
+                <li class="asset-card" data-href={inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} data-in-trash={inTrash ? "" : undefined}>
+                  <a class="thumb" href={inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>
                     {asset.publicUrl && getMimeCategory(asset.mimeType) === "image" ? (
                       <img src={asset.publicUrl} alt={asset.altText ?? asset.name} loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
                     ) : asset.publicUrl && getMimeCategory(asset.mimeType) === "audio" ? (
@@ -182,7 +193,7 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
                       <span class="file-icon">📎</span>
                     )}
                   </a>
-                  <a class="card-name" href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>{asset.name}</a>
+                  <a class="card-name" href={inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>{asset.name}</a>
                   <div class="card-meta">
                     {isUnsearchableImage(asset)
                       ? <span class="search-dot unsearchable" title="Not searchable: no alt text or description"></span>
@@ -200,6 +211,7 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
             </ul>
           </div>
 
+          <Pagination url={Astro.url} total={total} label="Assets pages" />
         </>
       )}
     </>

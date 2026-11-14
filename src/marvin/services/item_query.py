@@ -117,8 +117,9 @@ def unknown_keys(kind: str, spec: dict | None) -> list[str]:
     return sorted(k for k in (spec or {}) if k not in KEYS[kind])
 
 
-def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = False):
-    """(query over the kind's model, note). The note explains a filter that can't match."""
+def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = False, library_only: bool = True):
+    """(query over the kind's model, note). The note explains a filter that can't match. ``library_only=False`` keeps
+    Ask files among the assets (the library's Trash lists every trashed asset, so an Ask file deleted there comes back)."""
     import sqlalchemy as sa
 
     from marvin.db.models.platform import (
@@ -142,7 +143,7 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
     trashed = trashed or as_bool(str(spec.get("trashed"))) is True
     q = session.query(model).filter(model.group_id == group_id)
     q = q.filter(model.trashed_at.isnot(None) if trashed else model.trashed_at.is_(None))
-    if kind == ASSET:  # the library: Ask files (chat attachments, services/assets/scope.py) aren't in it
+    if kind == ASSET and library_only:  # the library: Ask files (chat attachments, services/assets/scope.py) aren't in it
         q = q.filter(Assets.scope == "library")
     nothing = q.filter(sa.false())
 

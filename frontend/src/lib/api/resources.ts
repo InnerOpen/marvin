@@ -5,7 +5,7 @@
 
 import type { PlatformResource, PlatformResourceCreate } from "@inneropen/marvin-sdk/platform";
 import { createSdkClient } from "../sdk";
-import { fetchApi } from "./client";
+import { fetchApi, fetchApiPage } from "./client";
 import { getApiUrl } from "./config";
 
 // Re-export SDK types with legacy names for backward compatibility
@@ -18,6 +18,16 @@ export type ResourceCreate = PlatformResourceCreate;
 export async function listResources(authToken: string): Promise<ResourceRead[]> {
   const sdk = createSdkClient(authToken);
   return sdk.resources.list();
+}
+
+/**
+ * One page of the resources (GET /api/platform/resources with the filters and `limit`/`offset` from
+ * lib/resourceView.ts) and how many match in all (`X-Total-Count`). Called directly: the filters are newer than the
+ * SDK release the frontend pins.
+ */
+export async function listResourcesPage(authToken: string, params: Record<string, string | number | boolean>): Promise<{ items: ResourceRead[]; total: number }> {
+  const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
+  return fetchApiPage<ResourceRead>(`/api/platform/resources?${qs}`, authToken);
 }
 
 /**

@@ -10,6 +10,7 @@ from pydantic import UUID4
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor, require_workspace_role
+from marvin.routes._base.paging import paged
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
 from marvin.schemas.platform.assets import AssetUsage, TypeCount
 from marvin.services import trash
@@ -29,20 +30,41 @@ router = APIRouter(prefix="/assets")
 SORTS = {"name": ("name", False), "newest": ("created_at", True), "oldest": ("created_at", False), "largest": ("file_size", True)}
 
 
-def library_page(session, group_id, spec: dict, sort: str) -> list[AssetRead]:
-    """The library's assets matching ``spec`` (services/item_query.py), sorted, each with its versions count. A filter
-    that can't match (an unknown tag or collection) is a 422 saying which."""
+def unsearchable_image():
+    """A picture search and the assistants can't find: an image with no alt text and no description (as the library
+    page's ``isUnsearchableImage`` says)."""
     import sqlalchemy as sa
+
+    from marvin.db.models.platform import Assets
+
+    blank = lambda column: sa.func.coalesce(sa.func.trim(column), "") == ""  # noqa: E731
+    return sa.and_(Assets.mime_type.like("image/%"), blank(Assets.alt_text), blank(Assets.description))
+
+
+def library_page(
+    session, group_id, spec: dict, sort: str, response: Response, *, limit: int | None = None, offset: int = 0, searchable: bool | None = None
+) -> list[AssetRead]:
+    """The library's assets matching ``spec`` (services/item_query.py), sorted, each with its versions count; with
+    ``spec["trashed"]``, the Trash's (Ask files too: the Trash is one place for every deleted asset). A filter that
+    can't match (an unknown tag or collection) is a 422 saying which. ``limit``/``offset`` cut one page in SQL, and
+    ``response`` gets the total in ``X-Total-Count``; the page's tags and versions counts come in one query each."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import selectinload
 
     from marvin.db.models.platform import Assets
     from marvin.services import item_query
 
-    query, note = item_query.build(session, group_id, item_query.ASSET, spec)
+    query, note = item_query.build(session, group_id, item_query.ASSET, spec, library_only=not spec.get("trashed"))
     if note:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=note)
+    if searchable is not None:
+        query = query.filter(~unsearchable_image() if searchable else unsearchable_image())
     column, descending = SORTS[sort]
     order = getattr(Assets, column)
-    rows = query.order_by(order.desc() if descending else order, Assets.name, Assets.id).all()
+    page = paged(query.order_by(order.desc() if descending else order, Assets.name, Assets.id), response, limit, offset)
+    rows = page.options(selectinload(Assets.tags)).all()
+    if not rows or spec.get("trashed"):  # a trashed original's versions aren't listed under it: no count, no link
+        return [AssetRead.model_validate(r) for r in rows]
     counts = dict(
         session.query(Assets.source_asset_id, sa.func.count(Assets.id))
         .filter(
@@ -69,6 +91,7 @@ class AssetsController(BaseUserController):
     @router.get("", response_model=list[AssetRead], summary="List Assets")
     def list_assets(
         self,
+        response: Response,
         scope: str = Query(LIBRARY, description="'library' (the Assets library) or 'ask' (files attached to chat questions)"),
         q: str | None = Query(None, description="Name, slug or filename contains"),
         asset_type: list[str] = Query(default_factory=list, description="image, svg, document, video, audio, archive, other"),
@@ -79,15 +102,25 @@ class AssetsController(BaseUserController):
         unattached: bool | None = Query(None, description="true: on no entry; false: on at least one"),
         versions: bool | None = Query(None, description="false: fold versions under their original; true: only versions"),
         source: str | None = Query(None, description="The versions made from this asset (id or slug)"),
+        searchable: bool | None = Query(None, description="false: only pictures search can't find (no alt text or description); true: the rest"),
+        trashed: bool = Query(False, description="true: the Trash's assets instead (Ask files too), with the same filters"),
         sort: Literal["name", "newest", "oldest", "largest"] = Query("name"),
+        limit: int | None = Query(None, ge=1, description="At most this many (default: all of them)"),
+        offset: int = Query(0, ge=0, description="Skip this many first (with `limit`, one page)"),
     ) -> list[AssetRead]:
         """The library's assets (filtered as the workflow and agent asset queries are), each with how many versions
-        were made from it; with `scope=ask`, the Ask files, newest first. Never those in the Trash."""
+        were made from it; with `scope=ask`, the Ask files, newest first. Never those in the Trash, unless `trashed`
+        asks for them. `limit`/`offset` page it; the `X-Total-Count` header says how many match in all."""
+        from sqlalchemy.orm import selectinload
+
+        from marvin.db.models.platform import Assets
+
         if scope not in SCOPES:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"scope must be one of: {', '.join(SCOPES)}")
         if scope == ASK:
-            rows = self.repos.assets.get_all(order_by="created_at", order_descending=True)
-            return [a for a in rows if a.trashed_at is None and a.scope == scope]
+            query = self.session.query(Assets).filter(Assets.group_id == self.group_id, Assets.trashed_at.is_(None), Assets.scope == ASK)
+            page = paged(query.order_by(Assets.created_at.desc(), Assets.id.desc()), response, limit, offset)
+            return [AssetRead.model_validate(a) for a in page.options(selectinload(Assets.tags)).all()]
         spec = {
             "text": q,
             "asset_types": asset_type,
@@ -98,8 +131,10 @@ class AssetsController(BaseUserController):
             "unattached": unattached,
             "versions": versions,
             "source": source,
+            "trashed": trashed or None,
         }
-        return library_page(self.session, self.group_id, {k: v for k, v in spec.items() if v not in (None, "", [])}, sort)
+        spec = {k: v for k, v in spec.items() if v not in (None, "", [])}
+        return library_page(self.session, self.group_id, spec, sort, response, limit=limit, offset=offset, searchable=searchable)
 
     @router.post("/upload", response_model=AssetRead, status_code=status.HTTP_201_CREATED, summary="Upload Asset")
     async def upload_asset(

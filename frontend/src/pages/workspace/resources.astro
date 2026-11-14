@@ -1,23 +1,30 @@
 ---
 import FilterSearch from "@/components/FilterSearch.astro";
+import Pagination from "@/components/Pagination.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { listResources, type ResourceRead } from "@/lib/api/resources";
+import { listResourcesPage, listResourceTypes, type ResourceRead } from "@/lib/api/resources";
 import { listTags } from "@/lib/api/tags";
-import { listTrashedResources } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import ListSort from "@/components/ListSort.astro";
 import ListBar from "@/components/ListBar.astro";
-import { filterResources, isFiltered, readResourceView, resourceHref, SORTS } from "@/lib/resourceView";
+import { pastEndHref, readPage } from "@/lib/pagination";
+import { isFiltered, readResourceView, resourceHref, resourceListParams, SORTS } from "@/lib/resourceView";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; adding, editing and deleting resources is EDITOR+ (Move to Trash is on a resource's page).
 const { canEdit } = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
-// The filters live in the URL (lib/resourceView.ts). The list API takes none, so all are loaded and the page picks.
+// The filters live in the URL (lib/resourceView.ts); the API answers exactly that view, one page of it (?page=, ?per=).
 const view = readResourceView(Astro.url.searchParams);
+const inTrash = view.status === "trashed";
+const { per, offset } = readPage(Astro.url.searchParams);
 
-let resources: ResourceRead[] = [];
-let trashedResources: ResourceRead[] = [];
+let rows: ResourceRead[] = [];
+// How many match in all (every page); the Trash's count is a one-row page's X-Total-Count.
+let total = 0;
+let trashedCount = 0;
+// The types in use and how many each has (never the Trash): the type buttons, and whether there are any resources at all.
+let types: { type: string; count: number }[] = [];
 let tags: any[] = [];
 let error: string | null = null;
 
@@ -25,19 +32,23 @@ if (!authToken) {
   error = "Authentication required";
 } else {
   try {
-    [resources, trashedResources, tags] = await Promise.all([
-      listResources(authToken),
-      listTrashedResources(authToken).catch(() => []),
+    let page: { items: ResourceRead[]; total: number };
+    [page, trashedCount, types, tags] = await Promise.all([
+      listResourcesPage(authToken, { ...resourceListParams(view), limit: per, offset }),
+      listResourcesPage(authToken, { trashed: true, limit: 1 }).then((p) => p.total).catch(() => 0),
+      listResourceTypes(authToken).catch(() => []),
       listTags(authToken).catch(() => []),
     ]);
+    rows = page.items;
+    total = page.total;
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[Resources] Failed to load:", error);
   }
 }
-
-const inTrash = view.status === "trashed";
-const rows = filterResources(inTrash ? trashedResources : resources, view);
+const pastEnd = error ? null : pastEndHref(Astro.url, total);
+if (pastEnd) return Astro.redirect(pastEnd);
+const resourceCount = types.reduce((n, t) => n + t.count, 0);
 const typeLabel = (t: string) => t.charAt(0).toUpperCase() + t.slice(1).replace(/[-_]/g, " ");
 const hostOf = (url?: string | null) => {
   try {
@@ -49,7 +60,7 @@ const hostOf = (url?: string | null) => {
 const tagNames = new Map(tags.map((t: any) => [t.slug, t.name]));
 
 // The search bar (FilterSearch): the types in use as buttons, the rest as rows.
-const typesInUse = [...new Set([...resources.map((r) => r.resourceType), ...(view.type ? [view.type] : [])])].sort();
+const typesInUse = [...new Set([...types.map((t) => t.type), ...(view.type ? [view.type] : [])])].sort();
 const pills = typesInUse.map((t) => ({ label: typeLabel(t), href: resourceHref(view, { type: view.type === t ? "" : t }), on: view.type === t }));
 const yesNo = [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }];
 const rowFields: Record<string, { label: string; options: { value: string; label: string }[] }> = {
@@ -66,7 +77,7 @@ const optionsOpen = rowValues.length > 0 || inTrash;
     <div>
       <h2>{inTrash ? "Resources in the Trash" : "Resources"}</h2>
       <p style="margin:4px 0 0;color:var(--muted);">
-        {isFiltered(view) ? `${rows.length} ${rows.length === 1 ? "resource" : "resources"}` : "External references, suppliers, tools, and materials"}
+        {isFiltered(view) ? `${total.toLocaleString("en-US")} ${total === 1 ? "resource" : "resources"}` : "External references, suppliers, tools, and materials"}
       </p>
     </div>
     <div style="display:flex;gap:0.75rem;">
@@ -79,7 +90,7 @@ const optionsOpen = rowValues.length > 0 || inTrash;
       <p><strong>Error loading resources:</strong> {error}</p>
       <button onclick="location.reload()" class="button secondary">Retry</button>
     </div>
-  ) : resources.length === 0 && trashedResources.length === 0 ? (
+  ) : resourceCount === 0 && trashedCount === 0 ? (
     <div class="empty-state">
       <div class="empty-icon">🔗</div>
       <h3>No resources yet</h3>
@@ -100,13 +111,13 @@ const optionsOpen = rowValues.length > 0 || inTrash;
       >
         <Fragment slot="extras">
 
-          {(trashedResources.length > 0 || inTrash) && (
-            <label><input type="checkbox" name="status" value="trashed" checked={inTrash} /> The Trash ({trashedResources.length})</label>
+          {(trashedCount > 0 || inTrash) && (
+            <label><input type="checkbox" name="status" value="trashed" checked={inTrash} /> The Trash ({trashedCount})</label>
           )}
         </Fragment>
       </FilterSearch>
 
-      {rows.length === 0 ? (
+      {total === 0 ? (
         <div class="empty-state">
           <h3>Nothing matches</h3>
           <p><a href="/workspace/resources">Clear the filters</a></p>
@@ -169,6 +180,8 @@ const optionsOpen = rowValues.length > 0 || inTrash;
               ))}
             </ul>
           </div>
+
+          <Pagination url={Astro.url} total={total} label="Resources pages" />
         </>
       )}
     </>

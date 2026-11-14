@@ -120,6 +120,7 @@ const { path, q, placeholder, pills, fields, rows, open, filtered } = Astro.prop
       const on = el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : el.value !== el.dataset.default;
       if (on && el.value) params.set(el.name, el.value);
     }
+    params.delete('page'); // a new search starts at its first page (the page size stays)
     const qs = params.toString();
     return `${optionsForm?.dataset.path ?? location.pathname}${qs ? `?${qs}` : ''}`;
   }
