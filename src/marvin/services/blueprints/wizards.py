@@ -26,7 +26,9 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
 - ``upload``: a file for the entry in context key ``entry``. ``mode: "asset"`` stores it as an asset in ``field``; ``mode: "text"``
   reads it as text into ``field`` (a script, a beat sheet). ``accept`` lists extensions.
 - ``list``: the entries of ``entry_type`` whose ``parent_field`` holds context key ``parent``, with the ``columns`` editable in place and
-  ``add`` to make another.
+  ``add`` to make another. Without ``parent`` and ``parent_field`` it lists the entries of ``entry_type`` that meet ``where`` (or
+  ``or_where``) instead, as cards a page at a time with a search, and edits only its ``columns`` on them (and ``check``); it makes
+  nothing. ``flags``, ``check``, ``facet``, ``fill``, ``picture`` and ``subtitle`` are in ``_check_scoped_list``.
 - ``gallery``: the entries of ``entry_type`` as picture cards (a troupe of actors, a story's cast), scoped like a list (``parent_field`` holds
   context key ``parent``; both or neither). ``picture`` is the asset field shown, ``audio`` an asset field played from the card, ``subtitle``
   a field under the name, ``badges`` fields shown as pills. Actions, each optional: ``add`` ({fields, data?}: a form), ``upload`` ({field,
@@ -74,7 +76,7 @@ _ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IG
 MAX_SHOWN = 8
 MAX_PREFILL = 12
 MAX_SCRIPT = 3  # fields of the add form the recorder shows to read from
-RESERVED_KEYS = ("step", "notice", "run", "page", "per")  # address parameters the page uses for itself: never a context key
+RESERVED_KEYS = ("step", "notice", "run", "page", "per", "q", "filter", "facet")  # address parameters the page uses for itself: never a context key
 MAX_PICKS = 100  # a multi-select step's picks: the address carries them all (frontend/src/lib/wizard.ts MAX_PICKS)
 # The Assets library's filters a multi-select step over assets may use (GET /api/platform/assets takes them as they are).
 ASSET_FILTERS = ("q", "asset_type", "tag", "collection", "unattached", "unused", "origin")
@@ -418,9 +420,76 @@ def _check_upload(s: _Step) -> str | None:
     return s.ctx("entry")
 
 
+MAX_LIST_WHERE = 6  # conditions of a list's `where` / `or_where`
+MAX_FLAGS = 6
+# What only a list without a parent takes: the parent's list is all on one page with its Add row, as before.
+SCOPED_LIST_KEYS = ("where", "or_where", "flags", "check", "facet", "fill", "picture", "subtitle")
+
+
+def _check_conditions(s: _Step, conds: Any, what: str, *, refs: bool) -> str | None:
+    """A list of plain conditions, as a collect's ``where``: ``{field, op, value?}`` on a field key (``publish_status``, the entry's own
+    status, or ``metadata.<key>`` included), all of which must hold. With ``refs`` a value may read an earlier single choice (``${key}``)."""
+    if not isinstance(conds, list) or not 1 <= len(conds) <= MAX_LIST_WHERE:
+        return f"{s.label}: {what} is a list of 1 to {MAX_LIST_WHERE} conditions, each {{field, op, value?}}"
+    for cond in conds:
+        field = cond.get("field") if isinstance(cond, dict) else None
+        if not (_is_field(field) or (isinstance(field, str) and field.startswith("metadata.") and _is_field(field[9:]))):
+            return f"{s.label}: {what}: each condition is {{field, op, value?}} on a field key"
+        if cond.get("op", "eq") not in WHERE_OPS:
+            return f"{s.label}: {what}: op is one of {', '.join(WHERE_OPS)}"
+        if not refs and _refs(cond.get("value")):
+            return f"{s.label}: {what} uses no ${{…}}: it is counted over the entries the list shows"
+    return s.refs_one(conds, what) if refs else None
+
+
+def _check_scoped_list(s: _Step) -> str | None:
+    """A list with no parent: the entries of ``entry_type`` that meet ``where`` (or ``or_where``), a page at a time, with a search, the
+    ``columns`` editable on each card. ``flags`` ({label, where, attention?}) mark the cards that meet them and filter by them; ``check``
+    ({field, label}) is a yes/no field drawn as a button on each card ("Looks right") and counted; ``facet`` a select field whose values
+    filter the cards (a page of a site); ``fill`` the columns a box can fill on every card of the page where they are empty. It edits what
+    it lists and makes nothing: no ``add``, no ``create_data``."""
+    step = s.step
+    if step.get("add") not in (None, False) or step.get("create_data") is not None:
+        return f"{s.label}: a list without a parent edits what it lists; it adds nothing (no add, no create_data)"
+    for key in ("where", "or_where"):
+        if step.get(key) is not None and (problem := _check_conditions(s, step[key], key, refs=True)):
+            return problem
+    if step.get("or_where") is not None and step.get("where") is None:
+        return f"{s.label}: or_where adds entries to those that meet where: give where too"
+    if (flags := step.get("flags")) is not None:
+        if not isinstance(flags, list) or not 1 <= len(flags) <= MAX_FLAGS:
+            return f"{s.label}: flags is a list of 1 to {MAX_FLAGS} flags, each {{label, where, attention?}}"
+        for flag in flags:
+            if not isinstance(flag, dict) or not isinstance(flag.get("label"), str) or not flag["label"].strip() or len(flag["label"]) > 60:
+                return f"{s.label}: each flag needs a label, a few words (at most 60 characters) like No price"
+            if flag.get("attention") is not None and not isinstance(flag["attention"], bool):
+                return f"{s.label}: a flag's attention is true or false (false: shown, but it does not need attention)"
+            if problem := _check_conditions(s, flag.get("where"), f"flag {flag['label']!r}", refs=False):
+                return problem
+    if (check := step.get("check")) is not None and not (
+        isinstance(check, dict) and _is_field(check.get("field")) and isinstance(check.get("label"), str) and 0 < len(check["label"].strip()) <= 40
+    ):
+        return f"{s.label}: check is {{field, label}}: a yes/no field, and the words on its button (at most 40 characters)"
+    if step.get("facet") is not None and not _is_field(step["facet"]):
+        return f"{s.label}: facet must be a field key (a select field whose values filter the cards)"
+    if (fill := step.get("fill")) is not None:
+        if problem := _keys(fill, f"{s.label}: fill"):
+            return problem
+        if strays := [k for k in fill if k not in step["columns"]]:
+            return f"{s.label}: fill names {', '.join(strays)}, which columns does not have"
+    if step.get("picture") is not None and not _is_field(step["picture"]):
+        return f"{s.label}: picture must be a field key"
+    return _check_subtitle(s)
+
+
 def _check_list(s: _Step) -> str | None:
+    parented = [k for k in ("parent", "parent_field") if s.step.get(k) is not None]
+    if not parented:  # the entries of a type, narrowed by `where`, rather than those that belong to a parent
+        return s.entry_type() or _keys(s.step.get("columns"), f"{s.label}: columns") or _check_scoped_list(s)
     if not _is_field(s.step.get("parent_field")):
         return f"{s.label} needs parent_field, the field that holds the parent's slug"
+    if extra := [k for k in SCOPED_LIST_KEYS if s.step.get(k) is not None]:
+        return f"{s.label}: {', '.join(extra)} is for a list without a parent; a parent's list is all on one page with its Add row"
     return (
         s.entry_type()
         or s.ctx("parent")

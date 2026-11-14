@@ -1,0 +1,262 @@
+---
+/**
+ * A guided step's list without a parent (lib/wizardScopedList.ts): the entries a step's `where` finds, as cards a page at a time, each
+ * with its picture, name and subtitle, the flags it meets, the step's `columns` to edit in place and its `check` button ("Looks right",
+ * green once pressed). One form: every button in it (a filter, a page of a site, Search, a page move, Save this page, Continue) saves
+ * the cards' changes first, so moving around never loses an edit, and nothing is saved while typing. A script marks the cards changed
+ * and not saved yet, asks before leaving the page with any, and fills an empty box on every card of the page (`fill`).
+ */
+import SchemaFormField from "@/components/SchemaFormField.astro";
+import type { Step } from "@/lib/wizard";
+import { cardPicture, subtitleOf } from "@/lib/wizard";
+import { type Row, type ScopedListPage } from "@/lib/wizardApi";
+import { FILTERS, flagsOf, type Flag } from "@/lib/wizardScopedList";
+import { PAGE_SIZES, lastPage, rangeText } from "@/lib/pagination";
+import type { RefOption } from "@/lib/refFields";
+
+interface Props {
+  step: Step;
+  list: ScopedListPage;
+  /** The fields the cards edit, as the entry type defines them (the step's `columns` it has, of the kinds a page can draw). */
+  columns: any[];
+  /** The `check` field, when the type has it. */
+  checkField: string | undefined;
+  pictureRole: string | undefined;
+  refs: Record<string, RefOption[]>;
+  submitLabel: string;
+}
+
+const { step, list, columns, checkField, pictureRole, refs, submitLabel } = Astro.props;
+const { view, state, per, flagged } = list;
+const flags = (step.flags ?? []) as Flag[];
+// The facet's row is named for its field, as the entry's own page names it ("Page"); the filters' row is "Show".
+const facetName = String(((list.type.schemaJson as { fields?: { key?: string; label?: string }[] } | null)?.fields ?? []).find((f) => f.key === step.facet)?.label ?? step.facet ?? "");
+const checkLabel: string = step.check?.label ?? "Checked";
+const FILTER_WORDS: Record<(typeof FILTERS)[number], string> = { all: "All", attention: "Needs attention", unchecked: "Not checked yet", checked: "Checked" };
+const filters = Object.keys(view.counts).map((key) => ({ key, label: key.startsWith("flag-") ? flags[Number(key.slice(5))]?.label : FILTER_WORDS[key as keyof typeof FILTER_WORDS], count: view.counts[key] }));
+const hasAttention = flags.some((f) => f.attention !== false);
+const shownFilters = filters.filter((f) => f.key !== "attention" || hasAttention);
+const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || label;
+/** A long-text field is a two-line box on a card. */
+const cellField = (c: any) => (c.type === "markdown" ? { ...c, type: "textarea", rows: 2 } : c);
+const wasOf = (r: Row) => JSON.stringify(Object.fromEntries([...columns.map((c) => c.key), ...(checkField ? [checkField] : [])].map((k) => [k, r.dataJson?.[k] ?? null])));
+const isOn = (v: unknown) => v === true || v === "true";
+const fills = ((step.fill ?? []) as string[]).flatMap((key) => {
+  const field = columns.find((c) => c.key === key && c.type !== "boolean");
+  return field ? [{ key, label: shortLabel(field.label ?? key) }] : [];
+});
+const last = lastPage(view.total, per);
+---
+
+<form method="post" class="form slist" data-slist>
+  <input type="hidden" name="page" value={String(view.page)} />
+  <input type="hidden" name="per" value={String(per)} />
+  <input type="hidden" name="cur_filter" value={state.filter} />
+  <input type="hidden" name="cur_facet" value={state.facet} />
+  <input type="hidden" name="cur_q" value={state.q} />
+  {/* The form's first button, so Enter (in a price box, in the search) saves and stays: never a filter. */}
+  <button class="enter-stays" type="submit" name="go" value={String(view.page)} tabindex="-1" aria-hidden="true">Save</button>
+
+  <div class="sl-top">
+    {checkField && (
+      <p class="sl-progress" role="status">
+        <strong>{view.checked} of {view.all}</strong> marked “{checkLabel}”
+        <span class="sl-bar" aria-hidden="true"><span style={`width: ${view.all ? Math.round((100 * view.checked) / view.all) : 0}%`}></span></span>
+      </p>
+    )}
+    <div class="sl-search">
+      <input type="search" class="input" name="q" value={state.q} placeholder="Search by name…" aria-label="Search by name" autocomplete="off" />
+      <button class="button secondary small" type="submit" name="search" value="1">Search</button>
+    </div>
+  </div>
+
+  {view.facets.length > 1 && (
+    <div class="sl-pills" role="group" aria-label={facetName}>
+      <span class="sl-pills-label">{facetName}</span>
+      <button type="submit" name="facet" value="" class:list={["sl-pill", { on: !state.facet }]} aria-pressed={!state.facet}>All <span>{view.all}</span></button>
+      {view.facets.map((f) => (
+        <button type="submit" name="facet" value={f.value} class:list={["sl-pill", { on: state.facet === f.value }]} aria-pressed={state.facet === f.value}>{f.label} <span>{f.count}</span></button>
+      ))}
+    </div>
+  )}
+  <div class="sl-pills" role="group" aria-label="Show">
+    <span class="sl-pills-label">Show</span>
+    {shownFilters.map((f) => (
+      <button type="submit" name="filter" value={f.key} class:list={["sl-pill", { on: state.filter === f.key, warn: f.key === "attention" || (f.key.startsWith("flag-") && flags[Number(f.key.slice(5))]?.attention !== false) }]} aria-pressed={state.filter === f.key}>
+        {f.label} <span>{f.count}</span>
+      </button>
+    ))}
+  </div>
+
+  {fills.map((f) => (
+    <div class="sl-fill" data-fill={f.key} hidden>
+      <label>Fill {f.label.toLowerCase()} on the pieces shown where it is empty <input class="input" data-fill-value aria-label={`${f.label} for the empty ones`} /></label>
+      <button class="button secondary small" type="button" data-fill-go>Fill</button>
+      <span class="muted" data-fill-said role="status"></span>
+    </div>
+  ))}
+
+  {list.capped && <p class="muted none">Only the first 200 are listed: narrow the search to find the others.</p>}
+  {view.rows.length === 0 && <p class="muted none">{view.all === 0 ? "There is nothing to check here." : "None of them match. Choose All, or clear the search."}</p>}
+
+  <div class="sl-cards">
+    {view.rows.map((r) => {
+      const pic = cardPicture(r.assets, pictureRole);
+      const sub = subtitleOf(step.subtitle, r.dataJson, 80);
+      const marks = flagsOf(r.id, step, flagged);
+      const ok = !!checkField && isOn(r.dataJson?.[checkField]);
+      return (
+        <article class:list={["sl-card", { ok }]} data-card>
+          <input type="hidden" name={`row.${r.id}.__was`} value={wasOf(r)} />
+          <a class="sl-pic" href={`/workspace/entries/${r.id}`} tabindex="-1" aria-hidden="true">
+            {pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone">{(r.title || "?").slice(0, 1)}</span>}
+          </a>
+          <div class="sl-body">
+            <a class="sl-title" href={`/workspace/entries/${r.id}`}>{r.title}</a>
+            {sub && <span class="muted sl-sub">{sub}</span>}
+            {marks.length > 0 && <span class="sl-flags">{marks.map((m) => <span class:list={["sl-flag", { info: !m.attention }]}>{m.label}</span>)}</span>}
+            <div class="sl-cols">
+              {columns.map((c) => c.type === "boolean" ? (
+                <label class="sl-switch" title={c.label}>
+                  <input type="checkbox" name={`row.${r.id}.${c.key}`} value="true" checked={isOn(r.dataJson?.[c.key])} />
+                  <span>{shortLabel(c.label)}</span>
+                </label>
+              ) : (
+                <div class="sl-col" data-col={c.key} title={c.label}>
+                  <label for={`row-${r.id}-${c.key}`}>{shortLabel(c.label)}</label>
+                  <SchemaFormField bare field={cellField(c)} value={r.dataJson?.[c.key] ?? undefined} refs={refs} name={`row.${r.id}.${c.key}`} id={`row-${r.id}-${c.key}`} />
+                </div>
+              ))}
+            </div>
+            {checkField && (
+              <label class="sl-check">
+                <input type="checkbox" name={`row.${r.id}.${checkField}`} value="true" checked={ok} />
+                <span class="sl-check-off">{checkLabel}</span>
+                <span class="sl-check-on">✓ {checkLabel}</span>
+              </label>
+            )}
+            <span class="sl-dirty" aria-hidden="true">Changed, not saved yet</span>
+          </div>
+        </article>
+      );
+    })}
+  </div>
+
+  {view.total > 0 && (
+    <nav class="sl-pager" aria-label="Pages">
+      <span>{rangeText(view.page, per, view.total)}</span>
+      {view.page > 1 && <button class="button secondary small" type="submit" name="go" value={String(view.page - 1)}>← Previous</button>}
+      {view.page < last && <button class="button secondary small" type="submit" name="go" value={String(view.page + 1)}>Next →</button>}
+      <span class="sl-sizes">Per page: {PAGE_SIZES.map((n) => (n === per ? <strong aria-current="true">{n}</strong> : <button type="submit" class="linklike" name="per_go" value={String(n)}>{n}</button>))}</span>
+    </nav>
+  )}
+  <p class="muted sl-note">Changes are saved when you press a button on this page (Save this page, a filter, Search, Next or {submitLabel}), not while you type. <span data-dirty-count></span></p>
+  <div class="actions">
+    <button class="button secondary" type="submit" name="go" value={String(view.page)}>Save this page</button>
+    <button class="button" type="submit" name="action" value="next">{submitLabel}</button>
+  </div>
+</form>
+
+<script>
+  // Each card remembers what it showed; one that differs is marked "changed, not saved yet", and leaving the page by a link with any asks first.
+  for (const form of document.querySelectorAll<HTMLFormElement>("form[data-slist]")) {
+    const cards = [...form.querySelectorAll<HTMLElement>("[data-card]")];
+    const valueOf = (el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement) => (el instanceof HTMLInputElement && el.type === "checkbox" ? String(el.checked) : el.value);
+    const fieldsOf = (card: HTMLElement) => [...card.querySelectorAll<HTMLInputElement>("input:not([type=hidden]), select, textarea")];
+    const start = new Map(cards.map((c) => [c, fieldsOf(c).map(valueOf).join("\u0000")]));
+    const counter = form.querySelector<HTMLElement>("[data-dirty-count]");
+    let leaving = false;
+    const refresh = () => {
+      let dirty = 0;
+      for (const card of cards) {
+        const changed = fieldsOf(card).map(valueOf).join("\u0000") !== start.get(card);
+        card.classList.toggle("dirty", changed);
+        const check = card.querySelector<HTMLInputElement>(".sl-check input");
+        if (check) card.classList.toggle("ok", check.checked);
+        if (changed) dirty++;
+      }
+      if (counter) counter.textContent = dirty ? `${dirty} ${dirty === 1 ? "piece" : "pieces"} changed and not saved yet.` : "";
+      return dirty;
+    };
+    form.addEventListener("input", refresh);
+    form.addEventListener("change", refresh);
+    form.addEventListener("submit", () => (leaving = true));
+    window.addEventListener("beforeunload", (e) => {
+      if (!leaving && refresh() > 0) e.preventDefault();
+    });
+    // "Fill … where it is empty": puts the value in that box on every card shown whose box is empty; it is saved with the page.
+    for (const box of form.querySelectorAll<HTMLElement>("[data-fill]")) {
+      box.hidden = false;
+      box.querySelector("[data-fill-go]")?.addEventListener("click", () => {
+        const value = box.querySelector<HTMLInputElement>("[data-fill-value]")?.value.trim() ?? "";
+        const said = box.querySelector<HTMLElement>("[data-fill-said]");
+        if (!value) {
+          if (said) said.textContent = "Type the value first.";
+          return;
+        }
+        let filled = 0;
+        for (const input of form.querySelectorAll<HTMLInputElement>(`[data-col="${box.dataset.fill}"] input, [data-col="${box.dataset.fill}"] textarea`)) {
+          if (input.value.trim()) continue;
+          input.value = value;
+          filled++;
+        }
+        refresh();
+        if (said) said.textContent = filled ? `Filled on ${filled}. Press Save this page to keep it.` : "None of the pieces shown had it empty.";
+      });
+    }
+  }
+</script>
+
+<style>
+  .slist { gap: 14px; }
+  .sl-top { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; justify-content: space-between; }
+  .sl-progress { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 15px; }
+  .sl-bar { display: inline-block; width: 140px; height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+  .sl-bar span { display: block; height: 100%; background: var(--good, #2e7d32); }
+  .sl-search { display: flex; gap: 8px; align-items: center; }
+  .sl-search input { min-width: 14rem; }
+  .sl-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sl-pills-label { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; align-self: center; min-width: 4.5rem; }
+  .sl-pill { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
+  .sl-pill span { color: var(--muted); margin-left: 2px; }
+  .sl-pill.warn span { color: var(--warn, #b26a00); font-weight: 600; }
+  .sl-pill.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); font-weight: 600; }
+  .sl-fill { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; }
+  .sl-fill[hidden] { display: none; }
+  .sl-fill label { display: flex; gap: 8px; align-items: center; }
+  .sl-fill input { width: 7rem; }
+  .sl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+  .sl-card { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 12px; border-radius: calc(var(--radius) + 2px); background: var(--bg); border: 1px solid transparent; }
+  .sl-card.ok { border-color: var(--good, #2e7d32); background: color-mix(in srgb, var(--good, #2e7d32) 9%, var(--bg)); }
+  .sl-card.dirty { border-color: var(--accent); border-style: dashed; }
+  .sl-pic { width: 96px; height: 96px; border-radius: var(--radius); overflow: hidden; background: var(--panel-2); display: grid; place-items: center; }
+  .sl-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .sl-pic .gnone { font-size: 36px; color: var(--muted); }
+  .sl-body { display: grid; gap: 6px; align-content: start; min-width: 0; }
+  .sl-title { font-weight: 600; color: var(--ink); text-decoration: none; }
+  .sl-title:hover { text-decoration: underline; }
+  .sl-sub { font-size: 13px; }
+  .sl-flags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .sl-flag { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--warn, #b26a00) 16%, var(--panel)); color: var(--ink); }
+  .sl-flag.info { background: var(--panel-2); color: var(--muted); }
+  .sl-cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: 8px; align-items: end; }
+  .sl-col { display: grid; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
+  .sl-col :global(input), .sl-col :global(select), .sl-col :global(textarea) { width: 100%; min-width: 0; box-sizing: border-box; }
+  .sl-col :global(.field-input), .sl-col :global(.field-select), .sl-col :global(.field-textarea) { font-size: 14px; color: var(--ink); }
+  .sl-switch { display: flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; padding-bottom: 6px; }
+  .sl-switch input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .sl-check { position: relative; justify-self: start; display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font-size: 14px; font-weight: 600; cursor: pointer; }
+  .sl-check input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .sl-check:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sl-check-on { display: none; }
+  .sl-check:has(input:checked) { background: var(--good, #2e7d32); border-color: var(--good, #2e7d32); color: #fff; }
+  .sl-check:has(input:checked) .sl-check-on { display: inline; }
+  .sl-check:has(input:checked) .sl-check-off { display: none; }
+  .sl-dirty { display: none; font-size: 12px; color: var(--accent); }
+  .sl-card.dirty .sl-dirty { display: inline; }
+  .sl-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 14px; color: var(--muted); }
+  .sl-sizes { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; }
+  .linklike { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+  .sl-note { margin: 0; font-size: 13px; }
+  .enter-stays { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); border: 0; padding: 0; }
+</style>
