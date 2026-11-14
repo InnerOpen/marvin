@@ -111,14 +111,15 @@ def _check_value(parsed, key: str, value) -> str | None:
     return None
 
 
-def check_templates(templates, schema_json: dict | None) -> list[dict] | None:
+def check_templates(templates, schema_json: dict | None, presets=None) -> list[dict] | None:
     """The templates as they are stored (validated, defaults filled in), or None for none. Raises TemplateError naming the
     template and what is wrong: a slug used twice, an unknown variable, a field the type doesn't have or a value that
-    doesn't fit it, an asset field that isn't an asset field. Checked against ``schema_json``, the schema as it will be
-    stored with them."""
+    doesn't fit it, an asset field that isn't an asset field, a picture preset the type doesn't have. Checked against
+    ``schema_json`` and ``presets`` (the type's picture presets), as they will be stored with them."""
     from pydantic import ValidationError
 
     from marvin.schemas.platform.entry_templates import EntryTemplate
+    from marvin.services.assets.picture_presets import preset_slugs
 
     if templates is None:
         return None
@@ -161,6 +162,11 @@ def check_templates(templates, schema_json: dict | None) -> list[dict] | None:
                 raise TemplateError(f"{name}: the picture goes in '{t.asset_field}', which is not an asset field {said}")
             if t.asset_field in t.fields:
                 raise TemplateError(f"{name}: field {t.asset_field} is where the picture goes; leave it out of the field values")
+        if t.picture_preset and t.picture_preset not in (have := preset_slugs(presets)):
+            raise TemplateError(
+                f"{name}: there is no picture preset '{t.picture_preset}' on this type "
+                f"({'presets: ' + ', '.join(sorted(have)) if have else 'it has none yet: add one in its settings'})"
+            )
         out.append(t.model_dump(mode="json"))
     return out or None
 
@@ -216,6 +222,13 @@ class Row:
     asset_id: Any = None
     picture: dict | None = None
     update: dict | None = None  # a fill's new column values
+    # With a picture preset: the picture the entry gets (the treated one when made before, else the original until the
+    # treated one is made in the background and takes its place), and the role it is attached with.
+    treated: Any = None
+    attach_id: Any = None
+    attach_role: str | None = None
+    treated_picture: dict | None = None
+    pending: bool = False  # the treated picture is still to be made (or put in place) for this entry
 
 
 def _settled(rows: list) -> list:
@@ -225,6 +238,9 @@ def _settled(rows: list) -> list:
         r.asset_id = r.asset.id if r.asset is not None else None
         r.picture = _picture(r.asset)
         r.collections = [(c.id, c.slug) for c in r.collections]
+        if r.attach_id is None:
+            r.attach_id = r.asset_id
+        r.treated_picture = _picture(r.treated)
     return rows
 
 
@@ -236,6 +252,8 @@ class Plan:
     replace: bool
     tag_names: dict  # slug -> name, for the tags a template adds
     existing_tags: dict  # slug -> Tags row
+    preset: Any = None  # the template's picture preset (PicturePreset), when it has one
+    recipe: list | None = None
 
     def summary(self) -> dict:
         counts = {a: sum(1 for r in self.rows if r.action == a) for a in ("create", "fill", "skip")}
@@ -270,6 +288,21 @@ def _values(asset, n: int, today: str) -> dict:
         "n": n,
         "date": today,
     }
+
+
+UNNAMED_TAG = "Needs a name"
+_CAMERA_NAME = re.compile(r"^(img|dsc|dscn|dscf|pxl|mvimg|photo|image|screenshot|scan|p)[\s_-]*\d", re.IGNORECASE)
+
+
+def _bare(text: str) -> str:
+    return re.sub(r"[\s_.-]+", " ", re.sub(r"\.[a-z0-9]{2,5}$", "", str(text or "").strip(), flags=re.IGNORECASE)).strip().lower()
+
+
+def named_after_file(title: str, asset=None) -> bool:
+    """True when ``title`` is a camera's or a scanner's file name (IMG_4491, "img 4491", DSC_0042.jpeg, PXL_2024…, or
+    only digits and codes): nobody has named the picture yet. A file someone named ("Snowy Owl.jpg") is a name."""
+    plain = _bare(title)
+    return bool(plain) and (bool(_CAMERA_NAME.match(plain)) or not re.search(r"[a-z]{3,}", plain))
 
 
 def _ids_and_slugs(refs) -> tuple[list, list]:
@@ -321,14 +354,15 @@ def _collections(session, group_id, template) -> list:
     return [rows[s] for s in template.collections]
 
 
-def _tags(session, group_id, template) -> tuple[dict, dict]:
-    """(slug -> name for the template's tags, slug -> the Tags rows that exist). Reads only: missing tags are made on execute."""
+def _tags(session, group_id, template, extra: tuple = ()) -> tuple[dict, dict]:
+    """(slug -> name for the template's tags and ``extra`` ones, slug -> the Tags rows that exist). Reads only: missing tags
+    are made on execute."""
     from slugify import slugify
 
     from marvin.db.models.platform import Tags
 
     names = {}
-    for raw in template.tags:
+    for raw in (*template.tags, *extra):
         slug = slugify(raw)
         if slug and slug not in names:
             names[slug] = raw.strip()
@@ -357,9 +391,23 @@ def _asset_value(entry_type, field_key: str, asset_id: str, current):
 
 
 def _fill(
-    row: Row, entry, entry_type, template, parsed, values: dict, replace: bool, *, attached: set, entry_tags: set, member_of: set, collections
+    row: Row,
+    entry,
+    entry_type,
+    template,
+    parsed,
+    values: dict,
+    replace: bool,
+    *,
+    attached: set,
+    entry_tags: set,
+    member_of: set,
+    collections,
+    versions: dict | None = None,
 ) -> Row:
-    """Work out what filling ``entry`` with the template changes (only empty values unless ``replace``)."""
+    """Work out what filling ``entry`` with the template changes (only empty values unless ``replace``). ``versions``: a
+    picture's versions (by its id) that count as holding it (a treated one)."""
+    versions = versions or {}
     if entry.status in LEFT_ALONE:
         row.action, row.note = "skip", LEFT_ALONE[entry.status]
         return row
@@ -388,15 +436,18 @@ def _fill(
                 row.error = f"{key}: {why}"
             fields[key] = new
     asset = row.asset
+    # The picture, and (with a picture preset) its versions: an entry holding any of them holds this picture.
+    family = {str(asset.id), *(str(v) for v in versions.get(asset.id, ()))} if asset is not None else set()
+    put = str(row.attach_id or asset.id) if asset is not None else None
     if asset is not None and template.asset_field:
         current = data.get(template.asset_field)
-        holds = current == str(asset.id) or (isinstance(current, list) and current[:1] == [str(asset.id)])
+        holds = current in family or (isinstance(current, list) and bool(current) and current[0] in family)
         if not holds and (replace or _empty(current)):
-            fields[template.asset_field] = _asset_value(entry_type, template.asset_field, str(asset.id), current)
+            fields[template.asset_field] = _asset_value(entry_type, template.asset_field, put, current)
     if fields:
         changes["fields"] = fields
     row.changes = changes
-    row.attach = asset is not None and (entry.id, asset.id) not in attached
+    row.attach = asset is not None and not any((entry.id, uuid.UUID(i)) in attached for i in family)
     row.tags = [s for s in row.tags if s not in entry_tags]
     row.collections = [c for c in collections if c.id not in member_of]
     if left_out:
@@ -419,7 +470,7 @@ def _new_entry(row: Row, entry_type, template, parsed, values: dict, overrides: 
     overrides = overrides or {}
     data = {key: _render(value, values) for key, value in template.fields.items()}
     if template.asset_field:
-        data[template.asset_field] = _asset_value(entry_type, template.asset_field, str(row.asset.id), None)
+        data[template.asset_field] = _asset_value(entry_type, template.asset_field, str(row.attach_id or row.asset.id), None)
     data.update({k: v for k, v in (overrides.get("fields") or {}).items() if v is not None})
     row.title = str(overrides.get("title") or "").strip() or _render(template.title, values).strip() or values["asset.name"]
     row.data = data
@@ -440,10 +491,26 @@ def _new_entry(row: Row, entry_type, template, parsed, values: dict, overrides: 
     return row
 
 
-def plan_from_assets(session, group_id, entry_type_ref, template_slug, assets, *, replace: bool = False, overrides: dict | None = None) -> Plan:
+def plan_from_assets(
+    session,
+    group_id,
+    entry_type_ref,
+    template_slug,
+    assets,
+    *,
+    replace: bool = False,
+    overrides: dict | None = None,
+    mark_unnamed: bool = False,
+    titles: dict | None = None,
+) -> Plan:
     """One row per picture (in the order given): ``create``, or ``fill`` for a picture that an entry of this type already
     has (in its asset field or attached), or ``skip``. ``overrides`` (title, summary, description, fields) win over the
-    template's values on a new entry (see _new_entry). Reads only."""
+    template's values on a new entry (see _new_entry); ``titles`` (by picture id) win over its title. ``mark_unnamed``: a
+    new entry whose title is only a camera's file name (IMG_4491) gets the tag "Needs a name". Reads only.
+
+    With a template that names a picture preset, each picture is first traced back to its original (a treated picture
+    asked for stands for the one it was made from), an entry holding a version of it holds it, and the entry gets the
+    treated picture (made before), or the original until the treated one is made in the background (see :func:`execute`)."""
     import sqlalchemy as sa
 
     from marvin.db.models.platform.assets import Assets
@@ -452,6 +519,7 @@ def plan_from_assets(session, group_id, entry_type_ref, template_slug, assets, *
 
     refs = _check_size(assets, "pictures")
     entry_type, template, parsed, today = _start(session, group_id, entry_type_ref, template_slug)
+    preset, recipe = _preset(session, entry_type, template)
     ids, slugs = _ids_and_slugs(refs)
     conditions = [c for c in (Assets.id.in_(ids) if ids else None, Assets.slug.in_(slugs) if slugs else None) if c is not None]
     found = session.query(Assets).filter(Assets.group_id == group_id, sa.or_(*conditions)).all()
@@ -459,17 +527,28 @@ def plan_from_assets(session, group_id, entry_type_ref, template_slug, assets, *
     missing = [r for r in refs if r not in by_ref]
     if missing:
         raise TemplateNotFound(f"no picture {', '.join(repr(r) for r in missing[:5])}{' …' if len(missing) > 5 else ''} in this workspace")
+    if preset is not None:
+        from marvin.services.assets.picture_presets import originals
+
+        root = originals(session, group_id, found)
+        by_ref = {r: root[a.id] for r, a in by_ref.items()}
     pictures = []
     for r in refs:
         if by_ref[r] not in pictures:
             pictures.append(by_ref[r])
     asset_ids = [a.id for a in pictures]
+    versions: dict = {}  # with a preset: each picture's versions (the treated ones among them), which an entry may hold instead
+    if preset is not None:
+        for vid, sid in session.query(Assets.id, Assets.source_asset_id).filter(Assets.group_id == group_id, Assets.source_asset_id.in_(asset_ids)):
+            versions.setdefault(sid, set()).add(vid)
+    stands_for = {v: sid for sid, vs in versions.items() for v in vs}
+    held_ids = [*asset_ids, *stands_for]
 
-    # The entries of this type that already have these pictures: attached, or in the asset field.
-    has = sa.select(EntryAssets.entry_id).where(EntryAssets.asset_id.in_(asset_ids))
+    # The entries of this type that already have these pictures (or, with a preset, a version of one): attached, or in the asset field.
+    has = sa.select(EntryAssets.entry_id).where(EntryAssets.asset_id.in_(held_ids))
     held = Entries.id.in_(has)
     if template.asset_field:
-        held = sa.or_(held, Entries.data_json[template.asset_field].as_string().in_([str(i) for i in asset_ids]))
+        held = sa.or_(held, Entries.data_json[template.asset_field].as_string().in_([str(i) for i in held_ids]))
     existing = (
         session.query(Entries)
         .filter(Entries.group_id == group_id, Entries.entry_type_id == entry_type.id, Entries.status != "trashed", held)
@@ -483,14 +562,20 @@ def plan_from_assets(session, group_id, entry_type_ref, template_slug, assets, *
         for aid in asset_ids:
             if aid in owner:
                 continue
-            if (e.id, aid) in links["attached"] or in_field == str(aid) or (isinstance(in_field, list) and str(aid) in in_field):
+            family = [aid, *versions.get(aid, ())]
+            if any((e.id, i) in links["attached"] or in_field == str(i) or (isinstance(in_field, list) and str(i) in in_field) for i in family):
                 owner[aid] = e
     collections = _collections(session, group_id, template)
-    tag_names, existing_tags = _tags(session, group_id, template)
+    tag_names, existing_tags = _tags(session, group_id, template, (UNNAMED_TAG,) if mark_unnamed else ())
+    unnamed_slug = next((slug for slug, name in tag_names.items() if name == UNNAMED_TAG), None) if mark_unnamed else None
+    template_tags = [t for t in tag_names if t != unnamed_slug or UNNAMED_TAG in template.tags]
+    treated = _treated_of(session, group_id, pictures, recipe) if preset is not None else {}
     rows, claimed = [], {}  # an existing entry gets one row: two of its pictures in one batch must not fill it twice
     for n, asset in enumerate(pictures, start=1):
-        row = Row(action="create", n=n, title="", asset=asset, tags=list(tag_names), collections=list(collections))
+        row = Row(action="create", n=n, title="", asset=asset, tags=list(template_tags), collections=list(collections))
         values = _values(asset, n, today)
+        if preset is not None and asset.trashed_at is None:
+            _with_treated(row, asset, template, treated.get(asset.id))
         if asset.trashed_at is not None:
             row.action, row.title, row.note = "skip", asset.name, "the picture is in the Trash"
         elif (entry := owner.get(asset.id)) is not None and entry.id in claimed:
@@ -499,12 +584,73 @@ def plan_from_assets(session, group_id, entry_type_ref, template_slug, assets, *
         elif entry is not None:
             claimed[entry.id] = asset.name
             row.action, row.entry, row.title = "fill", entry, entry.title
-            _fill(row, entry, entry_type, template, parsed, values, replace, collections=collections, **_held(links, entry.id))
+            _fill(row, entry, entry_type, template, parsed, values, replace, collections=collections, versions=versions, **_held(links, entry.id))
+            if preset is not None:
+                _picture_pending(row, entry, links)
         else:
-            _new_entry(row, entry_type, template, parsed, values, overrides)
+            given = str((titles or {}).get(str(asset.id)) or "").strip()
+            _new_entry(row, entry_type, template, parsed, values, {**(overrides or {}), "title": given} if given else overrides)
+            if unnamed_slug and named_after_file(row.title):
+                row.tags.append(unnamed_slug)
+                row.note = f"named after its file: give it a name (tagged {UNNAMED_TAG})"
         rows.append(row)
     _slugs(session, group_id, [r for r in rows if r.action == "create"])
-    return Plan(entry_type=entry_type, template=template, rows=_settled(rows), replace=replace, tag_names=tag_names, existing_tags=existing_tags)
+    return Plan(
+        entry_type=entry_type,
+        template=template,
+        rows=_settled(rows),
+        replace=replace,
+        tag_names=tag_names,
+        existing_tags=existing_tags,
+        preset=preset,
+        recipe=recipe,
+    )
+
+
+def _preset(session, entry_type, template) -> tuple:
+    """(the template's picture preset, its recipe), or (None, None) when it names none."""
+    if not template.picture_preset:
+        return None, None
+    from marvin.services.assets import picture_presets
+
+    try:
+        preset = picture_presets.preset_of(entry_type, template.picture_preset)
+        return preset, picture_presets._recipe(preset, session, entry_type.group_id)
+    except picture_presets.PresetError as e:
+        raise TemplateError(f"template '{template.slug}': {e}") from e
+
+
+def _treated_of(session, group_id, pictures: list, recipe) -> dict:
+    from marvin.services.assets.picture_presets import treated_of
+
+    return {sid: t for sid, t in treated_of(session, group_id, [p for p in pictures if p.trashed_at is None], recipe).items() if t.trashed_at is None}
+
+
+def _with_treated(row: Row, asset, template, treated) -> None:
+    """A row of a template with a picture preset: the entry gets the treated picture (in the treated role), or the
+    original until the treated one is made (``pending``)."""
+    row.treated = treated
+    row.attach_id = treated.id if treated is not None else asset.id
+    row.attach_role = template.treated_role or "featured"
+    row.pending = treated is None
+    if treated is None:
+        row.note = "its treated picture is made in the background and then takes the original's place"
+
+
+def _picture_pending(row: Row, entry, links: dict) -> None:
+    """With a picture preset: whether the entry still needs its treated picture made or put in place. An entry with
+    nothing else to fill is then still a ``fill`` (of its picture); one left alone (approved, published, …) stays so."""
+    if entry.status in LEFT_ALONE:
+        row.pending = False
+        return
+    row.pending = not _shows(links, entry.id, row.treated, row.attach_role)
+    if row.pending and row.action == "skip":
+        row.action, row.note = "fill", "only its picture: the treated one takes the original's place"
+
+
+def _shows(links: dict, entry_id, treated, role: str | None) -> bool:
+    """True when the entry has the treated picture attached in ``role`` already."""
+    return treated is not None and any(a[0] == treated.id and a[2] == role for a in links["by_entry"].get(entry_id, []))
 
 
 def plan_for_entries(session, group_id, entry_type_ref, template_slug, entries, *, replace: bool = False) -> Plan:
@@ -518,6 +664,7 @@ def plan_for_entries(session, group_id, entry_type_ref, template_slug, entries, 
 
     refs = _check_size(entries, "entries")
     entry_type, template, parsed, today = _start(session, group_id, entry_type_ref, template_slug)
+    preset, recipe = _preset(session, entry_type, template)
     ids, slugs = _ids_and_slugs(refs)
     conditions = [c for c in (Entries.id.in_(ids) if ids else None, Entries.slug.in_(slugs) if slugs else None) if c is not None]
     found = session.query(Entries).filter(Entries.group_id == group_id, sa.or_(*conditions)).all()
@@ -542,6 +689,19 @@ def plan_for_entries(session, group_id, entry_type_ref, template_slug, entries, 
             picture_ids[e.id] = None
     wanted = {i for i in picture_ids.values() if i}
     pictures = {a.id: a for a in session.query(Assets).filter(Assets.group_id == group_id, Assets.id.in_(wanted))} if wanted else {}
+    versions: dict = {}
+    treated: dict = {}
+    if preset is not None and pictures:  # the entry's picture may be a treated one: its original names it and is treated
+        from marvin.services.assets.picture_presets import originals
+
+        root = originals(session, group_id, list(pictures.values()))
+        for asset_id, original in root.items():
+            if original.id != asset_id:
+                versions.setdefault(original.id, set()).add(asset_id)
+        pictures = {asset_id: root[asset_id] for asset_id in pictures}
+        treated = _treated_of(session, group_id, list({a.id: a for a in pictures.values()}.values()), recipe)
+        for original_id, t in treated.items():
+            versions.setdefault(original_id, set()).add(t.id)
     collections = _collections(session, group_id, template)
     tag_names, existing_tags = _tags(session, group_id, template)
     rows = []
@@ -550,12 +710,26 @@ def plan_for_entries(session, group_id, entry_type_ref, template_slug, entries, 
         if asset is not None and asset.trashed_at is not None:
             asset = None
         row = Row(action="fill", n=n, title=e.title, entry=e, asset=asset, tags=list(tag_names), collections=list(collections))
+        if preset is not None and asset is not None:
+            _with_treated(row, asset, template, treated.get(asset.id))
         if e.entry_type_id != entry_type.id:
             row.action, row.note = "skip", f"not an entry of type {entry_type.name}"
         else:
-            _fill(row, e, entry_type, template, parsed, _values(asset, n, today), replace, collections=collections, **_held(links, e.id))
+            values = _values(asset, n, today)
+            _fill(row, e, entry_type, template, parsed, values, replace, collections=collections, versions=versions, **_held(links, e.id))
+            if preset is not None and asset is not None:
+                _picture_pending(row, e, links)
         rows.append(row)
-    return Plan(entry_type=entry_type, template=template, rows=_settled(rows), replace=replace, tag_names=tag_names, existing_tags=existing_tags)
+    return Plan(
+        entry_type=entry_type,
+        template=template,
+        rows=_settled(rows),
+        replace=replace,
+        tag_names=tag_names,
+        existing_tags=existing_tags,
+        preset=preset,
+        recipe=recipe,
+    )
 
 
 def _links(session, entry_ids: list) -> dict:
@@ -646,6 +820,7 @@ def describe(plan: Plan, *, preview: bool = True, done: dict | None = None) -> d
             "attach": r.attach and r.action != "skip",
             "note": r.note,
             "error": r.error,
+            "treated": r.treated_picture if r.action != "skip" else None,
         }
         for r in plan.rows
     ]
@@ -659,6 +834,9 @@ def describe(plan: Plan, *, preview: bool = True, done: dict | None = None) -> d
     text = ", ".join(said) or "nothing to do"
     if s["errors"] and not done:
         text += f" — {s['errors']} with a problem: nothing is made until it is fixed"
+    pending = sum(1 for r in plan.rows if r.pending and r.action != "skip")
+    if plan.preset is not None and pending:
+        text += f"; {pending} picture{'s' if pending != 1 else ''} {'being' if done else 'to be'} treated with {plan.preset.name} in the background"
     out = {
         "preview": preview,
         "entry_type": plan.entry_type.slug,
@@ -666,9 +844,11 @@ def describe(plan: Plan, *, preview: bool = True, done: dict | None = None) -> d
         **s,
         "rows": rows,
         "text": text,
+        "picture_preset": plan.preset.slug if plan.preset is not None else None,
     }
     if done:
         out.update({k: done[k] for k in ("created", "updated", "entry_ids", "seconds")})
+        out["treatment_job"] = done.get("treatment_job")
     return out
 
 
@@ -717,6 +897,7 @@ def execute(
         "entry_ids": entry_ids,
         "seconds": round(time.monotonic() - started, 3),
         "made": {n: str(i) for n, i in made.items()},
+        "treatment_job": _treat_later(group_id, plan, work, made, actor_id),
     }
     result = describe(plan, preview=False, done=done)
     if work:
@@ -727,6 +908,32 @@ def execute(
         except Exception as e:  # noqa: BLE001 — the entries are made; a lost event is logged
             logger.error(f"entry template: could not send entry_template_applied: {e}", exc_info=True)
     return result
+
+
+def _treat_later(group_id, plan: Plan, work: list, made: dict, actor_id) -> str | None:
+    """With a picture preset: start the background job that makes the treated pictures not made yet and puts each in
+    its entry's place (the treated role and the asset field, where they still hold the original). Its id, or None."""
+    if plan.preset is None:
+        return None
+    from marvin.services.assets import picture_presets
+
+    items = [(r.asset_id, r.entry_id if r.entry_id is not None else made[r.n]) for r in work if r.pending and r.asset_id is not None]
+    if not items:
+        return None
+    job = picture_presets.start_job(
+        group_id,
+        picture_presets.Work(
+            entry_type_id=plan.entry_type.id,
+            preset_slug=plan.preset.slug,
+            preset_name=plan.preset.name,
+            recipe=plan.recipe,
+            items=items,
+            role=plan.template.treated_role or "featured",
+            asset_field=plan.template.asset_field,
+        ),
+        actor_id=actor_id,
+    )
+    return job["id"]
 
 
 def _make_tags(session, group_id, plan: Plan) -> dict:
@@ -782,10 +989,11 @@ def _write_chunk(session, group_id, plan: Plan, rows: list, tag_ids: dict, actor
             if r.update:
                 updates.append({"id": entry_id, **r.update, "update_at": now})
             position = links["max_position"].get(entry_id, -1) + 1
-            if (entry_id, r.asset_id) in links["attached"]:
+            if (entry_id, r.attach_id) in links["attached"]:
                 r.attach = False  # attached since the plan was made
-        if r.attach and r.asset_id is not None:
-            assets.append({"id": uuid.uuid4(), "entry_id": entry_id, "asset_id": r.asset_id, "role": template.asset_role, "position": position})
+        if r.attach and r.attach_id is not None:
+            role = r.attach_role or template.asset_role
+            assets.append({"id": uuid.uuid4(), "entry_id": entry_id, "asset_id": r.attach_id, "role": role, "position": position})
         have_tags = links["tags"].get(entry_id, set())
         tags += [{"id": uuid.uuid4(), "entry_id": entry_id, "tag_id": tag_ids[s]} for s in r.tags if s not in have_tags]
         have = links["collections"].get(entry_id, set())

@@ -38,6 +38,7 @@
     "delete_entries": "Delete entries in bulk",
     "create_entries_from_template": "Create entries from a template",
     "apply_template": "Apply a template",
+    "apply_picture_preset": "Treat pictures with a preset",
     "automation_result": "Record an automation result",
     "wait": "Wait",
     "repeat": "Repeat for each",

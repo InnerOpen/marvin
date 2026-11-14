@@ -30,8 +30,9 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
 - ``gallery``: the entries of ``entry_type`` as picture cards (a troupe of actors, a story's cast), scoped like a list (``parent_field`` holds
   context key ``parent``; both or neither). ``picture`` is the asset field shown, ``audio`` an asset field played from the card, ``subtitle``
   a field under the name, ``badges`` fields shown as pills. Actions, each optional: ``add`` ({fields, data?}: a form), ``upload`` ({field,
-  accept?}: a file becomes a new entry, named for the file; ``accept`` is the file input's accept, ``image/*`` unless it says, e.g.,
-  ``audio/*``), ``generate`` ({workflow, inputs, button, prompt?: {name, label}}: a run, as a run step, with a text the person types).
+  accept?, template?}: a file becomes a new entry, named for the file; ``accept`` is the file input's accept, ``image/*`` unless it says,
+  e.g., ``audio/*``; ``template``, one of the type's templates, makes the entry with it, picture preset and all), ``generate`` ({workflow,
+  inputs, button, prompt?: {name, label}}: a run, as a run step, with a text the person types).
   ``card_actions`` (1 to 4 buttons on each card: ``{label, set: {field: value}, when?, file?}``) change the card's entry; with ``file`` ({field,
   accept?, assets?}) the button first asks for a file, an upload or, with ``assets`` true, one of the workspace's assets that fits ``accept``, puts
   it in the asset field ``file.field`` and then sets the ``set`` fields. ``add.file`` takes ``assets`` the same way: choose a file already there
@@ -315,6 +316,9 @@ def _check_option(s: _Step) -> str | None:
     return s.sets_context()
 
 
+_TEMPLATE_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+
+
 def _check_upload_spec(s: _Step, upload: Any, what: str) -> str | None:
     """`upload` of a gallery or of a choose step's `create`: {field, accept?}, the asset field a file goes into and the file input's accept."""
     if not (isinstance(upload, dict) and _is_field(upload.get("field"))):
@@ -323,6 +327,8 @@ def _check_upload_spec(s: _Step, upload: Any, what: str) -> str | None:
         return f"{s.label}: {what}.accept is a file input's accept, like audio/* or image/png,.webp"
     if upload.get("assets") is not None and not isinstance(upload["assets"], bool):
         return f"{s.label}: {what}.assets is true or false: whether the person may also choose a file already in the workspace's assets"
+    if upload.get("template") is not None and not (isinstance(upload["template"], str) and _TEMPLATE_SLUG.match(upload["template"])):
+        return f"{s.label}: {what}.template is the slug of one of the entry type's templates, e.g. ornament"
     if upload.get("seconds") is not None and not _is_field(upload["seconds"]):
         return f"{s.label}: {what}.seconds is the number field that takes the sound's length, measured in the browser"
     if (script := upload.get("script")) is not None and not (

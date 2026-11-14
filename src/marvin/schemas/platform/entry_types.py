@@ -11,6 +11,7 @@ from marvin.schemas.platform.entry_templates import EntryTemplate
 from marvin.schemas.platform.entry_type_recipe import EntryTypeRecipe
 from marvin.schemas.platform.entry_type_rendering import CapabilitiesDefinition, RenderingDefinition
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
+from marvin.schemas.platform.picture_presets import PicturePreset
 from marvin.services.entry_urls import normalize_page_url_pattern
 from marvin.services.locked_entry_types import lock_reason
 
@@ -65,6 +66,12 @@ class EntryTypeCreate(_MarvinModel):
         description="Entry templates: named presets for making entries of this type from pictures (checked against the schema when saved)",
         serialization_alias="templatesJson",
         validation_alias=AliasChoices("templatesJson", "templates_json", "templates"),
+    )
+    picture_presets: list[PicturePreset] | None = Field(
+        default=None,
+        description="Picture presets: named recipes of treatments (crop, resize, grade, convert) the type's templates can name",
+        serialization_alias="picturePresetsJson",
+        validation_alias=AliasChoices("picturePresetsJson", "picture_presets_json", "picture_presets", "picturePresets"),
     )
 
     @field_validator("content_schema")
@@ -154,6 +161,12 @@ class EntryTypeUpdate(_MarvinModel):
         description="Entry templates: named presets for making entries of this type from pictures (checked against the schema when saved)",
         serialization_alias="templatesJson",
         validation_alias=AliasChoices("templatesJson", "templates_json", "templates"),
+    )
+    picture_presets: list[PicturePreset] | None = Field(
+        default=None,
+        description="Picture presets: named recipes of treatments (crop, resize, grade, convert) the type's templates can name",
+        serialization_alias="picturePresetsJson",
+        validation_alias=AliasChoices("picturePresetsJson", "picture_presets_json", "picture_presets", "picturePresets"),
     )
 
     @field_validator("content_schema")
@@ -249,6 +262,12 @@ class EntryTypeRead(_MarvinModel):
         description="Entry templates: named presets for making entries of this type from pictures (checked against the schema when saved)",
         serialization_alias="templatesJson",
         validation_alias=AliasChoices("templatesJson", "templates_json", "templates"),
+    )
+    picture_presets: list[PicturePreset] | None = Field(
+        default=None,
+        description="Picture presets: named recipes of treatments (crop, resize, grade, convert) the type's templates can name",
+        serialization_alias="picturePresetsJson",
+        validation_alias=AliasChoices("picturePresetsJson", "picture_presets_json", "picture_presets", "picturePresets"),
     )
     created_at: datetime | None = None
     update_at: datetime | None = None

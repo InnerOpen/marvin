@@ -202,6 +202,9 @@ class GenerateAltTextOperation(AIOperation):
         "properties": {
             "alt_text": {"type": "string"},
             "description": {"type": "string"},
+            # A short title (what the picture shows, 2-6 words): a bulk upload with a template names each picture with it,
+            # so the entries are titled by it instead of the camera's file name (IMG_4491). Optional; nothing else reads it.
+            "name": {"type": "string"},
         },
         "required": ["alt_text"],
     }
@@ -213,8 +216,9 @@ class GenerateAltTextOperation(AIOperation):
         filename = asset.get("name", "this image")
         instruction = (
             f"Write alt text for the image '{filename}'. {context_clause} "
-            f"Alt text should be under 125 characters and describe what is shown.\n\n"
-            f'Return JSON: {{"alt_text": "...", "description": "longer description"}}'
+            f"Alt text should be under 125 characters and describe what is shown. The name is a short title for the picture, "
+            f"2 to 6 words, naming what it shows (e.g. Red cardinal ornament), never the file name.\n\n"
+            f'Return JSON: {{"alt_text": "...", "description": "longer description", "name": "short title"}}'
         )
         image_data = asset.get("image_data")
         user_content = [instruction, ImagePart(data=image_data, mime_type=asset.get("mime_type") or "image/png")] if image_data else instruction

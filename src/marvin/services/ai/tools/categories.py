@@ -106,6 +106,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "read_attachment": "library_read",  # reads a document's text; writes nothing back
     "workspace_overview": "library_read",  # counts + index coverage; the "what is in the RAG?" answer
     "import_asset": "assets_import",
+    "apply_preset": "assets_import",  # makes treated versions of pictures; the originals are never changed
     "move_to_assets": "assets_import",  # files an Ask file (chat attachment) in the library; reversible
     "list_events": "automation_read",
     "describe_event": "automation_read",
