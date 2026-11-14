@@ -308,6 +308,32 @@ class TestTreating:
         done = _treat(pw, [bad.id, good.id])
         assert done["made"] == 1 and done["failed"] == 1 and done["errors"][0].startswith("Bad:")
 
+    def test_a_failure_after_a_good_picture_keeps_that_picture_whole_and_placed(self, pw):
+        """Good then bad in one chunk: the bad one's rollback must not undo the good one's metadata or its placement."""
+        good, bad = pw.stored("Good"), pw.stored("Bad")
+        pw.store.put(storage_key=bad.storage_key, file_data=io.BytesIO(b"not a picture"), content_type="image/png")
+        e = pw.entry("Good")
+        pw.session.add(EntryAssets(id=uuid.uuid4(), entry_id=e.id, asset_id=good.id, role="featured", position=0))
+        pw.session.commit()
+        work = P.Work(
+            entry_type_id=pw.type.id, preset_slug="ornament-look", preset_name="Ornament look",
+            recipe=P.recipe_of(P.preset_of(pw.type, "ornament-look")), items=[(good.id, e.id), (bad.id, None)], role="featured",
+        )  # fmt: skip
+        done = P.execute(pw.session, pw.gid, work)
+        assert done["made"] == 1 and done["failed"] == 1 and done["placed"] == 1
+        treated = pw.session.get(Assets, uuid.UUID(done["treated"][str(good.id)]))
+        pw.session.refresh(treated)
+        assert treated.metadata_json["picture_preset"] == "ornament-look" and treated.metadata_json["preset_steps"].startswith("crop 1:1")
+        assert _links(pw, e.id) == [(treated.id, "featured")]
+
+    def test_a_misspelt_grade_name_is_refused_when_planned(self, pw):
+        row = pw.session.get(EntryTypes, pw.type.id)
+        row.picture_presets_json = P.check_presets([LOOK, {"slug": "typo", "name": "Typo", "steps": [{"op": "grade", "preset": "warmm"}]}])
+        pw.session.commit()
+        src = pw.stored("Owl")
+        with pytest.raises(P.PresetError, match="no grade 'warmm' \\(grades: .*warm"):
+            P.plan_for_assets(pw.session, pw.gid, "artwork", [str(src.id)], preset="typo")
+
     def test_the_statement_count_grows_only_with_the_pictures_made(self, pw):
         """Planning reads a fixed number of statements, whatever the number of pictures."""
         engine = pw.session.get_bind()
@@ -405,6 +431,24 @@ class TestTemplates:
         assert "Needs a name" not in plain["rows"][0]["tags"]  # only when asked
         assert T.named_after_file("img 4491") and T.named_after_file("DSC_0042.jpeg") and T.named_after_file("20241201_143022")
         assert not T.named_after_file("Snowy Owl") and not T.named_after_file("Ornament 7")
+
+
+class TestTemplateStatements:
+    @staticmethod
+    def _statements(pw, n: int) -> int:
+        ids = [str(pw.stored(f"S{i}", _png(color=(i, 20, 20))).id) for i in range(n)]
+        engine = pw.session.get_bind()
+        seen: list = []
+        listen = lambda *a: seen.append(a[2])  # noqa: E731
+        sa.event.listen(engine, "before_cursor_execute", listen)
+        try:
+            T.describe(T.plan_from_assets(pw.session, pw.gid, "artwork", "treated", ids, mark_unnamed=True))
+        finally:
+            sa.event.remove(engine, "before_cursor_execute", listen)
+        return len(seen)
+
+    def test_planning_with_a_preset_reads_the_same_whatever_the_number_of_pictures(self, pw):
+        assert self._statements(pw, 5) == self._statements(pw, 60)
 
 
 class TestEntries:

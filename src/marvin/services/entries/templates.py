@@ -519,7 +519,7 @@ def plan_from_assets(
 
     refs = _check_size(assets, "pictures")
     entry_type, template, parsed, today = _start(session, group_id, entry_type_ref, template_slug)
-    preset, recipe = _preset(entry_type, template)
+    preset, recipe = _preset(session, entry_type, template)
     ids, slugs = _ids_and_slugs(refs)
     conditions = [c for c in (Assets.id.in_(ids) if ids else None, Assets.slug.in_(slugs) if slugs else None) if c is not None]
     found = session.query(Assets).filter(Assets.group_id == group_id, sa.or_(*conditions)).all()
@@ -607,7 +607,7 @@ def plan_from_assets(
     )
 
 
-def _preset(entry_type, template) -> tuple:
+def _preset(session, entry_type, template) -> tuple:
     """(the template's picture preset, its recipe), or (None, None) when it names none."""
     if not template.picture_preset:
         return None, None
@@ -615,7 +615,7 @@ def _preset(entry_type, template) -> tuple:
 
     try:
         preset = picture_presets.preset_of(entry_type, template.picture_preset)
-        return preset, picture_presets.recipe_of(preset)
+        return preset, picture_presets._recipe(preset, session, entry_type.group_id)
     except picture_presets.PresetError as e:
         raise TemplateError(f"template '{template.slug}': {e}") from e
 
@@ -664,7 +664,7 @@ def plan_for_entries(session, group_id, entry_type_ref, template_slug, entries, 
 
     refs = _check_size(entries, "entries")
     entry_type, template, parsed, today = _start(session, group_id, entry_type_ref, template_slug)
-    preset, recipe = _preset(entry_type, template)
+    preset, recipe = _preset(session, entry_type, template)
     ids, slugs = _ids_and_slugs(refs)
     conditions = [c for c in (Entries.id.in_(ids) if ids else None, Entries.slug.in_(slugs) if slugs else None) if c is not None]
     found = session.query(Entries).filter(Entries.group_id == group_id, sa.or_(*conditions)).all()

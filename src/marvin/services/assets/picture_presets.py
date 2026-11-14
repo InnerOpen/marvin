@@ -364,7 +364,7 @@ def plan_for_assets(session, group_id, entry_type_ref, assets, *, preset=None, t
 
     refs = _check_size(assets, "pictures")
     entry_type, p, _ = resolve(session, group_id, entry_type_ref, preset, template)
-    recipe = _recipe(p)
+    recipe = _recipe(p, session, group_id)
     ids, slugs = _ids_and_slugs(refs)
     conditions = [c for c in (Assets.id.in_(ids) if ids else None, Assets.slug.in_(slugs) if slugs else None) if c is not None]
     found = session.query(Assets).filter(Assets.group_id == group_id, sa.or_(*conditions)).all()
@@ -401,7 +401,7 @@ def plan_for_entries(session, group_id, entry_type_ref, entries, *, preset=None,
 
     refs = _check_size(entries, "entries")
     entry_type, p, tmpl = resolve(session, group_id, entry_type_ref, preset, template)
-    recipe = _recipe(p)
+    recipe = _recipe(p, session, group_id)
     role = (role or (tmpl.treated_role if tmpl is not None else None) or "featured").strip()
     asset_field = tmpl.asset_field if tmpl is not None else None
     ids, slugs = _ids_and_slugs(refs)
@@ -449,11 +449,20 @@ def plan_for_entries(session, group_id, entry_type_ref, entries, *, preset=None,
     return _settled(Plan(entry_type=entry_type, preset=p, recipe=recipe, rows=rows, role=role, asset_field=asset_field))
 
 
-def _recipe(preset) -> list:
+def _recipe(preset, session=None, group_id=None) -> list:
+    """The preset's recipe, its named grades checked against the workspace's (a misspelt one would otherwise grade nothing)."""
     try:
-        return recipe_of(preset)
+        recipe = recipe_of(preset)
     except PresetError as e:
         raise PresetError(f"picture preset '{preset.slug}': {e}") from e
+    named = [s["preset"] for s in recipe if s["op"] == "grade" and s.get("preset")]
+    if named and session is not None:
+        from marvin.services.ai.media.enrichment import grade_presets
+
+        known = grade_presets(session, group_id)
+        if unknown := [n for n in named if n not in known]:
+            raise PresetError(f"picture preset '{preset.slug}': no grade '{unknown[0]}' (grades: {', '.join(sorted(known))})")
+    return recipe
 
 
 def _settled(plan: Plan) -> Plan:
@@ -616,12 +625,11 @@ def _treated(session, group_id, src, work: Work, grades: dict, detector, context
             if again is not None and again.trashed_at is None:
                 return again, True
     produced = treat(data, recipe, grades, subject=subject)
-    asset = media._store(session, group_id, OP, {"preset": work.preset_slug}, src, produced, slug, context, user_id=actor_id)
-    meta = {**(asset.metadata_json or {}), "picture_preset": work.preset_slug, "preset_name": work.preset_name, "preset_steps": steps_text(recipe)}
+    extra = {"picture_preset": work.preset_slug, "preset_name": work.preset_name, "preset_steps": steps_text(recipe)}
     if recipe is not work.recipe:
-        meta["focus_note"] = "no subject found (or no vision model): cropped from the centre"
-    asset.metadata_json = meta
-    session.flush()
+        extra["focus_note"] = "no subject found (or no vision model): cropped from the centre"
+    # Stored, metadata and all, in one write that commits: a later picture's failure (a rollback) can't undo it.
+    asset = media._store(session, group_id, OP, {"preset": work.preset_slug}, src, produced, slug, context, user_id=actor_id, extra=extra)
     return asset, False
 
 

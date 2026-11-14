@@ -431,15 +431,15 @@ def _produce(session, group_id, op: str, args: dict, src, data: bytes, detector,
     return produced, box
 
 
-def _store(session, group_id, op: str, args: dict, src, data: bytes, slug: str, context: dict, *, user_id):
-    """Keep the new image as an asset with its lineage; the source is left as it was."""
+def _store(session, group_id, op: str, args: dict, src, data: bytes, slug: str, context: dict, *, user_id, extra: dict | None = None):
+    """Keep the new image as an asset with its lineage (and ``extra`` metadata); the source is left as it was."""
     from marvin.db.models.platform.assets import Assets
     from marvin.services.ai.media import ops
     from marvin.services.assets.asset_storage_service import AssetRejected
 
     fmt = ops.format_of(data)
     name = f"{src.name or src.filename} ({_describe(op, args)})"
-    lineage = {"derivation": f"media:{op}:{_canonical(args)}", "media_op": op, **run_lineage(context)}
+    lineage = {"derivation": f"media:{op}:{_canonical(args)}", "media_op": op, **run_lineage(context), **(extra or {})}
     try:
         read = _storage(session, group_id).create_derivative(
             source=src,
