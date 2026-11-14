@@ -21,7 +21,7 @@ let saveError: SaveError | null = null;
 // If the role lookup fails, try the load anyway: the API still refuses non-admins.
 let canManage = true;
 try {
-  canManage = await canManageCurrentWorkspace(authToken);
+  canManage = await canManageCurrentWorkspace(authToken, Astro.locals);
 } catch (e) {
   console.error("[clients/edit] Error checking role:", e);
 }

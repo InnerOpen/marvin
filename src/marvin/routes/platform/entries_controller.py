@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import UUID4
 
 from marvin.db.models.platform import Entries, EntryCollections, EntryTypes
+from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import (
     editable_entry,
@@ -11,9 +12,20 @@ from marvin.routes._base.checks import (
     require_can_edit_entry,
     require_playbook_rules,
     require_workspace_admin,
+    require_workspace_role,
 )
 from marvin.routes._base.paging import paged
-from marvin.schemas.platform import CollectionRead, EntryCreate, EntryQueryRequest, EntryQueryResult, EntryRead, EntryUpdate
+from marvin.schemas.platform import (
+    CollectionRead,
+    EntryBulkDeleteJob,
+    EntryBulkDeletePreview,
+    EntryBulkDeleteRequest,
+    EntryCreate,
+    EntryQueryRequest,
+    EntryQueryResult,
+    EntryRead,
+    EntryUpdate,
+)
 from marvin.services.entries import EntryService, trash
 from marvin.services.entries.entry_service import TRASHED, count_by_status, count_by_type, restore_status
 from marvin.services.entry_listing import only_listed
@@ -109,6 +121,75 @@ class EntriesController(BaseUserController):
             return EntryQueryResult(entries=[], total=0, note=result.note, unknown_ops=list(result.unknown_ops or []))
         rows = with_read_relations(self.session, result.rows)
         return EntryQueryResult(entries=entries_for([EntryRead.model_validate(e) for e in rows], self._full_ip()), total=result.total)
+
+    def _rank(self) -> int:
+        """The caller's workspace rank (WORKSPACE_ROLE_HIERARCHY; a role-bypassing platform admin counts as OWNER)."""
+        from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
+        from marvin.routes._base.checks import _bypasses_workspace_roles
+
+        return 5 if _bypasses_workspace_roles(self.user) else WORKSPACE_ROLE_HIERARCHY.get(self.user.get_workspace_role(self.group_id), 0)
+
+    def _bulk_checked(self, spec: dict, mode: str) -> dict:
+        """403 when the caller may not delete what `spec` selects in `mode`; 400 for a spec a bulk delete refuses. Returns
+        the preview."""
+        from marvin.services.entries import bulk_delete
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)  # below that, nothing more to ask
+        try:
+            refused = bulk_delete.refusal(self.session, self.group_id, spec, mode, role=self._rank(), user_id=self.user.id)
+            if refused:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=refused)
+            return bulk_delete.preview(self.session, self.group_id, spec, mode=mode)
+        except bulk_delete.BulkDeleteError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    @router.post("/bulk-delete/preview", response_model=EntryBulkDeletePreview, summary="Preview a bulk delete")
+    def preview_bulk_delete(self, body: EntryBulkDeleteRequest) -> dict:
+        """What a bulk delete of the entries `spec` selects would remove now, counted by entry type. Changes nothing. Run it
+        first: the delete takes its `total` back as `confirmTotal`. 403 when the caller could not do the delete (permanent:
+        ADMIN/OWNER; trash: whoever may delete those entries one by one). Declared before `/{item_id}`."""
+        return self._bulk_checked(body.spec, body.mode)
+
+    @router.post("/bulk-delete", response_model=EntryBulkDeleteJob, status_code=status.HTTP_202_ACCEPTED, summary="Delete entries in bulk")
+    def bulk_delete_entries(self, body: EntryBulkDeleteRequest) -> dict:
+        """Move the entries `spec` selects to the Trash (`mode` trash: restorable; each slug is moved aside so new entries
+        can use it, and a restore gives it back while it is still free) or delete them for good (`mode` permanent,
+        ADMIN/OWNER). Assets and resources are never deleted. `confirmTotal` must be the preview's `total`: when the
+        selection no longer counts that many it is a 409 with the fresh preview in `detail`, and nothing is done.
+
+        It runs in the background, 500 entries per transaction, and answers at once with the job; `GET
+        /entries/bulk-delete` says how far it is. One at a time per workspace (409 while one runs). The entries send no
+        `entry_trashed` / `entry_deleted` each: one `entries_bulk_deleted` says what went. Declared before `/{item_id}`."""
+        from marvin.services.entries import bulk_delete
+
+        found = self._bulk_checked(body.spec, body.mode)
+        if body.confirm_total is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="confirmTotal is required: the total the preview counted.")
+        if body.confirm_total != found["total"]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"message": str(bulk_delete.BulkDeleteMismatch(body.confirm_total, found)), "preview": found},
+            )
+        if not found["total"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The selection is empty: there is nothing to delete.")
+        job = bulk_delete.start_job(
+            self.group_id, body.spec, mode=body.mode, total=found["total"], actor_id=self.user.id, description=body.description
+        )
+        if job is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="A bulk delete is already running in this workspace: wait for it to finish."
+            )
+        return job
+
+    @router.get("/bulk-delete", response_model=EntryBulkDeleteJob | None, summary="Where a bulk delete stands")
+    def bulk_delete_status(self) -> dict | None:
+        """The workspace's bulk delete in progress (`done` of `total`), or its last one since the server started; null
+        when there was none. A restart forgets this, never what was deleted: the `entries_bulk_deleted` event is the
+        record. Declared before `/{item_id}`."""
+        from marvin.services.entries import bulk_delete
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
+        return bulk_delete.job_status(self.group_id)
 
     @router.get("/counts", summary="Entry counts by status")
     def entry_counts(self) -> dict[str, int]:

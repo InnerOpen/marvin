@@ -10,7 +10,7 @@ import { NO_SYSTEM_USES_NOTE, PLAYBOOKS_PATH, type PlaybookUse, sourceLine, swit
 import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
 
 const { name } = Astro.params;
-const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 let playbook: SystemPlaybookRead | null = null;
 let uses: PlaybookUse[] = [];
@@ -18,7 +18,7 @@ let canManage = false;
 let error: string | null = null;
 let restricted = false;
 try {
-  canManage = canManageWorkspace(await listWorkspaces(authToken), user);
+  canManage = canManageWorkspace(await listWorkspaces(authToken, Astro.locals), user);
   if (name) {
     playbook = await getSystemPlaybook(name, authToken).catch((e) => {
       if (e?.status === 404) return null;

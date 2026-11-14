@@ -6,7 +6,8 @@ from in ``metadata_json.trash`` so a restore can put it back (a published entry 
 Nothing is lost until the Trash is emptied — by a workspace ADMIN/OWNER (``empty_trash``), by "Delete
 forever" on one trashed entry, or by the auto-empty purge (``purge_expired``) once an entry has been in
 the Trash longer than the workspace allows. All three delete through EntryService.delete, so
-``entry_deleted`` fires and the junction rows go with the entry, as for any delete.
+``entry_deleted`` fires and the junction rows go with the entry, as for any delete — except entries a bulk delete
+put there (``metadata_json.trash.bulk``), which go set-based (bulk_delete.purge) with no event each, as they came.
 
 How long the Trash keeps entries is a platform default (platform_settings key ``trash``, a super admin
 sets it; 30 days out of the box) that a workspace may override (group_preferences.trash_auto_empty_days;
@@ -116,14 +117,23 @@ def trashed_ids(session, group_id) -> list:
 
 def delete_forever(session, group_id, entry_ids, *, actor_id=None, event_bus=None, integration_id: str = "entry_management") -> int:
     """Permanently delete these entries — only those still in the Trash — through EntryService.delete
-    (one `entry_deleted` each). An id already gone or restored meanwhile is skipped, so a second run
-    (another replica, a double click) deletes nothing twice. Returns how many were deleted."""
+    (one `entry_deleted` each); those a bulk delete put there set-based, with no event each (bulk_delete.purge). An id
+    already gone or restored meanwhile is skipped, so a second run (another replica, a double click) deletes nothing
+    twice. Returns how many were deleted."""
     from marvin.db.models.platform.entries import Entries
     from marvin.services.entries import EntryService
 
+    from .bulk_delete import purge
+
+    # What a bulk delete put in the Trash goes the way it came: set-based, no entry_deleted each (it sent no entry_trashed).
+    records = session.query(Entries.id, Entries.metadata_json).filter(
+        Entries.group_id == group_id, Entries.id.in_(list(entry_ids)), Entries.status == TRASHED
+    )
+    bulk = [r[0] for r in records if ((r[1] or {}).get("trash") or {}).get("bulk")] if entry_ids else []
+    deleted = purge(session, group_id, bulk) if bulk else 0
     svc = EntryService(session, group_id, event_bus=event_bus, actor_id=actor_id, integration_id=integration_id)
-    deleted = 0
-    for entry_id in entry_ids:
+    went_bulk = {str(i) for i in bulk}
+    for entry_id in [i for i in entry_ids if str(i) not in went_bulk]:
         row = session.get(Entries, entry_id)
         if row is None or row.group_id != group_id or row.status != TRASHED:
             continue

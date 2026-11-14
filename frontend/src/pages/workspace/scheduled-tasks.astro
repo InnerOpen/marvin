@@ -21,7 +21,7 @@ let restrictedNote: string | null = null;
 // Editors read the page; switching, running, editing and deleting are ADMIN (the API refuses anyone else).
 let canManage = false;
 try {
-  canManage = canManageWorkspace(await listWorkspaces(authToken), (await sdk.user.getProfile()) as any);
+  canManage = canManageWorkspace(await listWorkspaces(authToken, Astro.locals), (await sdk.user.getProfile()) as any);
 } catch {
   // unknown role: read-only
 }

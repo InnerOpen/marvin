@@ -3,7 +3,7 @@ import AdminLayout from "@/layouts/AdminLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
 
-const currentUser = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const currentUser = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 
 const authToken = getAuthToken(Astro.cookies);
 let groups: any[] = [];

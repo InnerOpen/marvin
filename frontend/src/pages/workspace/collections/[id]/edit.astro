@@ -15,7 +15,7 @@ import { EDITORS_ONLY } from "@/lib/workspaceRole";
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
 // Editing a collection is EDITOR+ (the API answers others with 403).
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 
 let collection: CollectionRead | null = null;
 let collectionEntries: EntryRead[] = [];
@@ -36,7 +36,7 @@ if (!authToken) {
     [collection, page, types] = await Promise.all([
       getCollection(id, authToken),
       fetchApiPage<EntryRead>(`/api/platform/collections/${encodeURIComponent(id)}/entries?limit=${per}&offset=${offset}`, authToken),
-      listEntryTypes(authToken).catch(() => []),
+      listEntryTypes(authToken, Astro.locals).catch(() => []),
     ]);
     collectionEntries = page.items;
     entriesTotal = page.total;

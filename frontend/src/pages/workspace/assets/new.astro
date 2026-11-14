@@ -9,11 +9,11 @@ import { AUTHORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 // Uploading is AUTHOR+ (the API answers a VIEWER with 403).
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 // The workspace an upload is meant for: one that waits for a connection is sent there only (lib/uploadQueue.ts).
 let workspaceId = "";
 try {
-  if (authToken) workspaceId = (await getCurrentWorkspace(authToken))?.id ?? "";
+  if (authToken) workspaceId = (await getCurrentWorkspace(authToken, Astro.locals))?.id ?? "";
 } catch {
   /* without it a failed upload just fails, as before */
 }

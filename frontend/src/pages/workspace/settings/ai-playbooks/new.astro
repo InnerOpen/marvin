@@ -8,10 +8,10 @@ import { requireAuth } from "@/lib/auth";
 import { EMPTY_FORM } from "@/lib/playbooks";
 import { canManageWorkspace } from "@/lib/workspaceRole";
 
-const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 let canPublish = false;
 try {
-  canPublish = canManageWorkspace(await listWorkspaces(getAuthToken(Astro.cookies)), user);
+  canPublish = canManageWorkspace(await listWorkspaces(getAuthToken(Astro.cookies), Astro.locals), user);
 } catch {
   // unknown role: offer drafts only; the API decides on save
 }

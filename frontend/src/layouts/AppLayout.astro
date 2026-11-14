@@ -28,6 +28,8 @@ import { getSummary as getSocialInboxSummary } from "@/lib/api/socialInbox";
 import { getTrashCounts } from "@/lib/api/trash";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import { getContentAccess } from "@/lib/api/workspaces";
+import { readCurrentWorkspace, readProfile } from "@/lib/api/self";
+import { getTheme } from "@/lib/api/theme";
 import { logoUrl } from "@/lib/integrationLogo";
 import { listedTypes } from "@/lib/entryTypeListing";
 import { isSubmissionsPath, showAudienceGroup, submissionsNav, subscribersNav } from "@/lib/audience";
@@ -88,65 +90,36 @@ const path = Astro.url.pathname;
 // Invitations, Entry Types, Tags and Publishing live outside /workspace/settings. The path test covers pages with no crumb.
 const underSettings = (crumb != null && (navUnder(crumb, "settings") || navUnder(crumb, "automation"))) || /^\/(workspace\/settings|automation)(\/|$)/.test(path);
 const width = Astro.props.width ?? (underSettings ? "page" : "full");
+// The layout's reads go out together, each with its own fallback, rather than one after another; they are awaited below,
+// after the menus' lists. Those the page, the middleware or the components below also make (who is signed in, their
+// workspaces, the current one, the entry types…) are this request's (`Astro.locals`, lib/requestCache.ts): one call each.
 // Non-production instances (backend ENVIRONMENT_LABEL) badge the header and prefix the tab title.
-const environmentLabel = await getEnvironmentLabel();
+const environmentLabelRead = getEnvironmentLabel();
 
 // Check if user is admin and get platform role
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
-let isAdmin = false;
-let isSuperAdmin = false;
-let currentUserId: string | null = null;
-try {
-  const currentUser = (await sdk.user.getProfile()) as any;
-  currentUserId = currentUser?.id ?? null;
-  isAdmin = currentUser?.admin === true;
-  isSuperAdmin = currentUser?.platformRole === "SUPER_ADMIN";
-
-  if (import.meta.env.DEV) {
-    console.debug("[AppLayout] User role check:", {
-      admin: isAdmin,
-      superAdmin: isSuperAdmin,
-      platformRole: currentUser?.platformRole,
-      workspaceMemberships: currentUser?.workspaceMemberships,
-    });
-    console.debug("[AppLayout] Full user object:", currentUser);
-  }
-} catch (e) {
-  // Not logged in or error
-}
+const profileRead = readProfile(authToken, Astro.locals).catch(() => null);
 
 // Entries badge: how many entries wait in `inbox` (agents and forms drop drafts there). Best-effort —
 // a failed count just hides the badge.
 // The installed app's icon adds the approvals waiting for you in any workspace (GET /api/self/push/badge).
-let inboxCount = 0;
-let appBadge = 0;
-if (authToken) {
-  try {
-    const badge = await fetchApi<{ inbox: number; count: number }>("/api/self/push/badge", {}, authToken);
-    inboxCount = Number(badge.inbox ?? 0);
-    appBadge = Number(badge.count ?? inboxCount);
-  } catch {
-    inboxCount = appBadge = 0;
-  }
-}
+const badgeRead = authToken ? fetchApi<{ inbox: number; count: number }>("/api/self/push/badge", {}, authToken).catch(() => null) : Promise.resolve(null);
 
 // The Social group under Audience, with how many comments are new. Drawn only when an enabled integration offers a `social.*`
 // capability (the summary's `show`); a member below EDITOR gets a 403 and no group. Best-effort, and asked alongside the Ask check below.
-const socialInbox = authToken ? getSocialInboxSummary(authToken).catch(() => null) : Promise.resolve(null);
+const socialInbox = authToken ? getSocialInboxSummary(authToken, false, Astro.locals).catch(() => null) : Promise.resolve(null);
 // Submissions, beside it: one child per form that sends its submissions to the Audience (the default for a form), with how many wait.
 // Drawn only while such a form exists; a member below EDITOR gets a 403 and no fold.
 const audienceInbox = authToken ? getAudienceSummary(authToken).catch(() => null) : Promise.resolve(null);
-
 // Ask link: hidden while the workspace has the Ask page invocation source switched off. Best-effort — a
 // failed read keeps the link (the page explains itself).
-let askLinkShown = true;
+const askRead = authToken ? sdk.ai.settings.get().then((settings) => sourceAllowed((settings as any)?.invocationSources, "ask_page")).catch(() => true) : Promise.resolve(true);
+// What the components below read (the workspace switcher and Marvin: the current workspace; the theme switcher: the
+// theme), started now so it is waiting for them. Only what they would read anyway: the theme switcher isn't drawn embedded.
 if (authToken) {
-  try {
-    askLinkShown = sourceAllowed(((await sdk.ai.settings.get()) as any)?.invocationSources, "ask_page");
-  } catch {
-    askLinkShown = true;
-  }
+  readCurrentWorkspace(authToken, Astro.locals).catch(() => null);
+  if (Astro.url.searchParams.get("embed") !== "1") getTheme(authToken, Astro.locals).catch(() => null);
 }
 
 // The New menu: this workspace's entry types (the dashboard's Quick Create, in reach from every page). Best-effort.
@@ -170,13 +143,13 @@ let trashTotal: number | null = null;
 if (authToken) {
   try {
     const [types, access, colls, aTypes, rTypes, trash, wizards] = await Promise.all([
-      listEntryTypes(authToken),
-      getContentAccess(authToken),
-      listCollections(authToken),
+      listEntryTypes(authToken, Astro.locals),
+      getContentAccess(authToken, Astro.locals),
+      listCollections(authToken, Astro.locals),
       listAssetTypes(authToken).catch(() => []),
       listResourceTypes(authToken).catch(() => []),
       getTrashCounts(authToken).catch(() => null),
-      listWizards(authToken).catch(() => []),
+      listWizards(authToken, undefined, Astro.locals).catch(() => []),
     ]);
     guided = wizards.map((w) => ({ slug: w.slug, name: w.name }));
     trashTotal = trash?.total ?? null;
@@ -199,6 +172,31 @@ if (authToken) {
     newTypes = [];
   }
 }
+const environmentLabel = await environmentLabelRead;
+let isAdmin = false;
+let isSuperAdmin = false;
+let currentUserId: string | null = null;
+// Not logged in or error: the profile is null.
+const currentUser = (await profileRead) as any;
+if (currentUser) {
+  currentUserId = currentUser?.id ?? null;
+  isAdmin = currentUser?.admin === true;
+  isSuperAdmin = currentUser?.platformRole === "SUPER_ADMIN";
+
+  if (import.meta.env.DEV) {
+    console.debug("[AppLayout] User role check:", {
+      admin: isAdmin,
+      superAdmin: isSuperAdmin,
+      platformRole: currentUser?.platformRole,
+      workspaceMemberships: currentUser?.workspaceMemberships,
+    });
+    console.debug("[AppLayout] Full user object:", currentUser);
+  }
+}
+const badge = await badgeRead;
+const inboxCount = badge ? Number(badge.inbox ?? 0) : 0;
+const appBadge = badge ? Number(badge.count ?? inboxCount) : 0;
+const askLinkShown = await askRead;
 const socialSummary = await socialInbox;
 const socialGroup = socialNav(socialSummary);
 const onSocial = isSocialPath(Astro.url.pathname);

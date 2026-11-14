@@ -9,7 +9,7 @@ import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
 // Moving to the library is AUTHOR+ (like uploading there); the Trash is EDITOR+.
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 
 let files: any[] = [];
 let error: string | null = null;

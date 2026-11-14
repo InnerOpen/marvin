@@ -9,7 +9,7 @@ let workspaces = [];
 let error: string | null = null;
 
 try {
-  workspaces = await listWorkspaces(authToken);
+  workspaces = await listWorkspaces(authToken, Astro.locals);
 } catch (e) {
   error = e instanceof Error ? e.message : String(e);
 }

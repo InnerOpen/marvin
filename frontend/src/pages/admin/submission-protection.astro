@@ -10,7 +10,7 @@ import {
 } from "@/lib/api/submissionProtection";
 import { requireAdmin } from "@/lib/auth";
 
-await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 
 let settings: SubmissionProtectionSettings | null = null;

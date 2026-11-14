@@ -680,6 +680,17 @@ def get_payload_example(event_type: str) -> dict:
             "days": 30,
             "trashCollectionId": "<collection-uuid>",
         },
+        "entries_bulk_deleted": {
+            "documentType": "generic",
+            "operation": "delete",
+            "workspaceId": "<workspace-uuid>",
+            "workspaceName": "My Workspace",
+            "mode": "trash",
+            "total": 1889,
+            "byType": {"beat": 600, "speech-line": 770, "sound": 310},
+            "description": "what the import made for “The Last Onion”",
+            "complete": True,
+        },
         "trash_emptied": {
             "documentType": "generic",
             "operation": "delete",

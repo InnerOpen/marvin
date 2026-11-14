@@ -144,13 +144,13 @@ const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, ctx);
 if (authToken && def && step) {
   if (step.show && entries[step.show.entry]) {
     const shown = entries[step.show.entry];
-    const shownType = await typeBySlug(entryTypeOf(def, step.show.entry) ?? "", authToken);
+    const shownType = await typeBySlug(entryTypeOf(def, step.show.entry) ?? "", authToken, Astro.locals);
     showTitle = shown.title;
     showHref = `/workspace/entries/${shown.id}`;
     showLines = shownLines(shown.dataJson, shownType?.schemaJson as any, step.show.fields);
   }
   if (step.kind === "choose" || step.kind === "list") {
-    const type = await typeBySlug(step.entry_type, authToken);
+    const type = await typeBySlug(step.entry_type, authToken, Astro.locals);
     missingType = !type;
     typeName = type?.name ?? step.entry_type;
     if (step.kind === "choose") {
@@ -168,20 +168,20 @@ if (authToken && def && step) {
   } else if (step.kind === "form" || step.kind === "upload") {
     entry = entries[step.entry] ?? null;
     if (step.kind === "upload" && entry) {
-      const role = fieldRole(await typeBySlug(entryTypeOf(def, step.entry), authToken), step.field);
+      const role = fieldRole(await typeBySlug(entryTypeOf(def, step.entry), authToken, Astro.locals), step.field);
       const attached = (entry.assets ?? []) as { role?: string }[];
       currentPicture = step.mode === "asset" ? cardPicture(entry.assets, role) : null;
       uploadHeld = hasValue(entry.dataJson?.[step.field]) || attached.some((a) => a.role === role);
     }
     if (step.kind === "form") {
-      const type = await typeBySlug(entryTypeOf(def, step.entry), authToken);
+      const type = await typeBySlug(entryTypeOf(def, step.entry), authToken, Astro.locals);
       const all = fieldsOf(type, step.fields);
       formFields = simple(all);
       leftOut = all.filter((f) => !SIMPLE_FIELD_TYPES.includes(f.type));
       refs = await refsFor(formFields);
     }
   } else if (step.kind === "gallery") {
-    const type = await typeBySlug(step.entry_type, authToken);
+    const type = await typeBySlug(step.entry_type, authToken, Astro.locals);
     missingType = !type;
     typeName = type?.name ?? step.entry_type;
     galleryFields = (type as any)?.schemaJson?.fields ?? [];
@@ -235,7 +235,7 @@ if (authToken && def && step) {
     const holder = step.report ? entries[step.report.entry] : null;
     const text = holder ? String(holder.dataJson?.[step.report.field] ?? "").trim() : "";
     if (holder && text) {
-      const label = step.report.label ?? fieldsOf(await typeBySlug(entryTypeOf(def, step.report.entry), authToken), [step.report.field])[0]?.label ?? step.report.field;
+      const label = step.report.label ?? fieldsOf(await typeBySlug(entryTypeOf(def, step.report.entry), authToken, Astro.locals), [step.report.field])[0]?.label ?? step.report.field;
       report = { label, text, title: holder.title, href: `/workspace/entries/${holder.id}` };
     }
     const cards = await approvalCards(step.workflow, authToken);

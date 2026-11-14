@@ -14,7 +14,7 @@ import { bodyFieldOf, isShareId } from "@/lib/share";
 import { AUTHORS_ONLY } from "@/lib/workspaceRole";
 
 // Signed out → login → back here, the share id included.
-await requireAuth(Astro.cookies, Astro.redirect, `${Astro.url.pathname}${Astro.url.search}`);
+await requireAuth(Astro.cookies, Astro.redirect, `${Astro.url.pathname}${Astro.url.search}`, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 
 const shareId = Astro.url.searchParams.get("id") ?? "";
@@ -31,7 +31,7 @@ let canAuthor = false;
 let canEdit = false;
 try {
   let access: Awaited<ReturnType<typeof getContentAccess>>;
-  [workspaces, entryTypes, access] = await Promise.all([listWorkspaces(authToken), listEntryTypes(authToken), getContentAccess(authToken)]);
+  [workspaces, entryTypes, access] = await Promise.all([listWorkspaces(authToken, Astro.locals), listEntryTypes(authToken, Astro.locals), getContentAccess(authToken, Astro.locals)]);
   ({ canAuthor, canEdit } = access);
 } catch (e) {
   console.error("[share] Failed to load the workspace:", e);

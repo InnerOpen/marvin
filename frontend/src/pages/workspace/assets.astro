@@ -12,13 +12,14 @@ import { listTrashedAssets } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { getMimeCategory } from "@/lib/assetCategory";
 import ListSort from "@/components/ListSort.astro";
+import ListBar from "@/components/ListBar.astro";
 import { DECISIONS, isFiltered, isUnsearchableImage, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
 import { decisionOf } from "@/lib/assetLineage";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; uploading is AUTHOR+, editing and deleting assets EDITOR+.
-const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 // The filters live in the URL (lib/assetLibraryView.ts): the API returns exactly the matching assets, with versions
 // folded under their original unless shown.
 const view = readLibraryView(Astro.url.searchParams);
@@ -39,7 +40,7 @@ try {
     fetchApi<unknown[]>("/api/platform/assets?scope=ask", {}, authToken).catch(() => []),
     listTrashedAssets(authToken).catch(() => []),
     listTags(authToken).catch(() => []),
-    listCollections(authToken).catch(() => []),
+    listCollections(authToken, Astro.locals).catch(() => []),
     listAssetTypes(authToken).catch(() => []),
   ]);
   typesInUse = types;
@@ -117,7 +118,6 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
           )}
         </Fragment>
       </FilterSearch>
-      <ListSort options={SORTS} value={view.sort} />
 
       {rows.length === 0 && (isFiltered(view) || view.status) ? (
         <div class="empty-state">
@@ -151,7 +151,8 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
               <p id="describe-status" class="describe-status" aria-live="polite"></p>
             </div>
           )}
-          <div class="view-toggle">
+          <ListBar>
+            <div class="view-toggle">
             <button class="toggle-btn active" id="view-grid" title="Thumbnails">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
               Cards
@@ -161,6 +162,8 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
               List
             </button>
           </div>
+            <Fragment slot="sort"><ListSort options={SORTS} value={view.sort} /></Fragment>
+          </ListBar>
 
           <div id="table-view" class="view-section" style="display:none;">
             <AssetList assets={rows} inTrash={view.status === "trashed"} canEdit={access.canEdit} versionsHref={(asset) => viewHref(view, { source: asset.id, versions: false })} />

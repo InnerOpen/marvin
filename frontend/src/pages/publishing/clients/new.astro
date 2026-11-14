@@ -9,7 +9,7 @@ import { API_CLIENTS_ADMIN_ONLY } from "@/lib/workspaceRole";
 // If the role lookup fails, show the form anyway: the API still refuses non-admins.
 let canManage = true;
 try {
-  canManage = await canManageCurrentWorkspace(getAuthToken(Astro.cookies));
+  canManage = await canManageCurrentWorkspace(getAuthToken(Astro.cookies), Astro.locals);
 } catch (e) {
   console.error("[clients/new] Error checking role:", e);
 }

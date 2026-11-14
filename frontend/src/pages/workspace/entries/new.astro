@@ -20,7 +20,7 @@ if (!authToken) {
   return Astro.redirect("/auth/login");
 }
 // Creating entries is AUTHOR+ (the API answers a VIEWER with 403).
-const access = await getContentAccess(authToken);
+const access = await getContentAccess(authToken, Astro.locals);
 
 let error: string | null = null;
 // A failed create re-renders the form with what was submitted and says why above it.
@@ -39,7 +39,7 @@ if (Astro.request.method === "POST") {
     let fieldTypes: Record<string, string> = {};
     if (entryTypeId) {
       try {
-        const type = (await listEntryTypes(authToken)).find((t) => t.id === entryTypeId);
+        const type = (await listEntryTypes(authToken, Astro.locals)).find((t) => t.id === entryTypeId);
         fieldTypes = fieldTypeMap(type?.schemaJson);
       } catch (e) {
         console.error("[NewEntry] Could not load schema for field coercion:", e);
@@ -90,7 +90,7 @@ let pickerAssets: ReturnType<typeof assetItem>[] = [];
 let pickerResources: ReturnType<typeof resourceItem>[] = [];
 
 try {
-  entryTypes = await listEntryTypes(authToken);
+  entryTypes = await listEntryTypes(authToken, Astro.locals);
   // For the schema's asset / resource fields; a failure here only leaves those pickers empty.
   [pickerAssets, pickerResources] = await Promise.all([
     getAssets(authToken, { sort: "newest" }).then((a) => a.map(assetItem)).catch(() => []),

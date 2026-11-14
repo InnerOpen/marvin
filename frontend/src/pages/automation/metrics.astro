@@ -19,7 +19,7 @@ try {
   if (isForbidden(e)) restricted = true;
   else error = e instanceof Error ? e.message : String(e);
 }
-const canRemove = await canManageCurrentWorkspace(authToken!).catch(() => false);
+const canRemove = await canManageCurrentWorkspace(authToken!, Astro.locals).catch(() => false);
 const data = JSON.stringify({ metrics, observations, canRemove }).replace(/</g, "\\u003c");
 ---
 

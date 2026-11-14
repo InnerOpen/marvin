@@ -17,7 +17,7 @@ type ConsentView = {
   status: string; pinned: boolean; clientName: string; redirectHost: string; wantsWrite: boolean; consentNonce: string | null; workspaces: Workspace[];
 };
 
-const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname + Astro.url.search);
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname + Astro.url.search, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 const ref = Astro.url.searchParams.get("req") ?? "";
 Astro.response.headers.set("X-Frame-Options", "DENY");

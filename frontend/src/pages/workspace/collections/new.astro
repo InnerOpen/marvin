@@ -16,7 +16,7 @@ if (!authToken) {
   return Astro.redirect("/auth/login");
 }
 // Creating collections is EDITOR+ (the API answers others with 403).
-const access = await getContentAccess(authToken);
+const access = await getContentAccess(authToken, Astro.locals);
 
 // Handle form submission (server-side)
 if (Astro.request.method === "POST") {

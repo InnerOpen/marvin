@@ -8,7 +8,7 @@ import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
 // Entry types are admin-only to change (the API answers members with 403); if the role can't be read, let the API decide.
-const adminOnly = !!authToken && !(await canManageCurrentWorkspace(authToken).catch(() => true));
+const adminOnly = !!authToken && !(await canManageCurrentWorkspace(authToken, Astro.locals).catch(() => true));
 ---
 
 <AppLayout crumb="settings.entry-types.new" adminOnly={adminOnly}>

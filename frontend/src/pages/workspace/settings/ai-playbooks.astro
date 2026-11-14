@@ -25,7 +25,7 @@ import {
 } from "@/lib/playbooks";
 import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
 
-const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 let list: PlaybookList | null = null;
 let system: SystemPlaybookItem[] = [];
@@ -35,7 +35,7 @@ let restricted = false;
 try {
   list = await listPlaybooks(authToken);
   system = await listSystemPlaybooks(authToken).catch(() => []); // the System section is a nicety: the page works without it
-  canManage = canManageWorkspace(await listWorkspaces(authToken), user);
+  canManage = canManageWorkspace(await listWorkspaces(authToken, Astro.locals), user);
 } catch (e) {
   if (isForbidden(e)) restricted = true;
   else error = e instanceof Error ? e.message : String(e);

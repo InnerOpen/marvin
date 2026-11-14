@@ -62,7 +62,7 @@ try {
 // Best-effort too: without them the select offers only the field's current ref.
 let refTypes: Array<{ slug: string; name: string }> = [];
 try {
-  refTypes = (await listEntryTypes(getAuthToken(Astro.cookies) ?? ""))
+  refTypes = (await listEntryTypes(getAuthToken(Astro.cookies) ?? "", Astro.locals))
     .map((t) => ({ slug: t.slug, name: t.name }))
     .sort((a, b) => a.name.localeCompare(b.name));
 } catch (e) {

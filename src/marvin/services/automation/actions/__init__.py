@@ -11,6 +11,7 @@ from . import (  # noqa: E402,F401
     approval,
     automation_result,
     collect,
+    delete_entries,
     email,
     emit_event,
     entry,

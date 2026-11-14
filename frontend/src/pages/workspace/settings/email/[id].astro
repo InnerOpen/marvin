@@ -7,7 +7,7 @@ import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 // Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
-const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
+const adminOnly = !(await canManageCurrentWorkspace(authToken!, Astro.locals).catch(() => true));
 const sdk = createSdkClient(authToken);
 const { id } = Astro.params;
 
@@ -21,7 +21,7 @@ let error: string | null = null;
 const apiUrl = getBrowserFetchBaseUrl();
 
 try {
-  const workspace = await getCurrentWorkspace(authToken!);
+  const workspace = await getCurrentWorkspace(authToken!, Astro.locals);
   wsId = (workspace as any)?.id ?? (workspace as any)?.groupId ?? null;
 
   if (!wsId) throw new Error("Could not determine workspace ID");

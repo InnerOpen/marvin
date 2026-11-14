@@ -25,7 +25,7 @@ import {
   systemEmailNote,
 } from "@/lib/eventConnections";
 
-await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 const authToken = getAuthToken(Astro.cookies);
 
 const filters = parseFilters(Astro.url.searchParams);

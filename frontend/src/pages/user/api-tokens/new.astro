@@ -6,7 +6,7 @@ import { listWorkspaces } from "@/lib/api/workspaces";
 import { getAuthToken } from "@/lib/api/client";
 
 // The workspaces this person belongs to, for pinning a token. Empty on failure: the token is then simply global.
-const workspaces = await listWorkspaces(getAuthToken(Astro.cookies)).catch(() => [] as WorkspaceWithMembership[]);
+const workspaces = await listWorkspaces(getAuthToken(Astro.cookies), Astro.locals).catch(() => [] as WorkspaceWithMembership[]);
 ---
 
 <AppLayout title="New API Token" eyebrow="User Settings">

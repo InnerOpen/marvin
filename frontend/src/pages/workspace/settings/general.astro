@@ -10,7 +10,7 @@ import { navHref } from "@/lib/navTree";
 import { requireAuth } from "@/lib/auth";
 import { AUTO_EMPTY_CHOICES, autoEmptyLabel } from "@/lib/trash";
 
-const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname, Astro.locals);
 
 const authToken = getAuthToken(Astro.cookies);
 let workspace = null;
@@ -21,7 +21,7 @@ let isPlatformAdmin = false;
 let trashSettings: TrashAutoEmpty | null = null;
 
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
 
   if (workspace) {
     // Get workspace preferences

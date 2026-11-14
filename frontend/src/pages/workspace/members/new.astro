@@ -13,7 +13,7 @@ if (!authToken) {
   error = "Not authenticated";
 } else {
   try {
-    workspace = await getCurrentWorkspace(authToken);
+    workspace = await getCurrentWorkspace(authToken, Astro.locals);
   } catch (e) {
     console.error("[members/new] Error:", e);
     error = e instanceof Error ? e.message : String(e);

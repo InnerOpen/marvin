@@ -7,7 +7,7 @@ import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/worksp
 
 const authToken = getAuthToken(Astro.cookies);
 // Members may read templates; changing or test-sending them is admin-only (the API answers 403).
-const canManage = await canManageCurrentWorkspace(authToken!).catch(() => true);
+const canManage = await canManageCurrentWorkspace(authToken!, Astro.locals).catch(() => true);
 
 let workspace = null;
 let emailTemplates = [];
@@ -21,7 +21,7 @@ type BrandValues = { productName: string; footerText: string; accentColor: strin
 let branding: (BrandValues & { effective: BrandValues }) | null = null;
 
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
   const wsId = (workspace as any)?.id ?? (workspace as any)?.groupId;
   const base = getBrowserApiBaseUrl();
   const hdrs = authToken ? { Authorization: `Bearer ${authToken}` } : {};

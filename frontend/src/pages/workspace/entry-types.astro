@@ -8,7 +8,7 @@ import { internalReason, lockReason } from "@/lib/entryTypeListing";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; creating, editing and deleting entry types is admin-only (if the role can't be read, let the API decide).
-const canManage = authToken ? await canManageCurrentWorkspace(authToken).catch(() => true) : true;
+const canManage = authToken ? await canManageCurrentWorkspace(authToken, Astro.locals).catch(() => true) : true;
 
 let entryTypes: EntryTypeRead[] = [];
 let entryCounts = new Map<string, number>();
@@ -21,7 +21,7 @@ if (!authToken) {
   try {
     let byType: Record<string, number>;
     [entryTypes, byType] = await Promise.all([
-      listEntryTypes(authToken),
+      listEntryTypes(authToken, Astro.locals),
       // Entries per type, counted as the list counts them (no Trash); a type with none is absent.
       fetchApi<Record<string, number>>("/api/platform/entries/counts/by-type", { method: "GET" }, authToken),
     ]);

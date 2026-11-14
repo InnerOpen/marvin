@@ -9,7 +9,7 @@ import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 // Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
-const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
+const adminOnly = !(await canManageCurrentWorkspace(authToken!, Astro.locals).catch(() => true));
 const sdk = createSdkClient(authToken);
 
 let eventTypes: any[] = [];

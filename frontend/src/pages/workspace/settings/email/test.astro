@@ -6,11 +6,11 @@ import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/worksp
 
 const authToken = getAuthToken(Astro.cookies);
 // Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
-const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
+const adminOnly = !(await canManageCurrentWorkspace(authToken!, Astro.locals).catch(() => true));
 
 let workspace = null;
 try {
-  workspace = await getCurrentWorkspace(authToken);
+  workspace = await getCurrentWorkspace(authToken, Astro.locals);
 } catch (e) {
   console.error("[email-test] Error loading workspace:", e);
 }
