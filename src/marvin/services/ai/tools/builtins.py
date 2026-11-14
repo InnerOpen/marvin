@@ -833,6 +833,7 @@ def list_templates(ctx: ToolContext, args: dict) -> str:
         "required": ["entry_type", "assets"],
     },
     min_role=ROLE_AUTHOR,
+    read_only=False,
 )
 def apply_preset(ctx: ToolContext, args: dict) -> str:
     from marvin.services.assets import picture_presets as presets
