@@ -2,7 +2,7 @@
 
 import { acceptKind, assetIsKind, isKind } from "./acceptKind";
 import { type Ctx, type Step, StepError, type WizardDefinition, assetSpec, entryTypeOf, joinList, listOf, mergePicks, picksAssets, picksProblem, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
-import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, entryOfType, findAssets, findEntries, picksOf, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
+import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, fromTemplate, entryOfType, findAssets, findEntries, picksOf, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
   ctx: Ctx;
@@ -247,6 +247,11 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
     // The asset carries the name the person gave it (with the file's own ending), not whatever the file was called ("recording.webm").
     const ending = /\.[a-z0-9]{1,5}$/i.exec(file.name)?.[0] ?? "";
     const assetId = await uploadAsset(file, `${step.entry_type}-${title}`, authToken, `${title}${ending}`);
+    if (step.upload.template) {
+      // The step names one of the type's templates: the entry is made with it (and its picture preset), not from the step's own data.
+      await fromTemplate(step.entry_type, step.upload.template, assetId, title, authToken);
+      return { ctx, stay: true, notice: "added" };
+    }
     // A sound's length is measured in the browser as it is picked (a file's own length is not stored anywhere else) and kept on the new entry.
     const seconds = step.upload.seconds ? measuredSeconds(text(form, "upload_seconds")) : null;
     const lengthData = step.upload.seconds && seconds !== null ? { [step.upload.seconds]: seconds } : {};

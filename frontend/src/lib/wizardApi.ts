@@ -83,6 +83,17 @@ export async function createOf(type: EntryTypeRead, title: string, data: Record<
   return (await createEntry({ entry_type_id: type.id, title, status: "draft", data_json: data } as any, authToken)) as unknown as Row;
 }
 
+/** Make the entry for an uploaded picture with one of its type's templates (POST /entries/from-template): the template's
+ *  values, the picture in its place and, when the template names a picture preset, the treated picture once it is made
+ *  (in the background). A picture an entry of the type already has fills that entry instead. */
+export async function fromTemplate(entryType: string, template: string, assetId: string, title: string, authToken: string): Promise<void> {
+  await fetchApi(
+    "/api/platform/entries/from-template",
+    { method: "POST", body: JSON.stringify({ entryType, template, assets: [assetId], titles: { [assetId]: title }, markUnnamed: true, preview: false }) },
+    authToken,
+  );
+}
+
 /** Move an entry to the Trash (restorable from there). */
 export async function trashEntry(id: string, authToken: string): Promise<void> {
   await fetchApi(`/api/platform/entries/${encodeURIComponent(id)}`, { method: "DELETE" }, authToken);

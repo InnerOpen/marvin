@@ -450,11 +450,15 @@ class IntegrationAction(_StepBase):
 
 # What each media op takes beside source / attach_as — the media step's executor reads the same table
 # (services/automation/actions/media.py).
+MEDIA_GRADE_SETTINGS = ("brightness", "contrast", "saturation", "warmth", "vignette")
+"""A grade's free settings (services/ai/media/transforms.py GRADE_SETTINGS has their ranges): over its preset's, or alone."""
+MEDIA_FOCUS_PATTERN = r"^\s*(center|subject|([01](\.\d+)?|\.\d+)\s*,\s*([01](\.\d+)?|\.\d+))\s*$"
+"""A crop's focus: center, subject, or a fixed point "x,y" (0..1 from the left and from the top)."""
 MEDIA_OP_ARGS: dict[str, tuple[str, ...]] = {
     "resize": ("width", "height", "fit", "format", "quality"),
     "crop": ("aspect", "focus", "format", "quality"),
     "convert": ("format", "quality"),
-    "grade": ("preset", "format", "quality"),
+    "grade": ("preset", *MEDIA_GRADE_SETTINGS, "format", "quality"),
     "inspect": (),
     "palette": ("colors",),
     "render": ("template", "html", "width", "height", "fields", "images", "format", "quality"),
@@ -466,7 +470,22 @@ MEDIA_OP_ARGS: dict[str, tuple[str, ...]] = {
     "watermark": ("text", "logo", "position", "opacity", "size", "format", "quality"),
 }
 MEDIA_ARG_FIELDS = (
-    *("width", "height", "fit", "aspect", "focus", "format", "quality", "preset", "colors", "template", "html", "fields", "images"),
+    *(
+        "width",
+        "height",
+        "fit",
+        "aspect",
+        "focus",
+        "format",
+        "quality",
+        "preset",
+        *MEDIA_GRADE_SETTINGS,
+        "colors",
+        "template",
+        "html",
+        "fields",
+        "images",
+    ),
     *("ocr", "page", "count", "find", "boxes", "files", "name", "text", "logo", "position", "opacity", "size"),
 )
 MEDIA_ASPECT_PATTERN = r"^\s*[1-9]\d{0,2}\s*[:x/]\s*[1-9]\d{0,2}\s*$"
@@ -493,10 +512,17 @@ class MediaAction(_StepBase):
     height: int | None = Field(default=None, ge=1, le=10_000)  # resize: at most this tall
     fit: Literal["inside", "cover"] | None = None  # resize: inside (default) keeps it all; cover fills width × height
     aspect: str | None = Field(default=None, pattern=MEDIA_ASPECT_PATTERN)  # crop: 1:1, 4:5, 16:9…
-    focus: Literal["center", "subject"] | None = None  # crop: subject asks a vision model where the subject is
+    # crop: center (default); subject asks a vision model where the subject is; "x,y" (0..1) keeps that point, e.g. 0.5,0.3
+    focus: str | None = Field(default=None, pattern=MEDIA_FOCUS_PATTERN)
     format: Literal["jpeg", "png", "webp", "pdf"] | None = None  # convert; re-encodes any op that makes an image; pdf: a printed render
     quality: int | None = Field(default=None, ge=1, le=100)  # jpeg / webp quality (default 90)
     preset: str | None = None  # grade: a colour preset (built-in or the workspace's)
+    # grade: free settings, over the preset's or alone. Factors, 1 = as it is (1.1 = 10% more); warmth > 1 warms, < 1 cools
+    brightness: float | None = Field(default=None, ge=0, le=3)
+    contrast: float | None = Field(default=None, ge=0, le=3)
+    saturation: float | None = Field(default=None, ge=0, le=3)
+    warmth: float | None = Field(default=None, ge=0.5, le=1.5)
+    vignette: float | None = Field(default=None, ge=0, le=1)  # grade: how much the corners darken (0 none, 1 black)
     colors: int | None = Field(default=None, ge=1, le=16)  # palette: how many (default 5)
     template: str | None = None  # render: a built-in template (card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper)
     html: str | None = Field(default=None, max_length=200_000)  # render: or the step's own HTML/CSS ({{ fields.x }}, {{ images.y }})
@@ -541,8 +567,8 @@ class MediaAction(_StepBase):
             raise ValueError("crop needs an aspect like 1:1, 4:5 or 16:9")
         if self.op == "convert" and not self.format:
             raise ValueError("convert needs a format: jpeg, png or webp")
-        if self.op == "grade" and not (self.preset or "").strip():
-            raise ValueError("grade needs a preset")
+        if self.op == "grade" and not (self.preset or "").strip() and all(getattr(self, k) is None for k in MEDIA_GRADE_SETTINGS):
+            raise ValueError(f"grade needs a preset or a setting ({', '.join(MEDIA_GRADE_SETTINGS)})")
         if self.op == "render":
             if bool(self.template) == bool(self.html):
                 raise ValueError("render needs a template (a built-in one) or its own html — one of them")
@@ -787,6 +813,37 @@ class ApplyTemplateAction(_StepBase):
         return self
 
 
+class ApplyPicturePresetAction(_StepBase):
+    """Treats pictures with an entry type's picture preset. The preset (or a `template`'s) crops, sizes, grades and converts
+    in one pass. `assets` treats those pictures; `entries` treats each entry's picture and puts the treated one in
+    its place (the template's treated role, featured by default, and its asset field). A list of ids or slugs, or a
+    template naming one (${steps.<collect>.output.ids}); at most 200. `mode` preview (the default) changes nothing; apply
+    makes them here, needs `confirm_total` (the preview's todo) and outputs `treated` (original → treated id) and `ids`.
+    Each original makes one new picture kept as its version (reused by a re-run); originals are never changed, and no
+    asset_uploaded is sent. Entries need an EDITOR author."""
+
+    kind: Literal["apply_picture_preset"]
+    entry_type: str
+    preset: str | None = None
+    template: str | None = None
+    assets: list | str | None = None
+    entries: list | str | None = None
+    role: str | None = None
+    mode: Literal["preview", "apply"] = "preview"
+    confirm_total: int | str | None = None
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if not (self.preset or self.template):
+            raise ValueError("name a preset, or a template that has one")
+        if bool(self.assets) == bool(self.entries):
+            raise ValueError("give assets (pictures to treat) or entries (whose pictures to treat), one of them")
+        if self.mode != "preview" and self.confirm_total in (None, ""):
+            raise ValueError("an apply needs confirm_total: the preview step's todo (${steps.<id>.output.todo})")
+        return self
+
+
 class AutomationResultAction(_StepBase):
     """Settles a hand-off's result. For work an integration action that declares `hands_off` handed to another system (its results are listed
     under Settings > Automation > Results). `status` is the other system's own word for how it went (a template is fine), turned into
@@ -1025,6 +1082,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "delete_entries": DeleteEntriesAction,
     "create_entries_from_template": CreateEntriesFromTemplateAction,
     "apply_template": ApplyTemplateAction,
+    "apply_picture_preset": ApplyPicturePresetAction,
     "automation_result": AutomationResultAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
@@ -1051,6 +1109,7 @@ Action = Annotated[
     | DeleteEntriesAction
     | CreateEntriesFromTemplateAction
     | ApplyTemplateAction
+    | ApplyPicturePresetAction
     | AutomationResultAction
     | WaitAction
     | RepeatAction

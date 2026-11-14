@@ -27,7 +27,7 @@ from marvin.services.entry_privacy import can_see_full_ip, metadata_for
 from marvin.services.entry_urls import best_entry_url, site_base_url
 
 from ..entity_resolve import resolve_entity_id, resolve_retrieved_sources
-from ..operations.base import ROLE_ADMIN
+from ..operations.base import ROLE_ADMIN, ROLE_EDITOR
 from .base import ToolContext, register_tool
 
 
@@ -809,12 +809,48 @@ def list_templates(ctx: ToolContext, args: dict) -> str:
                     "assetField": t.asset_field,
                     "assetRole": t.asset_role,
                     "status": t.status,
+                    **({"picturePreset": t.picture_preset} if t.picture_preset else {}),
                 }
             )
     answer: dict = {"templates": out, "count": len(out)}
     if not out:
         answer["note"] = "no templates yet: an admin adds them in the entry type's settings"
     return json.dumps(answer)
+
+
+@register_tool(
+    name="apply_preset",
+    description="Treat pictures with one of an entry type's picture presets (crop, size, colour, format; get_entry_type lists them) or the preset a template names: each makes ONE new picture kept as a version of the original (never changed; a re-run reuses it). confirm false (the default) only previews; confirm true starts it in the background and answers its job. Entries made with that template get the treated pictures by themselves.",  # noqa: E501
+    input_schema={
+        "type": "object",
+        "properties": {
+            "entry_type": {"type": "string", "description": "the entry type (slug or id) the preset belongs to"},
+            "preset": {"type": "string", "description": "the preset's slug"},
+            "template": {"type": "string", "description": "or a template's slug: its preset is used"},
+            "assets": {"type": "array", "items": {"type": "string"}, "description": "asset ids or slugs (at most 200)"},
+            "confirm": {"type": "boolean", "description": "true does it; false (default) previews"},
+        },
+        "required": ["entry_type", "assets"],
+    },
+    min_role=ROLE_EDITOR,  # a writing tool: assistants write at EDITOR (tests/test_content_role_gates.py)
+    read_only=False,
+)
+def apply_preset(ctx: ToolContext, args: dict) -> str:
+    from marvin.services.assets import picture_presets as presets
+
+    try:
+        plan = presets.plan_for_assets(
+            ctx.session, ctx.group_id, args.get("entry_type"), args.get("assets") or [], preset=args.get("preset"), template=args.get("template")
+        )
+    except presets.PresetError as e:
+        return json.dumps({"error": str(e)})
+    said = presets.describe(plan)
+    brief = {k: said[k] for k in ("preset", "steps", "create", "reuse", "skip", "todo", "text")}
+    if not args.get("confirm"):
+        return json.dumps({**brief, "preview": True, "note": "nothing made yet: call again with confirm true"})
+    work = presets.work_of(plan)
+    job = presets.start_job(ctx.group_id, work, actor_id=getattr(ctx.user, "id", None)) if work.items else None
+    return json.dumps({**brief, "preview": False, "job": job and {"id": job["id"], "state": job["state"], "total": job["total"]}})
 
 
 @register_tool(

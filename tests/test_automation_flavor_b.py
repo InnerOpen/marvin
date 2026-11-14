@@ -368,6 +368,7 @@ class TestActionRegistry:
             "delete_entries",
             "create_entries_from_template",
             "apply_template",
+            "apply_picture_preset",
             "automation_result",
             "wait",
             "repeat",
