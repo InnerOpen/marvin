@@ -366,6 +366,8 @@ class TestActionRegistry:
             "metric",
             "snapshot",
             "delete_entries",
+            "create_entries_from_template",
+            "apply_template",
             "automation_result",
             "wait",
             "repeat",

@@ -41,6 +41,14 @@ from .entries import (
     EntryUpdate,
     ResourceAttachment,
 )
+from .entry_templates import (
+    EntriesApplyTemplateRequest,
+    EntriesFromTemplateRequest,
+    EntryTemplate,
+    EntryTemplatePicture,
+    EntryTemplateResult,
+    EntryTemplateRow,
+)
 from .entry_types import (
     EntryTypeCreate,
     EntryTypeRead,
@@ -101,6 +109,12 @@ __all__ = [
     "EntryBulkDeletePreview",
     "EntryBulkDeleteRequest",
     "EntryBulkDeleteType",
+    "EntriesApplyTemplateRequest",
+    "EntriesFromTemplateRequest",
+    "EntryTemplate",
+    "EntryTemplatePicture",
+    "EntryTemplateResult",
+    "EntryTemplateRow",
     "EntryCreate",
     "EntryQueryRequest",
     "EntryQueryResult",

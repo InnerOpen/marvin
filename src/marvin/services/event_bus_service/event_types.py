@@ -339,6 +339,7 @@ class EventTypes(EventTypeBase):
     trash_auto_empty_soon = auto()
     trash_emptied = auto()
     entries_bulk_deleted = auto()
+    entry_template_applied = auto()
     """Event dispatched once a day per workspace when the Trash's auto-empty will delete items forever within a day."""
 
     # ==========================================================================
@@ -1474,6 +1475,27 @@ class EventEntriesBulkDeletedData(EventDocumentDataBase):
     """What the caller said the entries were (e.g. what an import made for a story)."""
     complete: bool = True
     """False when the job stopped part way (an error): ``total`` is what went before it stopped."""
+
+
+class EventEntryTemplateAppliedData(EventDocumentDataBase):
+    """Data payload for `entry_template_applied`: a template made entries from pictures and/or filled existing ones, in
+    one go (services/entries/templates.py). The entries send no ``entry_created`` / ``entry_updated`` of their own: this
+    one event stands for all of them."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    workspace_id: UUID4
+    workspace_name: str | None = None
+    entry_type: str
+    """The entry type's slug."""
+    template: str
+    """The template's slug."""
+    template_name: str | None = None
+    created: int = 0
+    """How many entries were made."""
+    updated: int = 0
+    """How many existing entries were filled."""
+    entry_ids: list[str] = []
+    """The entries made and filled."""
 
 
 class EventTrashAutoEmptyData(EventDocumentDataBase):

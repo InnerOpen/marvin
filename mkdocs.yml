@@ -71,6 +71,7 @@ nav:
       - Media embeds: whats-new/media-embeds.md
       - Collections: whats-new/collections.md
       - Trash: whats-new/trash.md
+      - Entry templates: whats-new/entry-templates.md
   - Auth & tokens: auth-and-tokens.md
   - The app & push: app-and-push.md
   - Operations: operations.md

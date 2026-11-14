@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 #: Columns an entry type / collection blueprint may carry out of this workspace's own rows. Ids, the workspace and timestamps are not here.
 ENTRY_TYPE_COLUMNS = (
     "name", "icon", "color", "description", "sort_order", "is_rendered", "schema_json", "rendering_json", "capabilities_json", "recipe_json",
-    "page_url_pattern",
+    "page_url_pattern", "templates_json",
 )  # fmt: skip
 COLLECTION_COLUMNS = (
     "name",
@@ -251,7 +251,7 @@ def update(
 
     * a **workflow** this package installed has its steps replaced (its on/off state is kept); one changed in this workspace is reported as
       `edited` and left unless `replace_edits`; one that already matches is re-stamped so it no longer reads as edited;
-    * an **entry type** only gains: the fields, select options and `children` lookups it lacks (see ``apply.update_entry_type``);
+    * an **entry type** only gains: the fields, select options, `children` lookups and templates it lacks (see ``apply.update_entry_type``);
     * a **Playbook** this package installed has its text and files replaced, keeping its id and status; a Playbook of that name that the package
       did not install is left alone and said so;
     * a guided setup and a view are replaced, as on install; everything else is as install leaves it.

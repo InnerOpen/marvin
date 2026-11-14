@@ -739,6 +739,54 @@ class DeleteEntriesAction(_StepBase):
         return self
 
 
+class CreateEntriesFromTemplateAction(_StepBase):
+    """Makes an entry per picture with a type's template. (services/entries/templates.py) `assets` is a list
+    of asset ids or slugs, or a template naming one (${steps.<collect>.output.ids}); at most 200. `mode` preview (the
+    default) answers one row per picture (the title from the picture's name, the values that would be set) and changes
+    nothing; create makes them as the template's status (Inbox), each with the picture in the template's asset field and
+    attached with its role. A picture an entry of this type already has fills that entry instead (empty values only,
+    unless `replace`). A create needs `confirm_total`, the preview step's todo (${steps.<id>.output.todo}): when there is
+    no longer that much to do, it fails and makes nothing. No entry_created per entry; one entry_template_applied."""
+
+    kind: Literal["create_entries_from_template"]
+    entry_type: str
+    template: str
+    assets: list | str
+    mode: Literal["preview", "create"] = "preview"
+    replace: bool = False
+    confirm_total: int | str | None = None
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _confirmed(self):
+        if self.mode != "preview" and self.confirm_total in (None, ""):
+            raise ValueError("a create needs confirm_total: the preview step's todo (${steps.<id>.output.todo})")
+        return self
+
+
+class ApplyTemplateAction(_StepBase):
+    """Fills entries with their type's template. Only what is empty unless `replace` (tags and collections
+    are added; the status is never changed; approved, published and archived entries are left alone). `entries` is a list
+    of entry ids or slugs, or a template naming one; at most 200. `mode` preview (the default) changes nothing; apply
+    fills them, and needs `confirm_total`, the preview step's todo. The workflow's author must be an EDITOR or above. No
+    entry_updated per entry; one entry_template_applied."""
+
+    kind: Literal["apply_template"]
+    entry_type: str
+    template: str
+    entries: list | str
+    mode: Literal["preview", "apply"] = "preview"
+    replace: bool = False
+    confirm_total: int | str | None = None
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _confirmed(self):
+        if self.mode != "preview" and self.confirm_total in (None, ""):
+            raise ValueError("an apply needs confirm_total: the preview step's todo (${steps.<id>.output.todo})")
+        return self
+
+
 class AutomationResultAction(_StepBase):
     """Settles a hand-off's result. For work an integration action that declares `hands_off` handed to another system (its results are listed
     under Settings > Automation > Results). `status` is the other system's own word for how it went (a template is fine), turned into
@@ -975,6 +1023,8 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "metric": MetricAction,
     "snapshot": SnapshotAction,
     "delete_entries": DeleteEntriesAction,
+    "create_entries_from_template": CreateEntriesFromTemplateAction,
+    "apply_template": ApplyTemplateAction,
     "automation_result": AutomationResultAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
@@ -999,6 +1049,8 @@ Action = Annotated[
     | MetricAction
     | SnapshotAction
     | DeleteEntriesAction
+    | CreateEntriesFromTemplateAction
+    | ApplyTemplateAction
     | AutomationResultAction
     | WaitAction
     | RepeatAction

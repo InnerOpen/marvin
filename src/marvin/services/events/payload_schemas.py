@@ -691,6 +691,18 @@ def get_payload_example(event_type: str) -> dict:
             "description": "what the import made for “The Last Onion”",
             "complete": True,
         },
+        "entry_template_applied": {
+            "documentType": "generic",
+            "operation": "create",
+            "workspaceId": "<workspace-uuid>",
+            "workspaceName": "My Workspace",
+            "entryType": "artwork",
+            "template": "ornament",
+            "templateName": "Ornament",
+            "created": 20,
+            "updated": 0,
+            "entryIds": ["<entry-uuid>"],
+        },
         "trash_emptied": {
             "documentType": "generic",
             "operation": "delete",

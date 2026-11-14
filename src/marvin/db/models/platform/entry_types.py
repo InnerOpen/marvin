@@ -55,6 +55,10 @@ class EntryTypes(SqlAlchemyBase, BaseMixins):
     """Authoring recipe: what to gather/derive to build an entry of this type
     (assets contract, resource extraction, enrichment steps) — EntryTypeRecipe."""
 
+    templates_json: Mapped[list | None] = mapped_column("templates_json", sa.JSON(none_as_null=True), nullable=True)
+    """Entry templates: named presets for making entries of this type from pictures (EntryTemplate, services/entries/templates.py).
+    NULL when the type has none, so a type without templates exports and installs exactly as before."""
+
     page_url_pattern: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     """Where the workspace's site renders an entry of this type, e.g. ``/works/{slug}``.
     Optional; resolved by ``marvin.services.entry_urls.entry_url``."""
