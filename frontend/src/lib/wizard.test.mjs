@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf } from "./wizard.ts";
+import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -302,4 +302,128 @@ test("the add form says why a save button is off", () => {
   assert.equal(fileButtonNote(buttons, false, "sound", "Choose, upload or record"), "Choose, upload or record a sound to use “Use my own sound”.");
   assert.equal(fileButtonNote(buttons, true, "sound", "Choose, upload or record"), "A sound is chosen. Remove it to use “Have it made”.");
   assert.equal(fileButtonNote([{ label: "Add" }], false, "sound", "Upload"), "");
+});
+
+// --- a multi-select step: the picks as one value in the address ---------------------------------------------------------------------
+
+const many = {
+  title: "Add artwork from pictures",
+  steps: [
+    { id: "world", kind: "choose", title: "World", as: "world", entry_type: "world" },
+    { id: "pictures", kind: "choose", title: "Pictures", as: "pictures", multiple: true, assets: { asset_type: "image", unused: true, collection: "${world}", nope: "x" } },
+    { id: "troupe", kind: "choose", title: "Troupe", as: "shortlist", multiple: true, optional: true, entry_type: "actor", scope: { world: "${world}" } },
+    { id: "make", kind: "run", title: "Make", workflow: "make", inputs: { pictures: "${pictures}", world: "${world}" } },
+  ],
+};
+
+test("a list of picks is one comma-separated value: in order, each once, only slugs and ids", () => {
+  assert.equal(LIST_SEP, ",");
+  assert.deepEqual(listOf(" nell, granny ,,nell,the-young-man"), ["nell", "granny", "the-young-man"]);
+  assert.deepEqual(listOf("6f1c2e1a-0b5d-4f7e-9c3a-2d4e5f6a7b8c,a b,<x>,-lead"), ["6f1c2e1a-0b5d-4f7e-9c3a-2d4e5f6a7b8c"]);
+  assert.deepEqual(listOf(""), []);
+  assert.deepEqual(listOf(undefined), []);
+  assert.equal(joinList(["b", "a", "b", ""]), "b,a");
+  assert.equal(joinList([]), "");
+});
+
+test("the address carries a list whole, up to the cap; a single value is still cut at 200 characters", () => {
+  const ids = Array.from({ length: 30 }, (_, i) => `picture-${String(i).padStart(2, "0")}-${"x".repeat(60)}`); // 30 × 71 characters
+  const params = new URLSearchParams({ step: "make", world: "w".repeat(300), pictures: ids.join(","), page: "2", per: "25" });
+  const ctx = readCtx(params, listKeys(many));
+  assert.deepEqual(listOf(ctx.pictures), ids, "a list is longer than 200 characters and comes through whole");
+  assert.equal(ctx.world.length, 200, "a single value is cut as before");
+  assert.equal("page" in ctx || "per" in ctx, false, "the page of cards is the page's own, never a choice");
+  // Without the definition's list keys (any caller of old), the value is read as a single value: cut, never split.
+  assert.equal(readCtx(params).pictures.length, 200);
+  const over = Array.from({ length: MAX_PICKS + 5 }, (_, i) => `p${i}`);
+  assert.equal(listOf(readCtx(new URLSearchParams({ pictures: over.join(",") }), listKeys(many)).pictures).length, MAX_PICKS);
+  assert.equal(readCtx(new URLSearchParams({ pictures: ",,<>" }), listKeys(many)).pictures, undefined, "nothing usable is no choice");
+});
+
+test("past the cap the picks are refused with a message, never cut in silence", () => {
+  assert.equal(MAX_PICKS, 100);
+  assert.equal(picksProblem(100), "");
+  assert.match(picksProblem(103), /103 are selected; at most 100 .* Untick 3/);
+  assert.equal(pickedLine(0), "Nothing selected yet");
+  assert.equal(pickedLine(1), "1 selected");
+  assert.equal(pickedLine(42), "42 selected");
+  assert.match(pickedLine(101), /at most 100.*Untick 1/);
+});
+
+test("a page move keeps what was picked on other pages, and of this page exactly what is ticked", () => {
+  // Page 1 shows a, b, c: tick a and c.
+  let picks = mergePicks([], ["a", "b", "c"], ["a", "c"]);
+  assert.deepEqual(picks, ["a", "c"]);
+  // Page 2 shows d, e: tick e. Page 1's picks stay.
+  picks = mergePicks(picks, ["d", "e"], ["e"]);
+  assert.deepEqual(picks, ["a", "c", "e"]);
+  // Back on page 1: untick a, tick b. c keeps its place; e (another page) is untouched; b comes after.
+  picks = mergePicks(picks, ["a", "b", "c"], ["b", "c"]);
+  assert.deepEqual(picks, ["c", "e", "b"]);
+  // A page posted with nothing ticked drops only its own.
+  assert.deepEqual(mergePicks(picks, ["d", "e"], []), ["c", "b"]);
+  // A tick of something the page did not show is not taken.
+  assert.deepEqual(mergePicks([], ["a"], ["a", "zz"]), ["a"]);
+});
+
+test("the picks survive going on and coming back: the address of every step carries them", () => {
+  const ctx = { world: "w", pictures: "p1,p2,p3" };
+  const later = stepHref("art", ctx, "make");
+  const back = new URL(later, "http://x").searchParams;
+  assert.deepEqual(readCtx(back, listKeys(many)), ctx);
+  const there = new URL(stepHref("art", readCtx(back, listKeys(many)), "pictures"), "http://x").searchParams;
+  assert.equal(readCtx(there, listKeys(many)).pictures, "p1,p2,p3");
+  // A run's inputs get the list as the comma-separated text an entry query's `entries` reads.
+  assert.deepEqual(runInputs(many.steps[3], ctx), { pictures: "p1,p2,p3", world: "w" });
+  // A changed world drops the picks made after it, as a single choice would.
+  assert.deepEqual(withoutLater(many, { ...ctx, shortlist: "a,b" }, "world"), { world: "w" });
+  assert.equal(isDone(many.steps[1], ctx), true);
+  assert.equal(isDone(many.steps[2], ctx), false);
+  assert.equal(blocker(many, { world: "w" }, "make")?.id, "pictures", "a multi-select that is not optional must be answered first");
+});
+
+test("a list key is no entry; a multi-select may pick assets with the library's filters", () => {
+  assert.deepEqual([...listKeys(many)], ["pictures", "shortlist"]);
+  assert.equal(entryTypeOf(many, "shortlist"), undefined);
+  assert.equal(entryTypeOf(many, "world"), "world");
+  assert.equal(listStepOf(many, "shortlist")?.id, "troupe");
+  assert.equal(listStepOf(many, "world"), undefined);
+  assert.equal(picksAssets(many.steps[1]), true);
+  assert.equal(picksAssets(many.steps[2]), false);
+  assert.deepEqual(assetSpec(many.steps[1], { world: "grace" }), { asset_type: "image", unused: "true", collection: "grace" });
+  assert.deepEqual(assetSpec(many.steps[1], {}), { asset_type: "image", unused: "true" }, "a filter whose choice is not made narrows nothing");
+});
+
+test("a step without multiple is today's single pick: one value, an entry of its type", () => {
+  const ctx = readCtx(new URLSearchParams("world=w1&story=s1,s2"), listKeys(def));
+  assert.deepEqual(ctx, { world: "w1", story: "s1,s2" }, "a single choice's value is never split");
+  assert.deepEqual([...listKeys(def)], []);
+  assert.equal(entryTypeOf(def, "story"), "story");
+  assert.deepEqual(chooseSpec(def.steps[2], { world: "w", series: "" }), { entry_type: "story", fields: { world: "w" } });
+});
+
+test("an optional choice is skipped by a link: nothing chosen there, later picks dropped, the next step worked out without it", () => {
+  const steps = {
+    title: "T",
+    steps: [
+      { id: "world", kind: "choose", title: "World", as: "world", entry_type: "world" },
+      { id: "how", kind: "option", title: "How", as: "how", optional: true, options: [{ value: "up", label: "Upload" }, { value: "no", label: "No" }] },
+      { id: "file", kind: "upload", title: "File", entry: "world", when: { ctx: "how", op: "eq", value: "up" } },
+      { id: "cast", kind: "choose", title: "Cast", as: "cast", entry_type: "actor", optional: true, multiple: true },
+      { id: "end", kind: "review", title: "End", checks: [] },
+    ],
+  };
+  const ctx = { world: "w", how: "up", cast: "a,b" };
+  const fromHow = skipTo(steps, ctx, steps.steps[1]);
+  assert.deepEqual(fromHow, { ctx: { world: "w" }, step: steps.steps[3] }, "the upload that followed the answer is hidden without it");
+  assert.deepEqual(skipTo(steps, ctx, steps.steps[3]), { ctx: { world: "w", how: "up" }, step: steps.steps[4] });
+  assert.equal(skipTo(steps, ctx, steps.steps[0]), null, "a choice that is not optional is not skipped");
+  assert.equal(skipTo(steps, ctx, steps.steps[2]), null, "other kinds skip to the next step as they are");
+});
+
+test("a pick with no picture named shows the type's first single picture field, never a sound or a list", () => {
+  assert.equal(pictureFieldOf({ schemaJson: { fields: [{ key: "name", type: "text" }, { key: "sheets", type: "asset-list" }, { key: "voice", type: "asset", accept: "audio/*" }, { key: "master", type: "asset", accept: "image/*" }] } }), "master");
+  assert.equal(pictureFieldOf({ schemaJson: { fields: [{ key: "image", type: "asset" }] } }), "image");
+  assert.equal(pictureFieldOf({ schemaJson: { fields: [{ key: "sheets", type: "asset-list" }] } }), undefined);
+  assert.equal(pictureFieldOf(null), undefined);
 });

@@ -104,6 +104,8 @@ With **Assets** or **Resources**, the target is `{"entity": "asset", "query": {â
 | `tags` | has any of these tags, by slug or name (**Tagged**, comma-separated) |
 | `collection` / `collections` | in this collection / any of these (**In collection**) |
 | `unattached` | `true`: used by no entry; `false`: used by at least one (**Used by an entry**). A version made from an original still in the library doesn't count as unattached (it goes with its original) unless the query asks for versions (`versions: true` or `source`) |
+| `unused` | assets only: `true`: on no entry yet: attached to none (as `unattached`) and named by no entry's asset field either (an entry saved before asset fields attached what they name can hold an id it never attached); `false`: the rest. A guided setup's "pictures that have no entry yet" |
+| `ids` | exactly these (ids or slugs; a list or comma-separated text), e.g. `{"ids": "${inputs.pictures}"}` for the pictures a guided setup's multi-select step handed its run. Present but empty matches nothing |
 | `trashed` | `true`: only items in the Trash (**in the Trash**) |
 | `entry` | attached to this entry (id or slug), in the entry's own order â€” a project's pictures or materials: `{"entry": "${entry.id}"}` |
 | `role` | assets only: attached in this role (`hero`), to `entry` or, without it, to any entry |

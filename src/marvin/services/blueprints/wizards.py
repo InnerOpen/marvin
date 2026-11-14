@@ -14,6 +14,14 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   the person make a new one, arriving with ``data`` filled in; ``optional`` lets them skip it. ``create.upload`` ({field, accept?}) makes
   the new one from a file: the picture (or sound) goes into the asset ``field`` and the entry is named for what the person typed, or for
   the file when they typed nothing, so a wizard can start from "upload, or choose one".
+  ``multiple: true`` makes it a multi-select: the cards get a checkbox each, "Select all on this page" and "Clear", and Continue sets
+  ``as`` to the LIST of what was picked: the slugs (of entries) or ids (of assets) joined with commas, at most ``MAX_PICKS``. The cards
+  come a page at a time and the picks ride in the address, so they survive a page move and going back and forth between steps. A list
+  key is no single entry: a run step's ``inputs`` and a review check's query may use ``${key}`` (an entry query's ``entries`` takes the
+  comma-separated text), and ``selection: key`` on any later step shows the picks as cards; a scope, ``create.data``, ``entry``,
+  ``parent``, ``show`` and the like may not. Instead of ``entry_type`` (with ``scope``, ``picture``, ``subtitle``, ``sort``) a multi-select
+  may pick the workspace's assets: ``assets`` holds the Assets library's filters (``ASSET_FILTERS``: ``asset_type``, ``tag``,
+  ``collection``, ``q``, ``origin``, ``unattached``, and ``unused``: true for the files no entry uses yet). It cannot ``create``.
 - ``form``: edit some ``fields`` of the entry in context key ``entry``.
 - ``upload``: a file for the entry in context key ``entry``. ``mode: "asset"`` stores it as an asset in ``field``; ``mode: "text"``
   reads it as text into ``field`` (a script, a beat sheet). ``accept`` lists extensions.
@@ -66,7 +74,10 @@ _ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IG
 MAX_SHOWN = 8
 MAX_PREFILL = 12
 MAX_SCRIPT = 3  # fields of the add form the recorder shows to read from
-RESERVED_KEYS = ("step", "notice", "run")  # address parameters the page uses for itself: never a context key
+RESERVED_KEYS = ("step", "notice", "run", "page", "per")  # address parameters the page uses for itself: never a context key
+MAX_PICKS = 100  # a multi-select step's picks: the address carries them all (frontend/src/lib/wizard.ts MAX_PICKS)
+# The Assets library's filters a multi-select step over assets may use (GET /api/platform/assets takes them as they are).
+ASSET_FILTERS = ("q", "asset_type", "tag", "collection", "unattached", "unused", "origin")
 _STEP_ID = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
 _REF = re.compile(r"\$\{([^}]*)\}")
@@ -108,7 +119,8 @@ def payload_problem(payload: dict, slug: str) -> str | None:
     if len(steps) > MAX_STEPS:
         return f"wizard {slug!r} has more than {MAX_STEPS} steps"
     known: set[str] = set()  # context keys set by an earlier step
-    entries: set[str] = set()  # the ones a `choose` set: the only keys that name an entry
+    entries: set[str] = set()  # the ones a single `choose` set: the only keys that name an entry
+    lists: set[str] = set()  # the ones a multi-select `choose` set: a list of picks, never one entry
     seen: set[str] = set()
     for n, step in enumerate(steps, 1):
         if not isinstance(step, dict):
@@ -127,14 +139,15 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             return f"{label} has kind {kind!r}; it must be one of {', '.join(STEP_KINDS)}"
         if (
             (problem := _check_when(step.get("when"), known, label))
-            or (problem := _check_step(step, kind, known, entries, label, seen - {sid}))
+            or (problem := _check_step(step, kind, known, entries, label, seen - {sid}, lists))
             or (problem := _check_show(step.get("show"), entries, label))
+            or (problem := _check_selection(step.get("selection"), lists, label))
         ):
             return problem
         if kind in ("option", "choose"):
             known.add(step["as"])
         if kind == "choose":
-            entries.add(step["as"])
+            (lists if step.get("multiple") is True else entries).add(step["as"])
     return _check_open(payload.get("open"), entries, slug) or _check_buttons(payload.get("button"), entries, seen, slug)
 
 
@@ -207,6 +220,13 @@ def _check_show(spec: Any, entries: set[str], label: str) -> str | None:
     return None
 
 
+def _check_selection(key: Any, lists: set[str], label: str) -> str | None:
+    """``selection`` on any step: the picks of an earlier multi-select step, shown as cards above it ("these 12 pictures")."""
+    if key is None or key in lists:
+        return None
+    return f"{label}: selection names {key!r}, which no earlier multi-select step (choose with multiple: true) sets"
+
+
 def _check_next(lines: Any, slug: str) -> str | None:
     """``next``: what to do once the wizard is done, each ``{text, href?}``; an href is a path inside the app, never a full address."""
     if lines is None:
@@ -237,9 +257,10 @@ def _check_when(when: Any, known: set[str], label: str) -> str | None:
 class _Step:
     """One step being checked: its label for messages, and the context keys the steps before it set."""
 
-    def __init__(self, step: dict, known: set[str], entries: set[str], label: str, step_ids: set[str] | None = None):
+    def __init__(self, step: dict, known: set[str], entries: set[str], label: str, step_ids: set[str] | None = None, lists: set[str] | None = None):
         self.step, self.known, self.entries, self.label = step, known, entries, label
         self.step_ids = step_ids or set()  # the ids of the steps before this one
+        self.lists = lists or set()  # the keys earlier multi-select steps set
 
     def ctx(self, key: str) -> str | None:
         """`key` of this step names the entry an earlier `choose` step picked."""
@@ -248,6 +269,8 @@ class _Step:
             return f"{self.label}: {key} must name a context key"
         if value in self.entries:
             return None
+        if value in self.lists:
+            return f"{self.label}: {key} names {value!r}, a multi-select step's list of picks, not one entry"
         if value in self.known:
             return f"{self.label}: {key} names {value!r}, which is an option, not an entry an earlier step chose"
         return f"{self.label}: {key} names {value!r}, which no earlier step sets"
@@ -255,6 +278,13 @@ class _Step:
     def refs_known(self, value: Any, what: str) -> str | None:
         bad = next((r for r in _refs(value) if r not in self.known), None)
         return None if bad is None else f"{self.label}: {what} uses ${{{bad}}}, which no earlier step sets"
+
+    def refs_one(self, value: Any, what: str) -> str | None:
+        """Like refs_known, for a value that goes into ONE field (a scope, a new entry's data): a multi-select's list cannot."""
+        if problem := self.refs_known(value, what):
+            return problem
+        bad = next((r for r in _refs(value) if r in self.lists), None)
+        return None if bad is None else f"{self.label}: {what} uses ${{{bad}}}, a list of picks: a field holds one value (use it in a run's inputs)"
 
     def entry_type(self) -> str | None:
         found = self.step.get("entry_type")
@@ -315,7 +345,7 @@ def _check_create(s: _Step, create: Any) -> str | None:
         return f"{s.label}: create.data must be an object"
     if create.get("upload") is not None and (problem := _check_upload_spec(s, create["upload"], "create.upload")):
         return problem
-    return s.refs_known(create.get("data"), "create.data")
+    return s.refs_one(create.get("data"), "create.data")
 
 
 def _check_subtitle(s: _Step) -> str | None:
@@ -328,7 +358,39 @@ def _check_subtitle(s: _Step) -> str | None:
     return f"{s.label}: subtitle must be a field key, or a list of up to three of them"
 
 
+def _check_multiple(s: _Step) -> str | None:
+    """A multi-select choose: ``multiple`` true, cards of ``entry_type`` or of the workspace's ``assets`` (filters), and no ``create``."""
+    step = s.step
+    if step.get("multiple") is not True:
+        if step.get("multiple") is not None and step["multiple"] is not False:
+            return f"{s.label}: multiple is true or false (true: pick several, kept as a list)"
+        return f"{s.label}: assets (cards of the workspace's files) needs multiple: true" if step.get("assets") is not None else None
+    if step.get("create") is not None:
+        return f"{s.label}: a multi-select step picks what there is; it cannot create (make them in a step before it)"
+    assets = step.get("assets")
+    if assets is None:
+        return None
+    if step.get("entry_type") is not None:
+        return f"{s.label}: pick from entry_type or from assets, not both"
+    if not isinstance(assets, dict) or any(k not in ASSET_FILTERS for k in assets):
+        return f"{s.label}: assets is an object of the Assets library's filters: {', '.join(ASSET_FILTERS)}"
+    for key, value in assets.items():
+        if key in ("unattached", "unused") and not isinstance(value, bool):
+            return f"{s.label}: assets.{key} is true or false"
+        texts = isinstance(value, str) or (isinstance(value, list) and all(isinstance(v, str) for v in value))
+        if key not in ("unattached", "unused") and not texts:
+            return f"{s.label}: assets.{key} is text, or a list of texts"
+    for key in ("scope", "picture", "subtitle", "sort"):
+        if step.get(key) is not None:
+            return f"{s.label}: {key} is for entries; a step over assets shows each file's own picture and name"
+    return s.sets_context() or s.refs_one(assets, "assets")
+
+
 def _check_choose(s: _Step) -> str | None:
+    if problem := _check_multiple(s):
+        return problem
+    if s.step.get("assets") is not None:  # a multi-select over assets: _check_multiple checked it all
+        return None
     if s.step.get("sort") not in (None, "natural"):
         return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
     scope, create = s.step.get("scope"), s.step.get("create")
@@ -338,7 +400,7 @@ def _check_choose(s: _Step) -> str | None:
         return f"{s.label}: picture must be a field key"
     if problem := _check_subtitle(s):
         return problem
-    return s.sets_context() or s.entry_type() or s.refs_known(scope, "scope") or (create is not None and _check_create(s, create)) or None
+    return s.sets_context() or s.entry_type() or s.refs_one(scope, "scope") or (create is not None and _check_create(s, create)) or None
 
 
 def _check_form(s: _Step) -> str | None:
@@ -363,7 +425,7 @@ def _check_list(s: _Step) -> str | None:
         s.entry_type()
         or s.ctx("parent")
         or _keys(s.step.get("columns"), f"{s.label}: columns")
-        or s.refs_known(s.step.get("create_data"), "create_data")
+        or s.refs_one(s.step.get("create_data"), "create_data")
     )
 
 
@@ -397,7 +459,7 @@ def _check_run(s: _Step, *, listed: bool = True) -> str | None:
     if requires is not None:
         if not isinstance(requires, dict) or not _is_field(requires.get("field")):
             return f"{s.label}: requires must be {{entry, field}}, the field that has to hold something before it can run"
-        if (problem := _Step(requires, s.known, s.entries, s.label).ctx("entry")) is not None:
+        if (problem := _Step(requires, s.known, s.entries, s.label, lists=s.lists).ctx("entry")) is not None:
             return problem
     return s.refs_known(inputs, "inputs") or (_check_run_list(s) if listed else None)
 
@@ -431,7 +493,7 @@ def _check_run_list(s: _Step) -> str | None:
     if (report := step.get("report")) is not None:
         if not isinstance(report, dict) or not _is_field(report.get("field")):
             return f"{s.label}: report is {{entry, field, label?}}, the field of a chosen entry the run writes"
-        if problem := _Step(report, s.known, s.entries, f"{s.label}: report").ctx("entry"):
+        if problem := _Step(report, s.known, s.entries, f"{s.label}: report", lists=s.lists).ctx("entry"):
             return problem
         if report.get("label") is not None and not (isinstance(report["label"], str) and report["label"].strip() and len(report["label"]) <= 60):
             return f"{s.label}: report.label is a short heading (at most 60 characters)"
@@ -577,7 +639,7 @@ def _check_gallery(s: _Step) -> str | None:
         if prompt is not None and not (isinstance(prompt, dict) and _NAME.match(str(prompt.get("name"))) and isinstance(prompt.get("label"), str)):
             return f"{s.label}: generate.prompt needs a name and a label"
         typed = {prompt["name"]} if isinstance(prompt, dict) else set()
-        if problem := _check_run(_Step(gen, s.known | typed, s.entries, f"{s.label} generate"), listed=False):
+        if problem := _check_run(_Step(gen, s.known | typed, s.entries, f"{s.label} generate", lists=s.lists), listed=False):
             return problem
     return s.entry_type() or (s.ctx("parent") if scoped else None)
 
@@ -601,5 +663,7 @@ _CHECKS = {
 }
 
 
-def _check_step(step: dict, kind: str, known: set[str], entries: set[str], label: str, seen: set[str] | None = None) -> str | None:
-    return _CHECKS[kind](_Step(step, known, entries, label, seen))
+def _check_step(
+    step: dict, kind: str, known: set[str], entries: set[str], label: str, seen: set[str] | None = None, lists: set[str] | None = None
+) -> str | None:
+    return _CHECKS[kind](_Step(step, known, entries, label, seen, lists))
