@@ -27,7 +27,7 @@ from marvin.services.entry_privacy import can_see_full_ip, metadata_for
 from marvin.services.entry_urls import best_entry_url, site_base_url
 
 from ..entity_resolve import resolve_entity_id, resolve_retrieved_sources
-from ..operations.base import ROLE_ADMIN, ROLE_AUTHOR
+from ..operations.base import ROLE_ADMIN, ROLE_EDITOR
 from .base import ToolContext, register_tool
 
 
@@ -832,7 +832,7 @@ def list_templates(ctx: ToolContext, args: dict) -> str:
         },
         "required": ["entry_type", "assets"],
     },
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,  # a writing tool: assistants write at EDITOR (tests/test_content_role_gates.py)
     read_only=False,
 )
 def apply_preset(ctx: ToolContext, args: dict) -> str:

@@ -90,4 +90,4 @@ A guided setup's gallery can do the same for its upload button: `upload.template
 
 **In a workflow.** The step **Treat pictures with a preset** (`apply_picture_preset`) works like the REST call: `mode: preview`, then `mode: apply` with `confirm_total` (the preview's `todo`). It runs in the run itself (a run is already in the background) and outputs `treated` (original → treated id) and `ids`. The media step's `grade` takes the free settings and its `crop` the fixed focus point too.
 
-**The assistants.** `apply_preset` previews a preset on pictures and, with `confirm`, starts the treatment. `list_templates` says which preset a template uses.
+**The assistants.** `apply_preset` (for an EDITOR, like every assistant tool that writes) previews a preset on pictures and, with `confirm`, starts the treatment. `list_templates` says which preset a template uses.
