@@ -65,6 +65,35 @@ def test_unattached_selects_items_on_no_entry_even_a_trashed_one_counts(ws):  # 
     assert _ids(ws, "resource", {"unattached": True}) == {rid}
 
 
+def test_unused_also_leaves_out_what_an_entrys_asset_field_names_without_an_attachment(ws):  # noqa: F811
+    """A guided setup's "pictures with no entry yet": attached to none AND named by no entry's asset field. An entry
+    saved before asset fields attached what they name can hold an id it never attached; that picture is in use."""
+    from marvin.db.models.platform import Entries
+
+    loose, attached, named, in_a_list = ws.asset("loose"), ws.asset("attached"), ws.asset("named"), ws.asset("in-a-list")
+    ws.entry_type.schema_json = {"fields": [{"key": "image", "type": "asset"}, {"key": "gallery", "type": "asset-list"}]}
+    live = ws.entry("artwork")
+    ws.session.add(EntryAssets(entry_id=live, asset_id=attached, position=0))
+    old = ws.session.get(Entries, ws.entry("older-artwork", status="trashed"))  # a trashed entry still uses its pictures
+    old.data_json = {"image": str(named), "gallery": [str(in_a_list)], "note": str(loose)}  # not an asset field: no use
+    ws.session.flush()
+
+    unused = _ids(ws, "asset", {"unused": True})
+    assert loose in unused and not {attached, named, in_a_list} & unused
+    assert {attached, named, in_a_list} <= _ids(ws, "asset", {"unused": "false"}) and loose not in _ids(ws, "asset", {"unused": False})
+    assert named in _ids(ws, "asset", {"unattached": True})  # unattached alone reads only the attachments, as before
+
+
+def test_ids_picks_exactly_these_by_id_or_slug_and_empty_matches_nothing(ws):  # noqa: F811
+    one, two, three = ws.asset("one"), ws.asset("two"), ws.asset("three")
+    slug_two = ws.session.get(Assets, two).slug
+    assert _ids(ws, "asset", {"ids": f"{one},{slug_two}"}) == {one, two}
+    assert _ids(ws, "asset", {"ids": [str(three)]}) == {three}
+    assert item_query.run(ws.session, ws.gid, "asset", {"ids": ""}).note == "ids has no value"
+    assert item_query.unknown_keys("asset", {"ids": "x", "unused": True}) == []
+    assert item_query.unknown_keys("resource", {"unused": True}) == ["unused"]
+
+
 def test_created_dates_and_the_trash(ws):  # noqa: F811
     old, new = ws.asset("old"), ws.asset("new")
     ws.session.get(Assets, old).created_at = datetime.now(UTC) - timedelta(days=90)
@@ -84,6 +113,7 @@ def test_what_cannot_match_says_why_and_matches_nothing(ws):  # noqa: F811
         ({"tags": ["nope"]}, "no such tag"),
         ({"collection": "nope"}, "no such collection"),
         ({"unattached": "maybe"}, "true or false"),
+        ({"unused": "maybe"}, "true or false"),
         ({"created_after": "last tuesday"}, "not a date"),
     ):
         result = item_query.run(ws.session, ws.gid, "asset", spec)

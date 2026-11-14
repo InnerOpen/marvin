@@ -641,3 +641,103 @@ def test_a_wrong_run_list_says_what_is_wrong(settings, words):
 def test_only_a_run_step_counts_what_it_lists():
     """A gallery's generate button runs a workflow too, but lists nothing: its button cannot count."""
     assert "${count}" in (_bad(lambda p: p["steps"][7]["generate"].update(button="Make ${count}")) or "")
+
+
+# --- a multi-select step ----------------------------------------------------------------------------------------------------------------
+
+PICTURES = {
+    "title": "Add artwork from pictures",
+    "steps": [
+        {"id": "world", "kind": "choose", "title": "World", "as": "world", "entry_type": "world"},
+        {
+            "id": "pictures",
+            "kind": "choose",
+            "title": "Pictures",
+            "as": "pictures",
+            "multiple": True,
+            "assets": {"asset_type": "image", "unused": True},
+        },  # noqa: E501
+        {
+            "id": "actors",
+            "kind": "choose",
+            "title": "Look through the troupe",
+            "as": "shortlist",
+            "multiple": True,
+            "optional": True,
+            "entry_type": "actor",
+            "scope": {"world": "${world}"},
+            "picture": "general_view",
+            "subtitle": "build",
+        },
+        {"id": "make", "kind": "run", "title": "Make", "workflow": "kit-mark-sold", "inputs": {"pictures": "${pictures}"}, "selection": "pictures"},
+        {
+            "id": "done",
+            "kind": "review",
+            "title": "Done",
+            "selection": "shortlist",
+            "checks": [{"label": "Made", "query": {"entry_type": "artwork", "entries": "${shortlist}"}, "op": "gte", "value": 1}],
+        },
+    ],
+}
+
+
+FORM = {"id": "f", "kind": "form", "title": "F", "entry": "world", "fields": ["build"]}
+CHOOSE = {"id": "c", "kind": "choose", "title": "C", "as": "c", "entry_type": "x"}
+LIST = {"id": "l", "kind": "list", "title": "L", "entry_type": "x", "parent": "world", "parent_field": "a", "columns": ["a"]}
+
+
+def test_a_choose_step_may_pick_several_entries_or_assets_and_later_steps_use_the_list():
+    assert payload_problem(copy.deepcopy(PICTURES), "pictures") is None
+    assert payload_problem(_with_wizard(payload=PICTURES)["blueprints"][-1]["payload"], "pictures") is None
+
+
+def _pictures(change) -> dict:
+    payload = copy.deepcopy(PICTURES)
+    change(payload["steps"])
+    return payload
+
+
+@pytest.mark.parametrize(
+    "change, words",
+    [
+        (lambda s: s[1].update(multiple="yes"), "multiple is true or false"),
+        (lambda s: s[1].update(multiple=False), "assets (cards of the workspace's files) needs multiple: true"),
+        (lambda s: s[1].update(entry_type="artwork"), "entry_type or from assets, not both"),
+        (lambda s: s[1].update(assets={"mime_type": "image/png"}), "assets is an object of the Assets library's filters"),
+        (lambda s: s[1].update(assets={"unused": "yes"}), "assets.unused is true or false"),
+        (lambda s: s[1].update(assets={"tag": 3}), "assets.tag is text"),
+        (lambda s: s[1].update(picture="image"), "picture is for entries"),
+        (lambda s: s[1].update(assets={"collection": "${nope}"}), "uses ${nope}, which no earlier step sets"),
+        (lambda s: s[2].update(create={"fields": ["build"]}), "cannot create"),
+        (lambda s: s[1].update(**{"as": "page"}), "the page uses that name itself"),
+        (lambda s: s[1].update(**{"as": "per"}), "the page uses that name itself"),
+        # A list of picks is no single entry: a field, a scope, an entry to edit or a parent cannot take it.
+        (
+            lambda s: s.append({"id": "f", "kind": "form", "title": "F", "entry": "shortlist", "fields": ["build"]}),
+            "a multi-select step's list of picks",
+        ),
+        (
+            lambda s: s.append({"id": "c", "kind": "choose", "title": "C", "as": "c", "entry_type": "x", "scope": {"a": "${shortlist}"}}),
+            "a field holds one value",
+        ),
+        (
+            lambda s: s.append(
+                {"id": "l", "kind": "list", "title": "L", "entry_type": "x", "parent": "shortlist", "parent_field": "a", "columns": ["a"]}
+            ),
+            "not one entry",
+        ),
+        (lambda s: s[3].update(show={"entry": "pictures", "fields": ["a"]}), "show needs entry"),
+        (lambda s: s[3].update(selection="world"), "selection names 'world', which no earlier multi-select step"),
+        (lambda s: s[1].update(selection="pictures"), "selection names 'pictures'"),  # its own picks are not earlier
+    ],
+)
+def test_a_wrong_multi_select_says_what_is_wrong(change, words):
+    problem = payload_problem(_pictures(change), "pictures")
+    assert problem and words in problem, problem
+
+
+def test_a_single_choose_step_is_checked_as_before():
+    """multiple left out (or false) is today's one pick: an entry later steps may edit, scope by or open."""
+    payload = copy.deepcopy(WIZARD)
+    payload["steps"][0]["multiple"] = False
+    assert payload_problem(payload, "narrate") is None

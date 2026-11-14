@@ -77,6 +77,8 @@ class AssetsController(BaseUserController):
         tag: list[str] = Query(default_factory=list, description="Carrying any of these tags (slug or name)"),
         collection: str | None = Query(None, description="In this collection (slug or name)"),
         unattached: bool | None = Query(None, description="true: on no entry; false: on at least one"),
+        unused: bool | None = Query(None, description="true: on no entry yet (attached to none, named by no entry's asset field); false: the rest"),
+        ids: list[str] = Query(default_factory=list, description="Exactly these (ids or slugs; also comma-separated)"),
         versions: bool | None = Query(None, description="false: fold versions under their original; true: only versions"),
         source: str | None = Query(None, description="The versions made from this asset (id or slug)"),
         sort: Literal["name", "newest", "oldest", "largest"] = Query("name"),
@@ -96,6 +98,8 @@ class AssetsController(BaseUserController):
             "tags": tag,
             "collection": collection,
             "unattached": unattached,
+            "unused": unused,
+            "ids": ids,
             "versions": versions,
             "source": source,
         }

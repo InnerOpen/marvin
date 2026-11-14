@@ -18,6 +18,11 @@ check ``unknown_keys`` first):
   versions an entry uses counts as attached. A version made from an
   original still in the library is never "unattached": it goes with its original, so a cleanup of unattached
   images can't sweep a crop pack — unless the spec asks for versions itself (``versions: true`` or ``source``).
+- ``unused`` — assets only: true: on no entry yet, attached to none (as ``unattached``) and named by no entry's asset field
+  either (an entry saved before its asset fields attached what they name may hold an id it never attached); false: the
+  rest. A guided setup's "pictures that have no entry yet".
+- ``ids`` — exactly these items (ids or slugs; a list or comma-separated text), e.g. ``${inputs.pictures}`` from a guided
+  setup's multi-select step. Present but empty matches nothing.
 - ``entry`` — attached to this entry (id or slug), in the entry's own order; ``role`` — assets only: attached in this
   role (``hero``), to that entry or, without ``entry``, to any.
 - ``exclude`` — leave this item out (id or slug): "the others", e.g. ``${asset.id}`` in a run about that asset.
@@ -43,7 +48,10 @@ from marvin.services.automation.matcher import as_bool
 from marvin.services.entries.query import _as_list, _when
 
 ASSET, RESOURCE = "asset", "resource"
-_COMMON = ("text", "query", "tags", "collection", "collections", "unattached", "entry", "exclude", "created_after", "created_before", "trashed")
+_COMMON = (
+    *("text", "query", "tags", "collection", "collections", "unattached", "entry", "exclude", "ids"),
+    *("created_after", "created_before", "trashed"),
+)
 KEYS = {
     ASSET: (
         *_COMMON,
@@ -58,6 +66,7 @@ KEYS = {
         "role",
         "checksum",
         "decision",
+        "unused",
     ),
     RESOURCE: (*_COMMON, "resource_type", "resource_types"),
 }
@@ -79,6 +88,7 @@ KEY_NOTES: dict[str, dict[str, str]] = {
         "false: attached to at least one",
         "entry": "attached to this entry (id or slug), in its order",
         "exclude": "leave this one out (id or slug), e.g. ${asset.id}",
+        "ids": "exactly these (ids or slugs, a list or comma-separated text), e.g. ${inputs.pictures}",
         "created_after": "ISO date/datetime (UTC) or relative: -7d, -12h, -2w, now, today; also created_before",
         "created_before": "a date, as created_after",
         "trashed": "true: only items in the Trash (left out otherwise) — a `restore` target",
@@ -96,6 +106,7 @@ KEY_NOTES: dict[str, dict[str, str]] = {
                 "role": "attached in this role (e.g. hero), to `entry` or to any entry",
                 "checksum": "exactly this file (sha256), e.g. ${asset.checksum}",
                 "decision": f"what an approval step that showed the picture decided: one of {', '.join(DECISIONS)} (none: never asked)",
+                "unused": "true: on no entry yet (attached to none and named by no entry's asset field); false: the rest",
             }
             if kind == ASSET
             else {"resource_type": "the resource's type, e.g. supplier (`resource_types`: a list)", "resource_types": "resource types, any of"}
@@ -190,18 +201,9 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
         if note:
             return nothing, note
 
-    if spec.get("unattached") is not None:
-        unattached = as_bool(str(spec["unattached"]))
-        if unattached is None:
-            return nothing, f"unattached is true or false, not {spec['unattached']!r}"
-        linked = model.id.in_(session.query(getattr(entry_link, fk)))
-        if kind == ASSET:  # an original whose version an entry uses (a hero's web sizes) is in use too
-            # (NOT IN over a column with NULLs matches nothing, so the originals' NULL sources are left out.)
-            used_sources = sa.select(Assets.source_asset_id).where(Assets.source_asset_id.isnot(None), Assets.id.in_(sa.select(EntryAssets.asset_id)))
-            linked = linked | model.id.in_(used_sources)
-        q = q.filter(~linked if unattached else linked)
-        if unattached and kind == ASSET and not (as_bool(str(spec.get("versions"))) is True or spec.get("source")):
-            q = q.filter(sa.or_(Assets.source_asset_id.is_(None), Assets.source_asset_id.not_in(live_originals(group_id))))
+    q, note = _in_use(session, group_id, q, kind, spec)
+    if note:
+        return nothing, note
 
     for key, keep in (("created_after", lambda at: model.created_at >= at), ("created_before", lambda at: model.created_at < at)):
         if spec.get(key):
@@ -211,10 +213,68 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
     return q, None
 
 
+def _in_use(session, group_id, q, kind: str, spec: dict):
+    """unattached (on no entry: attached to none) / unused (assets: on no entry yet, attached to none and named by no
+    entry's asset field either), each true or false."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.platform import Assets, EntryAssets, EntryResources, Resources
+
+    model, entry_link, fk = (Assets, EntryAssets, "asset_id") if kind == ASSET else (Resources, EntryResources, "resource_id")
+    for key in ("unattached", "unused") if kind == ASSET else ("unattached",):
+        if spec.get(key) is not None and as_bool(str(spec[key])) is None:
+            return q, f"{key} is true or false, not {spec[key]!r}"
+    unattached = as_bool(str(spec["unattached"])) if spec.get("unattached") is not None else None
+    unused = as_bool(str(spec["unused"])) if kind == ASSET and spec.get("unused") is not None else None
+    if unattached is None and unused is None:
+        return q, None
+    linked = model.id.in_(session.query(getattr(entry_link, fk)))
+    if kind == ASSET:  # an original whose version an entry uses (a hero's web sizes) is in use too
+        # (NOT IN over a column with NULLs matches nothing, so the originals' NULL sources are left out.)
+        used_sources = sa.select(Assets.source_asset_id).where(Assets.source_asset_id.isnot(None), Assets.id.in_(sa.select(EntryAssets.asset_id)))
+        linked = linked | model.id.in_(used_sources)
+    if unattached is not None:
+        q = q.filter(~linked if unattached else linked)
+    if unused is not None:
+        named = _named_by_fields(session, group_id)
+        used = (linked | Assets.id.in_(named)) if named else linked
+        q = q.filter(~used if unused else used)
+    if (unattached or unused) and kind == ASSET and not (as_bool(str(spec.get("versions"))) is True or spec.get("source")):
+        q = q.filter(sa.or_(Assets.source_asset_id.is_(None), Assets.source_asset_id.not_in(live_originals(group_id))))
+    return q, None
+
+
+def _named_by_fields(session, group_id) -> list[uuid.UUID]:
+    """The asset ids the workspace's entries name in an asset field (``asset`` / ``asset-list``), the Trash's entries
+    too (as an attachment of theirs counts). Read field by field (only that value of each entry of a type that has the
+    field), so a workspace's entries are never loaded whole."""
+    from marvin.db.models.platform.entries import Entries
+    from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.services.entries.linked_fields import ASSET_TYPES, ids_named, linked_fields
+
+    types_by_key: dict[str, list] = {}
+    for type_id, schema in session.query(EntryTypes.id, EntryTypes.schema_json).filter(EntryTypes.group_id == group_id):
+        for key, field_type, _role in linked_fields(schema):
+            if field_type in ASSET_TYPES:
+                types_by_key.setdefault(key, []).append(type_id)
+    named: set[uuid.UUID] = set()
+    for key, type_ids in types_by_key.items():
+        values = session.query(Entries.data_json[key]).filter(Entries.group_id == group_id, Entries.entry_type_id.in_(type_ids))
+        for (value,) in values:
+            named.update(ids_named(value))
+    return list(named)
+
+
 def _exclude_and_checksum(q, model, kind: str, spec: dict):
-    """exclude (one item left out) / checksum (assets: exactly this file). Present but empty matches nothing."""
+    """exclude (one item left out) / checksum (assets: exactly this file) / ids (exactly these). Present but empty
+    matches nothing."""
     from marvin.services.entries.query import _uuids
 
+    if "ids" in spec:
+        refs = [part.strip() for r in _as_list(spec["ids"]) for part in str(r).split(",") if part.strip()]
+        if not refs:
+            return q, "ids has no value"
+        q = q.filter(model.slug.in_(refs) | model.id.in_(_uuids(refs)))
     if "exclude" in spec:
         ref = str(spec["exclude"] or "").strip()
         if not ref:
