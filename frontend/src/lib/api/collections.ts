@@ -11,7 +11,7 @@ import type {
 } from "@inneropen/marvin-sdk/platform";
 import { type RequestScope, readOnce } from "../requestCache";
 import { createSdkClient } from "../sdk";
-import { fetchApi } from "./client";
+import { fetchApi, fetchApiPage } from "./client";
 import { getApiUrl } from "./config";
 
 // Re-export SDK types with legacy names for backward compatibility
@@ -76,6 +76,24 @@ export async function reorderCollections(
 export async function getCollectionEntries(collectionId: string, authToken: string): Promise<EntryRead[]> {
   const sdk = createSdkClient(authToken);
   return sdk.collections.getEntries(collectionId);
+}
+
+/** One page of a collection's entries in the collection's own order (`limit`/`offset`), and how many there are in all. */
+export async function getCollectionEntriesPage(
+  collectionId: string,
+  authToken: string,
+  page: { limit: number; offset: number },
+): Promise<{ items: EntryRead[]; total: number }> {
+  return fetchApiPage<EntryRead>(`/api/platform/collections/${collectionId}/entries?limit=${page.limit}&offset=${page.offset}`, authToken);
+}
+
+/** One page of a collection's members (`getCollectionMembers`'s list), and how many there are in all. */
+export async function getCollectionMembersPage(
+  collectionId: string,
+  authToken: string,
+  page: { limit: number; offset: number },
+): Promise<{ items: CollectionMember[]; total: number }> {
+  return fetchApiPage<CollectionMember>(`/api/platform/collections/${collectionId}/members?limit=${page.limit}&offset=${page.offset}`, authToken);
 }
 
 export interface CollectionMember {
