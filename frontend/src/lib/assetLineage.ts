@@ -20,13 +20,15 @@ const ARG_WORDS: Record<string, (v: string) => string> = {
   height: (v) => `${v} high`,
   fit: (v) => (v === "cover" ? "filling the box" : ""),
   aspect: (v) => v,
-  focus: (v) => (v === "subject" ? "on the subject" : ""),
+  focus: (v) => (v === "subject" ? "on the subject" : v && v !== "center" ? `at ${v}` : ""), // a fixed point: "x,y"
   format: (v) => v,
   quality: (v) => `quality ${v}`,
   preset: (v) => v,
 };
 
 /** "media:resize:fit=inside,format=webp,width=800" → "resize 800 wide, webp"; "grade:warm" → "grade warm". */
+const pieces = (piece: string) => piece.includes("=");
+
 export function describeDerivation(derivation: string): string {
   const cut = (text: string): [string, string] => {
     const at = text.indexOf(":");
@@ -37,8 +39,13 @@ export function describeDerivation(derivation: string): string {
   if (kind === "edited") return `edited by ${rest}`; // an image.edit action given the picture (a workflow's source)
   if (kind !== "media") return derivation.replace(":", " "); // an entry type's recipe token (grade:warm, crop:4x5)
   const [op, args] = cut(rest); // the args may hold colons themselves (aspect=1:1)
-  const words = args
-    .split(",")
+  // A value may hold a comma itself (a crop's focus point "0.5,0.3"): a piece with no "=" belongs to the one before.
+  const pairs: string[] = [];
+  for (const piece of args.split(",")) {
+    if (pieces(piece) || !pairs.length) pairs.push(piece);
+    else pairs[pairs.length - 1] += `,${piece}`;
+  }
+  const words = pairs
     .filter(Boolean)
     .map((pair) => {
       const [k, v = ""] = pair.split("=");

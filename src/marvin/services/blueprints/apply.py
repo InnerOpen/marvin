@@ -463,8 +463,12 @@ def _create(
 
     from marvin.db.models.platform.entry_types import EntryTypes
 
+    if payload.get("picture_presets_json") is not None:
+        payload["picture_presets_json"] = _checked_presets(payload["picture_presets_json"], slug)
     if payload.get("templates_json") is not None:
-        payload["templates_json"] = _checked_templates(payload["templates_json"], payload.get("schema_json"), slug)
+        payload["templates_json"] = _checked_templates(
+            payload["templates_json"], payload.get("schema_json"), slug, payload.get("picture_presets_json")
+        )
     session.add(EntryTypes(session=session, group_id=group_id, **payload))
     # Flush so the next blueprint in an apply_many run can see it: a collection that `requires`
     # this entry type checks the database, and an unflushed row would read as missing.
@@ -701,8 +705,8 @@ def update_blueprint(
 #
 # An entry type records no source package and the workspace may have customised its fields, so an update only ever *adds*: the declared fields the
 # type lacks, the settings a declared field has that the existing one lacks (a slider, a step), the options a declared select lacks, and the declared
-# `children` lookups it lacks, and the templates (by slug) it lacks. A setting an existing field already has is never changed, a field the package
-# does not declare is kept, a template the type already has is left as it is, and nothing is removed.
+# `children` lookups it lacks, and the picture presets and templates (by slug) it lacks. A setting an existing field already has is never
+# changed, a field the package does not declare is kept, a template or preset the type already has is left as it is, and nothing is removed.
 
 
 def entry_type_additions(entry_type, blueprint: Blueprint) -> tuple[dict | None, list[str]]:
@@ -745,14 +749,37 @@ def entry_type_additions(entry_type, blueprint: Blueprint) -> tuple[dict | None,
     return (schema, notes) if notes else (None, [])
 
 
-def _checked_templates(templates, schema_json, slug: str) -> list | None:
-    """A package's templates for entry type ``slug``, checked against the schema they come with (services/entries/templates.py)."""
+def _checked_templates(templates, schema_json, slug: str, presets=None) -> list | None:
+    """A package's templates for entry type ``slug``, checked against the schema and picture presets they come with
+    (services/entries/templates.py)."""
     from marvin.services.entries.templates import TemplateError, check_templates
 
     try:
-        return check_templates(templates, schema_json)
+        return check_templates(templates, schema_json, presets)
     except TemplateError as e:
         raise BlueprintParameterError(f"the templates of entry type '{slug}' don't fit it: {e}") from e
+
+
+def _checked_presets(presets, slug: str) -> list | None:
+    """A package's picture presets for entry type ``slug`` (services/assets/picture_presets.py)."""
+    from marvin.services.assets.picture_presets import PresetError, check_presets
+
+    try:
+        return check_presets(presets)
+    except PresetError as e:
+        raise BlueprintParameterError(f"the picture presets of entry type '{slug}' don't fit it: {e}") from e
+
+
+def preset_additions(entry_type, blueprint: Blueprint) -> tuple[list | None, list[str]]:
+    """(the type's picture presets with the declared ones it lacks added, by slug; what was added in words). A preset the
+    type already has is never changed (it may have been edited here), and none is removed."""
+    declared = [p for p in ((blueprint.payload or {}).get("picture_presets_json") or []) if isinstance(p, dict) and p.get("slug")]
+    have = list(entry_type.picture_presets_json or [])
+    slugs = {p.get("slug") for p in have if isinstance(p, dict)}
+    lacking = [p for p in declared if p["slug"] not in slugs]
+    if not lacking:
+        return None, []
+    return [*have, *lacking], [f"picture preset {p['slug']}" for p in lacking]
 
 
 def template_additions(entry_type, blueprint: Blueprint) -> tuple[list | None, list[str]]:
@@ -776,25 +803,32 @@ def update_entry_type(session, group_id, blueprint: Blueprint, row) -> Blueprint
 
     result = BlueprintApplyResult(slug=blueprint.slug, kind=blueprint.kind, created=False, name=row.name)
     schema, notes = entry_type_additions(row, blueprint)
+    presets, preset_notes = preset_additions(row, blueprint)
     templates, template_notes = template_additions(row, blueprint)
-    if schema is None and templates is None:
+    if schema is None and templates is None and presets is None:
         result.detail = "already up to date"
         return result
     try:
         if schema is not None:
             EntryTypeSchemaDefinition.model_validate(schema)
+        if presets is not None:
+            presets = _checked_presets(presets, row.slug)
         if templates is not None:
-            templates = _checked_templates(templates, schema if schema is not None else row.schema_json, row.slug)
+            kept_presets = presets if presets is not None else row.picture_presets_json
+            templates = _checked_templates(templates, schema if schema is not None else row.schema_json, row.slug, kept_presets)
     except BlueprintParameterError as e:
         result.detail = str(e)
         return result
     except Exception as e:  # noqa: BLE001 — name the schema rule that failed, don't half-apply
         result.detail = f"the additions don't fit entry type '{row.slug}': {e}"
         return result
-    notes += template_notes
+    notes += preset_notes + template_notes
     if schema is not None:
         row.schema_json = schema
         flag_modified(row, "schema_json")
+    if presets is not None:
+        row.picture_presets_json = presets
+        flag_modified(row, "picture_presets_json")
     if templates is not None:
         row.templates_json = templates
         flag_modified(row, "templates_json")

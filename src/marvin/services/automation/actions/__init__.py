@@ -23,6 +23,7 @@ from . import (  # noqa: E402,F401
     metric,
     operation,
     parallel,
+    picture_presets,
     repeat,
     request,
     schema_check,

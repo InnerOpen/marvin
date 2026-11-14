@@ -82,8 +82,8 @@ SECTION_GUIDE: dict[str, str] = {
     "examples": "the Library recipes this workspace can run; recipe=<id> shows one in full · first, to start from one instead of writing",
     "editor": "the workflow editor's own labels for each part · when telling a person what to click",
 }
-INDEX_BUDGET = 4_700  # characters: the index is read on every request; a new step kind costs ~40 here, a section ~130 (was 4_600; +2 template steps)
-SECTION_BUDGET = 16_950  # characters: the `actions` section lists every step kind, so each new kind costs ~120 here (was 16_700; +2 template steps)
+INDEX_BUDGET = 4_750  # characters: the index is read on every request; a new step kind costs ~40 here, a section ~130 (was 4_700; +1 step)
+SECTION_BUDGET = 17_100  # characters: the `actions` section lists every step kind, so each new kind costs ~120 here (was 16_950; +1 step)
 
 # Workspace lists are capped, like workspace_overview's structure: the guide must stay one tool result.
 REF_LIMIT = 50
@@ -467,6 +467,7 @@ OWN_SECTION_KINDS = {
     "delete_entries": "records",
     "create_entries_from_template": "records",
     "apply_template": "records",
+    "apply_picture_preset": "records",
     "schema_check": "records",
     "automation_result": "records",
     "agent": "agent",
@@ -628,6 +629,10 @@ TEMPLATE_NOTE = (
     "Templates are the entry type's (get_entry_type lists them). Preview first (mode preview: rows with each title, from the picture's name, and "
     "the values set; todo, text), then mode create/apply with confirm_total ${steps.<preview>.output.todo}. Fills only empty values unless "
     "replace. Output: created, updated, entry_ids, text, rows."
+)
+PRESET_NOTE = (
+    "Picture presets are the entry type's (get_entry_type lists them; a template may name one). Preview first, then mode apply with "
+    "confirm_total ${steps.<preview>.output.todo}. Output: treated (original → treated id), ids, made, reused, placed, text."
 )
 DELETE_ENTRIES_NOTE = (
     'Preview first (mode preview → total, text "144 scenes and 600 beats", by_type), then an approval, then mode trash (restorable; slugs '
@@ -836,6 +841,7 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
             "delete_entries": {**_step_doc("delete_entries"), "note": DELETE_ENTRIES_NOTE},
             "create_entries_from_template": {**_step_doc("create_entries_from_template"), "note": TEMPLATE_NOTE},
             "apply_template": {**_step_doc("apply_template"), "note": TEMPLATE_NOTE},
+            "apply_picture_preset": {**_step_doc("apply_picture_preset"), "note": PRESET_NOTE},
             "schema_check": {**_step_doc("schema_check"), "note": SCHEMA_CHECK_NOTE},
             "automation_result": {**_step_doc("automation_result"), "note": AUTOMATION_RESULT_NOTE},
         }

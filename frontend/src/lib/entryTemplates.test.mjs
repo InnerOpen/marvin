@@ -133,6 +133,27 @@ describe("templateFromForm", () => {
     assert.deepEqual(templateFromForm(formFromTemplate(stored, FIELDS), FIELDS, stored), stored);
   });
 
+  test("a picture preset and its treated picture's role round-trip; none leaves both out", () => {
+    const stored = { slug: "a", name: "A", title: "{asset.name}", picturePreset: "ornament-look", treatedRole: "hero" };
+    const form = formFromTemplate(stored, FIELDS);
+    assert.equal(form.picturePreset, "ornament-look");
+    assert.equal(form.treatedRole, "hero");
+    const back = templateFromForm(form, FIELDS, stored);
+    assert.equal(back.picturePreset, "ornament-look");
+    assert.equal(back.treatedRole, "hero");
+    assert.equal(templateFromForm({ ...form, treatedRole: " " }, FIELDS).treatedRole, "featured");
+    const none = templateFromForm({ ...form, picturePreset: "" }, FIELDS);
+    assert.equal("picturePreset" in none, false);
+    assert.equal("treatedRole" in none, false);
+  });
+
+  test("a template as the server answers it (no preset, featured) opens with none picked and featured", () => {
+    const form = formFromTemplate({ slug: "a", name: "A", picturePreset: null, treatedRole: null }, FIELDS);
+    assert.equal(form.picturePreset, "");
+    assert.equal(form.treatedRole, "featured");
+    assert.equal(formFromTemplate(null, FIELDS).picturePreset, "");
+  });
+
   test("an unknown status falls back to inbox", () => {
     assert.equal(templateFromForm({ ...blank(), slug: "a", name: "A", status: "published" }, FIELDS).status, "inbox");
   });

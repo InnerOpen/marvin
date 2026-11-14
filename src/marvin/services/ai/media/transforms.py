@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 
 from PIL import Image, ImageEnhance, ImageOps
 
@@ -89,26 +90,53 @@ def _apply_warmth(img: Image.Image, warmth: float) -> Image.Image:
 
 
 def _apply_vignette(img: Image.Image, strength: float) -> Image.Image:
-    """Darken toward the corners with a soft radial mask."""
+    """Darken toward the corners with a soft radial mask: each pixel keeps ``1 - d * strength`` of its light, ``d`` its
+    distance from the centre over the centre-to-corner distance. Worked out with numpy in one pass, so a 12-megapixel
+    photo takes a fraction of a second and never holds the server's one worker (a per-pixel Python loop took seconds)."""
     if strength <= 0:
         return img
+    import numpy as np
+
     alpha = _alpha_of(img)
     img = img.convert("RGB")
     w, h = img.size
-    # Radial gradient mask: bright center → dark edges.
-    mask = Image.new("L", (w, h), 0)
     cx, cy = w / 2, h / 2
     max_d = (cx**2 + cy**2) ** 0.5
-    px = mask.load()
-    for y in range(h):
-        for x in range(w):
-            d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 / max_d
-            px[x, y] = int(255 * (1 - min(1.0, d) * strength))
+    ys = (np.arange(h, dtype=np.float32) - cy) ** 2
+    xs = (np.arange(w, dtype=np.float32) - cx) ** 2
+    d = np.minimum(np.sqrt(ys[:, None] + xs[None, :]) / max_d, 1.0)
+    mask = Image.fromarray((255 * (1 - d * min(float(strength), 1.0))).astype(np.uint8), mode="L")
     black = Image.new("RGB", (w, h), (0, 0, 0))
     out = Image.composite(img, black, mask)
     if alpha is not None:
         out.putalpha(alpha)  # the vignette darkens RGB toward the edges; transparency is preserved
     return out
+
+
+GRADE_SETTINGS: dict[str, tuple[float, float, float]] = {
+    "brightness": (0.0, 3.0, 1.0),
+    "contrast": (0.0, 3.0, 1.0),
+    "saturation": (0.0, 3.0, 1.0),
+    "warmth": (0.5, 1.5, 1.0),
+    "vignette": (0.0, 1.0, 0.0),
+}
+"""A grade's free settings: (lowest, highest, unchanged). brightness, contrast and saturation are Pillow ImageEnhance
+factors (1 = as it is, 1.1 = 10% more); warmth above 1 pushes red up and blue down (below 1 cools); vignette is how much
+the corners darken (0 = none, 1 = black corners)."""
+
+
+def grade_image(img: Image.Image, params: dict) -> Image.Image:
+    """``img`` with a grade's settings applied (warmth, contrast, saturation, brightness, then the vignette)."""
+    img = _apply_warmth(img, params.get("warmth", 1.0))
+    if params.get("contrast", 1.0) != 1.0:
+        img = ImageEnhance.Contrast(img).enhance(params["contrast"])
+    if params.get("saturation", 1.0) != 1.0:
+        img = ImageEnhance.Color(img).enhance(params["saturation"])
+    if params.get("brightness", 1.0) != 1.0:
+        img = ImageEnhance.Brightness(img).enhance(params["brightness"])
+    if params.get("vignette", 0.0) > 0:
+        img = _apply_vignette(img, params["vignette"])
+    return img
 
 
 def color_grade_params(data: bytes, params: dict) -> bytes | None:
@@ -120,17 +148,7 @@ def color_grade_params(data: bytes, params: dict) -> bytes | None:
     if not isinstance(params, dict) or not params:
         return None
     img, fmt = _load(data)
-    img = _apply_warmth(img, params.get("warmth", 1.0))
-    if params.get("contrast", 1.0) != 1.0:
-        img = ImageEnhance.Contrast(img).enhance(params["contrast"])
-    if params.get("saturation", 1.0) != 1.0:
-        img = ImageEnhance.Color(img).enhance(params["saturation"])
-    if params.get("brightness", 1.0) != 1.0:
-        img = ImageEnhance.Brightness(img).enhance(params["brightness"])
-    if params.get("vignette", 0.0) > 0:
-        # Vignette on a downscaled copy is far cheaper; skip for very large images is fine here.
-        img = _apply_vignette(img, params["vignette"])
-    return _dump(img, fmt)
+    return _dump(grade_image(img, params), fmt)
 
 
 def color_grade(data: bytes, preset: str) -> bytes | None:
@@ -152,6 +170,27 @@ def crop_to_aspect(data: bytes, aspect: tuple[int, int], focus: tuple[float, flo
         return None
     img, fmt = _load(data)
     return _dump(img.crop(aspect_box(img.size, aspect, focus)), fmt)
+
+
+_FOCUS_POINT = re.compile(r"^\s*([01](?:\.\d+)?|\.\d+)\s*,\s*([01](?:\.\d+)?|\.\d+)\s*$")
+
+
+def parse_focus(value) -> str | tuple[float, float] | None:
+    """A crop's focus: ``"center"`` / ``"subject"`` as they are, or a fixed point ``"x,y"`` (0..1 from the left and from
+    the top: ``"0.5,0.3"`` keeps the upper middle) → (0.5, 0.3). Anything else is None (an x or y over 1 too)."""
+    text = str(value or "").strip().lower()
+    if text in ("center", "subject"):
+        return text
+    m = _FOCUS_POINT.match(text)
+    if not m:
+        return None
+    x, y = float(m.group(1)), float(m.group(2))
+    return (x, y) if 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0 else None
+
+
+def focus_text(point: tuple[float, float]) -> str:
+    """A fixed focus point as it is named and hashed: "0.5,0.3" (so "0.50, .3" and "0.5,0.3" make one derivative)."""
+    return ",".join(f"{round(float(v), 3):g}" for v in point)
 
 
 def aspect_box(size: tuple[int, int], aspect: tuple[int, int], focus: tuple[float, float] = (0.5, 0.5)) -> tuple[int, int, int, int]:

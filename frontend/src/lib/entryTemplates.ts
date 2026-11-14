@@ -33,6 +33,10 @@ export interface EntryTemplate {
   status?: string;
   assetRole?: string | null;
   assetField?: string | null;
+  /** One of the type's picture presets (its slug): each picture is treated with it and the entry gets the treated one. */
+  picturePreset?: string | null;
+  /** With a picture preset: the role the treated picture is attached with (default featured); the original is not attached. */
+  treatedRole?: string | null;
 }
 
 /** The editor's values, as the inputs hold them. A field's value is "" when not set; a boolean is "true" / "false" / "". */
@@ -46,6 +50,9 @@ export interface TemplateForm {
   status: string;
   assetField: string;
   assetRole: string;
+  /** A picture preset's slug, or "" for none. */
+  picturePreset: string;
+  treatedRole: string;
   tags: string;
   collections: string[];
   fields: Record<string, string>;
@@ -123,6 +130,8 @@ export function formFromTemplate(template: EntryTemplate | null, fields: SchemaF
     status: t.status ?? "inbox",
     assetField: t.assetField ?? "",
     assetRole: t.assetRole ?? "featured",
+    picturePreset: t.picturePreset ?? "",
+    treatedRole: t.treatedRole || "featured",
     tags: (t.tags ?? []).join(", "),
     collections: [...(t.collections ?? [])],
     fields: values,
@@ -171,6 +180,12 @@ export function templateFromForm(form: TemplateForm, fields: SchemaField[], stor
     assetRole: form.assetRole.trim() || "featured",
     assetField: form.assetField.trim() || null,
   };
+  // A preset (and the role its treated picture takes) only when one is picked; none leaves both out, as the server's default.
+  const preset = form.picturePreset.trim();
+  if (preset) {
+    template.picturePreset = preset;
+    template.treatedRole = form.treatedRole.trim() || "featured";
+  }
   return template;
 }
 

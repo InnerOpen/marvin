@@ -54,16 +54,24 @@ def resize(data: bytes, *, width: int | None = None, height: int | None = None, 
     if not (width or height):
         raise ValueError("resize needs a width or a height")
     img, _ = transforms._load(data)
-    fmt = fmt or format_of(data)
+    return _encode(resize_image(img, width=width, height=height, fit=fit), fmt or format_of(data), quality)
+
+
+def resize_image(img: Image.Image, *, width: int | None = None, height: int | None = None, fit: str = "inside") -> Image.Image:
+    """:func:`resize` on a decoded picture (a picture preset's steps run on one, encoded once at the end)."""
     w, h = img.size
     if fit == "cover" and width and height:
         scale = min(1.0, max(width / w, height / h))
         scaled = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS) if scale < 1 else img
-        box = transforms.aspect_box(scaled.size, (width, height))
-        return _encode(scaled.crop(box), fmt, quality)
+        return scaled.crop(transforms.aspect_box(scaled.size, (width, height)))
     scale = min(1.0, (width / w) if width else 1.0, (height / h) if height else 1.0)
     if scale < 1:
         img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS)
+    return img
+
+
+def encode(img: Image.Image, fmt: str, quality: int | None = None) -> bytes:
+    """A decoded picture as ``fmt`` (jpeg / png / webp) bytes; jpeg flattens transparency onto white."""
     return _encode(img, fmt, quality)
 
 
