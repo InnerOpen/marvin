@@ -165,7 +165,8 @@ let showLines: { key: string; label: string; value: string }[] = [];
 // A shown text field that holds another entry's slug (`ref`) is a pick list. In a wizard the list is narrowed by the entries chosen so
 // far that the referenced type has a field for (a cast member's actor comes from the chosen world's troupe, not every actor).
 let refs: Record<string, RefOption[]> = {};
-const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, ctx);
+// (A multi-select's list is no one entry: it narrows nothing.)
+const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, Object.fromEntries(Object.entries(ctx).filter(([k]) => !(k in lists))));
 
 // Drawn whatever happened to a post: an error shows above a complete page, never an empty one.
 if (authToken && def && step) {
