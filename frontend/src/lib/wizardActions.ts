@@ -2,7 +2,7 @@
 
 import { acceptKind, assetIsKind, isKind } from "./acceptKind";
 import { type Ctx, type Step, StepError, type WizardDefinition, assetSpec, entryTypeOf, joinList, listOf, mergePicks, picksAssets, picksProblem, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
-import { editableKeys, listParams, readListState, rowChanges, scopedSpecs, isScopedList, unionRows, SCOPED_PER } from "./wizardScopedList";
+import { changedKeys, editableKeys, listParams, readListState, scopedSpecs, isScopedList, unionRows, SCOPED_PER } from "./wizardScopedList";
 import { fieldTypeMap } from "./schemaFields";
 import { PAGE_SIZES } from "./pagination";
 import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, entryOfType, findAssets, findEntries, picksOf, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
@@ -180,19 +180,23 @@ async function editScopedList(step: Step, form: FormData, ctx: Ctx, authToken: s
       return null;
     }
   };
-  const changesOf = (id: string) => rowChanges(postedData(form, type, keys, `row.${id}.`), wasOf(id) ?? {}, booleans);
+  const changedOf = (id: string) =>
+    changedKeys(Object.fromEntries(keys.map((k) => [k, form.has(`row.${id}.${k}`) ? String(form.get(`row.${id}.${k}`)) : null])), wasOf(id) ?? {}, booleans);
   const listed = ids.length
     ? unionRows((await Promise.all(scopedSpecs(step, ctx).map((spec) => findEntries({ ...spec, entries: ids }, authToken, ids.length)))).map((f) => f.entries))
     : [];
   let saved = 0;
   for (const row of listed) {
     if (!wasOf(row.id)) continue;
-    const changed = changesOf(row.id);
-    if (!Object.keys(changed).length) continue;
-    await setData(row, changed, authToken);
+    const changed = changedOf(row.id);
+    if (!changed.length) continue;
+    await setData(row, postedData(form, type, changed, `row.${row.id}.`), authToken).catch((e) => {
+      const before = saved ? ` The ${saved} before it ${saved === 1 ? "is" : "are"} saved.` : "";
+      throw new StepError(`“${row.title}” could not be saved: ${e instanceof Error ? e.message : String(e)}.${before}`);
+    });
     saved++;
   }
-  const gone = ids.filter((id) => !listed.some((r) => r.id === id) && Object.keys(changesOf(id)).length > 0).length;
+  const gone = ids.filter((id) => !listed.some((r) => r.id === id) && changedOf(id).length > 0).length;
   if (gone) {
     const kept = saved ? ` The other change${saved === 1 ? " is" : "s are"} saved.` : "";
     throw new StepError(`${gone === 1 ? "One piece you changed is" : `${gone} pieces you changed are`} no longer in this list (it may have sold, or been unpublished), so ${gone === 1 ? "it was" : "they were"} not saved.${kept}`);

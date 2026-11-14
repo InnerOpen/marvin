@@ -6,7 +6,7 @@
  * once per flag, and filters, searches and pages those answers.
  */
 
-import { type Ctx, type Step, FACET_PARAM, FILTER_PARAM, SEARCH_PARAM, sameValue, substitute } from "./wizard.ts";
+import { type Ctx, type Step, FACET_PARAM, FILTER_PARAM, SEARCH_PARAM, substitute } from "./wizard.ts";
 
 export interface Cond {
   field: string;
@@ -170,10 +170,11 @@ export function editableKeys(step: Step): string[] {
   return [...new Set([...((step.columns ?? []) as string[]), ...(step.check?.field ? [step.check.field] : [])])];
 }
 
-/** What a card's save changes: the posted values that differ from what the page showed (`was`). A yes/no field reads unset as no, so a
- *  switch left off on a card that never had the field changes nothing. */
-export function rowChanges(posted: Record<string, unknown>, was: Record<string, unknown>, booleans: string[]): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(posted).filter(([k, v]) => (booleans.includes(k) ? isOn(v) !== isOn(was[k]) : !sameValue(v, was[k]))),
-  );
+/** Which of a card's fields the person changed: the text each box posted against the text the page drew from `was` (a number field
+ *  holding "10.00" posts "10.00", which is no change, though it would read as 10). A yes/no field compares as on or off, unset being
+ *  off, so a switch left off on a card that never had the field changes nothing. `posted` holds what the form sent per key (null: nothing,
+ *  as an unticked box). Only these keys are then read as their types and written. */
+export function changedKeys(posted: Record<string, string | null>, was: Record<string, unknown>, booleans: string[]): string[] {
+  const text = (v: unknown) => (v === null || v === undefined ? "" : String(v)).replace(/\r\n/g, "\n"); // a box posts its line breaks as \r\n
+  return Object.keys(posted).filter((k) => (booleans.includes(k) ? isOn(posted[k]) !== isOn(was[k]) : text(posted[k]) !== text(was[k])));
 }

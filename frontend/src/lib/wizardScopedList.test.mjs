@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readCtx } from "./wizard.ts";
-import { editableKeys, facetLabel, filtersOf, flagSpec, flagsOf, isScopedList, listParams, listView, readListState, rowChanges, scopedSpecs, unionRows } from "./wizardScopedList.ts";
+import { editableKeys, facetLabel, filtersOf, flagSpec, flagsOf, isScopedList, listParams, listView, readListState, changedKeys, scopedSpecs, unionRows } from "./wizardScopedList.ts";
 
 // Shaped like Grace's "Art price check": every published piece for sale, plus the sold ones still for sale online.
 const STEP = {
@@ -123,14 +123,18 @@ test("a scoped list writes only its columns and its check field", () => {
   assert.deepEqual(editableKeys({ ...STEP, check: undefined, columns: ["price", "price"] }), ["price"]);
 });
 
-test("a save changes only what differs from what the page showed; a switch left off on a card without the field changes nothing", () => {
+test("a save writes only the boxes that differ from what the page drew; a switch left off on a card without the field changes nothing", () => {
   const booleans = ["sellOnline", "priceChecked"];
   const was = { price: "$85", shippingFee: "10.00", sellOnline: true, priceChecked: null };
-  assert.deepEqual(rowChanges({ price: "$85", shippingFee: "10.00", sellOnline: true, priceChecked: false }, was, booleans), {});
-  assert.deepEqual(rowChanges({ price: "$95", shippingFee: "10.00", sellOnline: true, priceChecked: true }, was, booleans), { price: "$95", priceChecked: true });
-  assert.deepEqual(rowChanges({ price: "$85", shippingFee: null, sellOnline: false, priceChecked: false }, was, booleans), { shippingFee: null, sellOnline: false });
+  assert.deepEqual(changedKeys({ price: "$85", shippingFee: "10.00", sellOnline: "true", priceChecked: null }, was, booleans), []);
+  assert.deepEqual(changedKeys({ price: "$95", shippingFee: "10.00", sellOnline: "true", priceChecked: "true" }, was, booleans), ["price", "priceChecked"]);
+  assert.deepEqual(changedKeys({ price: "$85", shippingFee: "", sellOnline: null, priceChecked: null }, was, booleans), ["shippingFee", "sellOnline"]);
   // An empty box and a field never set are the same: nothing to write.
-  assert.deepEqual(rowChanges({ shippingFee: null }, { shippingFee: "" }, booleans), {});
+  assert.deepEqual(changedKeys({ shippingFee: "" }, { shippingFee: null }, booleans), []);
+  // A number field holding "10.00" (or 45) posts the same text untouched: no change, so no write and no re-listing.
+  assert.deepEqual(changedKeys({ shippingFee: "10.00", order: "45" }, { shippingFee: "10.00", order: 45 }, booleans), []);
+  assert.deepEqual(changedKeys({ shippingFee: "12" }, { shippingFee: "10.00" }, booleans), ["shippingFee"]);
+  assert.deepEqual(changedKeys({ note: "two\r\nlines" }, { note: "two\nlines" }, booleans), []);
 });
 
 test("a facet value reads as words", () => {
