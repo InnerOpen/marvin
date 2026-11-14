@@ -15,6 +15,7 @@ from . import (  # noqa: E402,F401
     email,
     emit_event,
     entry,
+    entry_templates,
     fetch,
     handler,
     integration,

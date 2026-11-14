@@ -141,3 +141,16 @@ def test_list_tools_take_the_new_filters(ws):  # noqa: F811
     assert [a["id"] for a in out["assets"]] == [str(loose)] and out["count"] == 1
     none = json.loads(get_tool("list_resources").handler(_ctx(ws), {"collection": "no-such"}))
     assert none["count"] == 0 and "no such collection" in none["note"]
+
+
+def test_list_assets_names_each_asset(ws):  # noqa: F811
+    """Each row carries the asset's name, slug and filename: an agent making an entry per picture titles it from the name
+    (without them it once titled 20 drafts "Ornament 1..20")."""
+    from marvin.services.ai.tools import get_tool
+    from tests.test_trash import _ctx
+
+    aid = ws.asset("red-bauble")
+    out = json.loads(get_tool("list_assets").handler(_ctx(ws), {"query": "red-bauble"}))
+    (row,) = out["assets"]
+    assert row["id"] == str(aid) and row["name"] == "Red-Bauble" and row["slug"].startswith("red-bauble-") and row["filename"] == "red-bauble.png"
+    assert {"assetType", "url", "altText"} <= set(row)  # the thumbnail keys it always had

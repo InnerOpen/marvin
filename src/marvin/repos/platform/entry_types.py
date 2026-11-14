@@ -242,6 +242,24 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
                 detail=f"Invalid recipe definition: {e}",
             ) from e
 
+    @staticmethod
+    def _checked_templates(templates, schema_json: dict | None) -> list[dict] | None:
+        """The templates as stored (services/entries/templates.py), checked against the schema they will be stored with; 400 naming
+        the template and what is wrong (an unknown variable, a field the type doesn't have, a value that doesn't fit)."""
+        from marvin.services.entries.templates import TemplateError, check_templates
+
+        try:
+            return check_templates(templates, schema_json)
+        except TemplateError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid templates: {e}") from e
+
+    def _check_kept_templates(self, data_dict: dict, entry_type) -> None:
+        schema = data_dict["schema_json"] if "schema_json" in data_dict else (entry_type.content_schema if entry_type else None)
+        if "templates_json" in data_dict:
+            data_dict["templates_json"] = self._checked_templates(data_dict["templates_json"], schema)
+        else:
+            self._checked_templates([t.model_dump() for t in entry_type.templates], schema)
+
     def _normalize_page_url_pattern(self, data_dict: dict) -> None:
         """Dict callers (seeding, blueprints) bypass the request schema, so normalize here too."""
         if "page_url_pattern" not in data_dict:
@@ -293,6 +311,8 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             data_dict["capabilities_json"] = data_dict.pop("capabilities")
         if "recipe" in data_dict:
             data_dict["recipe_json"] = data_dict.pop("recipe")
+        if "templates" in data_dict:
+            data_dict["templates_json"] = data_dict.pop("templates")
 
         # Validate JSON fields if provided
         if "schema_json" in data_dict:
@@ -306,6 +326,8 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
         if "recipe_json" in data_dict:
             self._validate_recipe_json(data_dict["recipe_json"])
         self._validate_match_field(data_dict.get("schema_json"), data_dict.get("capabilities_json"))
+        if "templates_json" in data_dict:
+            data_dict["templates_json"] = self._checked_templates(data_dict["templates_json"], data_dict.get("schema_json"))
         self._normalize_page_url_pattern(data_dict)
 
         warnings = self._check_renderer_warnings(data_dict)
@@ -339,6 +361,8 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             data_dict["capabilities_json"] = data_dict.pop("capabilities")
         if "recipe" in data_dict:
             data_dict["recipe_json"] = data_dict.pop("recipe")
+        if "templates" in data_dict:
+            data_dict["templates_json"] = data_dict.pop("templates")
 
         # Validate JSON fields if provided
         if "schema_json" in data_dict:
@@ -359,6 +383,9 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
                 data_dict["schema_json"] if "schema_json" in data_dict else (entry_type.content_schema if entry_type else None),
                 data_dict["capabilities_json"] if "capabilities_json" in data_dict else (entry_type.capabilities if entry_type else None),
             )
+        if "templates_json" in data_dict or ("schema_json" in data_dict and entry_type is not None and entry_type.templates):
+            # Either side may change alone (a field the templates fill can't be dropped), so check the pair as it will be stored.
+            self._check_kept_templates(data_dict, entry_type)
         self._normalize_page_url_pattern(data_dict)
 
         warnings = self._check_renderer_warnings(data_dict)

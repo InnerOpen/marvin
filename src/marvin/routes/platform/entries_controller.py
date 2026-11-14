@@ -17,6 +17,8 @@ from marvin.routes._base.checks import (
 from marvin.routes._base.paging import paged
 from marvin.schemas.platform import (
     CollectionRead,
+    EntriesApplyTemplateRequest,
+    EntriesFromTemplateRequest,
     EntryBulkDeleteJob,
     EntryBulkDeletePreview,
     EntryBulkDeleteRequest,
@@ -24,6 +26,7 @@ from marvin.schemas.platform import (
     EntryQueryRequest,
     EntryQueryResult,
     EntryRead,
+    EntryTemplateResult,
     EntryUpdate,
 )
 from marvin.services.entries import EntryService, trash
@@ -190,6 +193,60 @@ class EntriesController(BaseUserController):
 
         require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
         return bulk_delete.job_status(self.group_id)
+
+    def _template_done(self, plan, preview: bool) -> dict:
+        """Check the caller may do what `plan` says (as for one entry: AUTHOR makes entries in the template's status and fills
+        their own drafts; EDITOR fills any), then answer the preview or do it. 400 for a row with an error."""
+        from marvin.services.entries import templates
+
+        if not preview:
+            if any(r.action == "create" for r in plan.rows):
+                require_can_create_entry(self.user, self.group_id, plan.template.status)
+            for r in plan.rows:
+                if r.action == "fill":
+                    require_can_edit_entry(self.user, self.group_id, r.entry)
+        if preview:
+            return templates.describe(plan)
+        try:
+            return templates.execute(self.session, self.group_id, plan, actor_id=self.user.id, event_bus=self.event_bus)
+        except templates.TemplateError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    @router.post("/from-template", response_model=EntryTemplateResult, summary="Make entries from pictures with a template")
+    def entries_from_template(self, body: EntriesFromTemplateRequest) -> dict:
+        """One entry per picture, from one of the entry type's templates (its settings list them). `preview` (the default)
+        answers one row per picture and changes nothing: the title, the values that would be set and the picture. With
+        `preview: false` the entries are made, in the template's status (Inbox by default), each with the picture in the
+        template's asset field and attached with its role at position 0. A picture an entry of this type already has fills
+        that entry instead (only empty values, unless `replace`). Nothing is made while any row has an `error`. At most
+        200 pictures; no `entry_created` each: one `entry_template_applied`. Declared before `/{item_id}`."""
+        from marvin.services.entries import templates
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
+        try:
+            plan = templates.plan_from_assets(self.session, self.group_id, body.entry_type, body.template, body.assets, replace=body.replace)
+        except templates.TemplateNotFound as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+        except templates.TemplateError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+        return self._template_done(plan, body.preview)
+
+    @router.post("/apply-template", response_model=EntryTemplateResult, summary="Fill entries with a template")
+    def apply_template(self, body: EntriesApplyTemplateRequest) -> dict:
+        """Fill existing entries of the template's type with it: only what is empty unless `replace` (tags and collections
+        are added; the status is never changed). `preview` (the default) answers one row per entry and changes nothing.
+        Approved, published and archived entries and those in the Trash are left alone. An AUTHOR fills only their own
+        drafts. At most 200 entries; no `entry_updated` each: one `entry_template_applied`. Declared before `/{item_id}`."""
+        from marvin.services.entries import templates
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
+        try:
+            plan = templates.plan_for_entries(self.session, self.group_id, body.entry_type, body.template, body.entries, replace=body.replace)
+        except templates.TemplateNotFound as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+        except templates.TemplateError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+        return self._template_done(plan, body.preview)
 
     @router.get("/counts", summary="Entry counts by status")
     def entry_counts(self) -> dict[str, int]:

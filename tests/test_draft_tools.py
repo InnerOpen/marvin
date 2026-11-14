@@ -77,6 +77,53 @@ def test_create_draft_refuses_fields_the_type_does_not_have(db_session, bench):
     assert "not found" in _invoke(db_session, bench, "create_draft", {"entry_type": "nope", "title": "X"})["error"]
 
 
+def test_an_unknown_field_names_the_field_it_most_likely_meant(db_session, bench):
+    out = _invoke(db_session, bench, "create_draft", {"entry_type": "bench-note", "title": "X", "fields": {"body_url": "x"}})
+    assert "body_url is not a field of 'bench-note'. Did you mean 'body'?" in out["error"] and "Its fields: body, price" in out["error"]
+    out = _invoke(db_session, bench, "create_draft", {"entry_type": "bench-note", "title": "X", "fields": {"colour": "blue"}})
+    assert "Did you mean" not in out["error"]  # nothing close: no guess
+    out = _invoke(db_session, bench, "create_draft", {"entry_type": "bench-note", "title": "X", "fields": {"body_url": 1, "colour": 2}})
+    assert "body_url, colour are not fields of 'bench-note'. Did you mean 'body' for body_url?" in out["error"]
+
+
+def test_closest_field():
+    from marvin.services.ai.authoring import closest_field
+
+    fields = ["image", "medium", "size", "price", "valid"]
+    assert closest_field("image_url", fields) == "image"
+    assert closest_field("imageUrl", fields) == "image"
+    assert closest_field("image_ids", fields) == "image"
+    assert closest_field("Image", fields) == "image"
+    assert closest_field("prices", fields) == "price"  # a near spelling
+    assert closest_field("valid_id", fields) == "valid"
+    assert closest_field("colour", fields) is None
+
+
+def test_a_change_result_says_what_its_outcome_means():
+    from marvin.services.ai.tools.builtins_authoring import STAGED_MESSAGE, _with_message
+
+    assert _with_message({"outcome": "staged"})["message"] == STAGED_MESSAGE
+    assert _with_message({"outcome": "unchanged"})["message"].startswith("Nothing to change")
+    assert _with_message({"error": "x"}) == {"error": "x"}  # no outcome, no message
+
+
+def test_draft_results_say_what_happened(db_session, bench):
+    """`message` says in words what the outcome means, so a staged change is never reported as made."""
+    from marvin.services.ai.tools.builtins_authoring import SAVED_MESSAGE, STAGED_MESSAGE, UPDATED_MESSAGE
+
+    made = _invoke(db_session, bench, "create_draft", {"entry_type": "bench-note", "title": "T", "fields": {"body": "old"}})
+    assert made["message"] == SAVED_MESSAGE == "Saved as an inbox draft: nothing is published."
+    _approval(db_session, bench, "suggest-only")
+    staged = _invoke(db_session, bench, "update_draft", {"entry": made["entryId"], "fields": {"body": "new"}})
+    assert staged["outcome"] == "staged" and staged["message"] == STAGED_MESSAGE == "Proposed, waiting for your approval: nothing has changed yet."
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    db_session.query(WorkspaceAISettingsModel).filter_by(group_id=bench.gid).update({"approval_mode": "allow-draft-update"})
+    db_session.commit()
+    applied = _invoke(db_session, bench, "update_draft", {"entry": made["entryId"], "fields": {"body": "new"}})
+    assert applied["outcome"] == "applied" and applied["message"] == UPDATED_MESSAGE
+
+
 def test_update_draft_changes_only_what_it_is_given(db_session, bench):
     from marvin.db.models.platform import Entries
 

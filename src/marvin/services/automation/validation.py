@@ -301,6 +301,7 @@ def validate_definition(definition: dict | None, max_steps: int | None = None) -
     )
     issues.extend(unattended_trash_issues(definition))
     issues.extend(unasked_delete_issues(definition))
+    issues.extend(unasked_template_issues(definition))
     issues.extend(when_issues(definition))
     return issues
 
@@ -325,6 +326,33 @@ def unasked_delete_issues(definition: dict | None) -> list[dict]:
             issues.append(_issue("error", message, "action", i))
         elif mode == "trash" and not asked and ttype != "manual":
             message = f"This step moves entries to the Trash every time the {_pretty(ttype)} trigger fires, without asking: add an approval first."
+            issues.append(_issue("warning", message, "action", i))
+    return issues
+
+
+TEMPLATE_STEPS = {"create_entries_from_template": "create", "apply_template": "apply"}
+
+
+def unasked_template_issues(definition: dict | None) -> list[dict]:
+    """A create_entries_from_template / apply_template step that writes (mode create / apply) with no approval before it:
+    said when `replace` overwrites what entries already have, and when a trigger that fires on its own would make or
+    change entries each time without anyone looking at the preview."""
+    definition = definition or {}
+    ttype = (definition.get("trigger") or {}).get("type", "event")
+    issues, asked = [], False
+    for i, step in enumerate(definition.get("actions") or []):
+        if not isinstance(step, dict):
+            continue
+        if step.get("kind") == "approval":
+            asked = True
+        doing = TEMPLATE_STEPS.get(step.get("kind"))
+        if doing is None or (step.get("mode") or "preview") != doing or asked:
+            continue
+        if step.get("replace"):
+            message = "This step replaces what entries already have, without asking: add an approval after the preview step."
+            issues.append(_issue("warning", message, "action", i))
+        elif ttype != "manual":
+            message = f"This step makes or fills entries every time the {_pretty(ttype)} trigger fires, without asking: add an approval first."
             issues.append(_issue("warning", message, "action", i))
     return issues
 

@@ -119,6 +119,23 @@ TRASH_RULE = (
     "name, and don't list them first to name them; the user is asked to approve it. Never use "
     "revise_entry or compose_entry to 'delete' or blank an entry, and never detach an asset to 'delete' it."
 )
+# Asked to make a draft per picture, an agent that saw no asset names titled 20 drafts "Ornament 1..20" and wrote
+# descriptions nobody gave it, then reported changes still waiting for approval as "Updated" (2026-11-13).
+DRAFTING_RULE = (
+    "Drafts you save word for word (create_draft, update_draft): title an entry made for a picture from the asset's "
+    "`name` (list_assets and get_asset give it), and save only what the user gave; never invent descriptions, summaries "
+    "or other facts."
+)
+# The pictures in that request had a template on their type (Ornament: title from the picture, the medium, size and
+# price); making each entry with it gives what the editor's "From template" gives, nothing made up.
+TEMPLATE_RULE = (
+    "Making entries from pictures: when the type has a template for them (list_templates), call create_draft once per "
+    "picture with that `template` and the picture in `assets`, passing only what the user said beyond it."
+)
+STAGED_RULE = (
+    "When a change's outcome is 'staged', nothing has changed yet: report it as proposed, waiting for the user's "
+    "approval (the result's `message` says so), never as 'Updated'."
+)
 ARCHIVE_RULE = "Retiring or archiving entries (kept, but out of the active pipeline): call archive_entries."
 REMOVING_RULE = (
     "Deleting or removing entries: call archive_entries — Marvin's reversible way to put entries away — and tell the "
@@ -220,6 +237,12 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         lines.append(REMOVING_RULE)
     elif names.intersection(("revise_entry", "compose_entry")):
         lines.append(NO_REMOVE_RULE)
+    if names.intersection(("create_draft", "update_draft")):
+        lines.append(DRAFTING_RULE)
+        if {"create_draft", "list_templates"} <= names:
+            lines.append(TEMPLATE_RULE)
+    if names.intersection(("update_draft", "revise_entry")):
+        lines.append(STAGED_RULE)
     if names.intersection(ENTRY_URL_TOOLS):
         lines.append(entry_links_rule(names))
     if "draft_workflow" in names:

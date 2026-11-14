@@ -893,6 +893,28 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("description", "What the entries were", "what the import made for “The Last Onion”"),
         ],
     ),
+    CatalogEntry(
+        event_type="entry_template_applied",
+        name="Entries Made from a Template",
+        description=(
+            "A template made entries from pictures and/or filled existing entries, in one go: from the API, a workflow's "
+            "Create entries from a template or Apply a template step, or an assistant. Says how many were made and filled; "
+            "the entries send no entry_created or entry_updated of their own."
+        ),
+        category="Content",
+        triggerable=True,
+        sent_by=[
+            "Entries from a template (API: POST /entries/from-template, /entries/apply-template)",
+            "A workflow's Create entries from a template or Apply a template step",
+        ],
+        variables=COMMON_VARS
+        + [
+            EventVariable("template", "The template's slug", "ornament"),
+            EventVariable("entry_type", "The entry type's slug", "artwork"),
+            EventVariable("created", "How many entries were made", "20", type="count"),
+            EventVariable("updated", "How many existing entries were filled", "0", type="count"),
+        ],
+    ),
     # ── Assets ──────────────────────────────────────────────────────────────
     CatalogEntry(
         event_type="asset_uploaded",

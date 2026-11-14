@@ -7,6 +7,7 @@ from pydantic import UUID4, AliasChoices, ConfigDict, Field, StringConstraints, 
 
 from marvin.core.root_logger import get_logger
 from marvin.schemas._marvin import _MarvinModel
+from marvin.schemas.platform.entry_templates import EntryTemplate
 from marvin.schemas.platform.entry_type_recipe import EntryTypeRecipe
 from marvin.schemas.platform.entry_type_rendering import CapabilitiesDefinition, RenderingDefinition
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
@@ -58,6 +59,12 @@ class EntryTypeCreate(_MarvinModel):
     page_url_pattern: str | None = Field(
         default=None,
         description="Where the site renders an entry of this type, e.g. /works/{slug}. Placeholders: {slug}, {id}, {entry_type}.",
+    )
+    templates: list[EntryTemplate] | None = Field(
+        default=None,
+        description="Entry templates: named presets for making entries of this type from pictures (checked against the schema when saved)",
+        serialization_alias="templatesJson",
+        validation_alias=AliasChoices("templatesJson", "templates_json", "templates"),
     )
 
     @field_validator("content_schema")
@@ -141,6 +148,12 @@ class EntryTypeUpdate(_MarvinModel):
     page_url_pattern: str | None = Field(
         default=None,
         description="Where the site renders an entry of this type, e.g. /works/{slug}. Placeholders: {slug}, {id}, {entry_type}.",
+    )
+    templates: list[EntryTemplate] | None = Field(
+        default=None,
+        description="Entry templates: named presets for making entries of this type from pictures (checked against the schema when saved)",
+        serialization_alias="templatesJson",
+        validation_alias=AliasChoices("templatesJson", "templates_json", "templates"),
     )
 
     @field_validator("content_schema")
@@ -230,6 +243,12 @@ class EntryTypeRead(_MarvinModel):
     page_url_pattern: str | None = Field(
         default=None,
         description="Where the site renders an entry of this type, e.g. /works/{slug}. Placeholders: {slug}, {id}, {entry_type}.",
+    )
+    templates: list[EntryTemplate] | None = Field(
+        default=None,
+        description="Entry templates: named presets for making entries of this type from pictures (checked against the schema when saved)",
+        serialization_alias="templatesJson",
+        validation_alias=AliasChoices("templatesJson", "templates_json", "templates"),
     )
     created_at: datetime | None = None
     update_at: datetime | None = None

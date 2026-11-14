@@ -463,6 +463,8 @@ def _create(
 
     from marvin.db.models.platform.entry_types import EntryTypes
 
+    if payload.get("templates_json") is not None:
+        payload["templates_json"] = _checked_templates(payload["templates_json"], payload.get("schema_json"), slug)
     session.add(EntryTypes(session=session, group_id=group_id, **payload))
     # Flush so the next blueprint in an apply_many run can see it: a collection that `requires`
     # this entry type checks the database, and an unflushed row would read as missing.
@@ -699,8 +701,8 @@ def update_blueprint(
 #
 # An entry type records no source package and the workspace may have customised its fields, so an update only ever *adds*: the declared fields the
 # type lacks, the settings a declared field has that the existing one lacks (a slider, a step), the options a declared select lacks, and the declared
-# `children` lookups it lacks. A setting an existing field already has is never changed, a field the package does not declare is kept, and nothing
-# is removed.
+# `children` lookups it lacks, and the templates (by slug) it lacks. A setting an existing field already has is never changed, a field the package
+# does not declare is kept, a template the type already has is left as it is, and nothing is removed.
 
 
 def entry_type_additions(entry_type, blueprint: Blueprint) -> tuple[dict | None, list[str]]:
@@ -743,24 +745,59 @@ def entry_type_additions(entry_type, blueprint: Blueprint) -> tuple[dict | None,
     return (schema, notes) if notes else (None, [])
 
 
+def _checked_templates(templates, schema_json, slug: str) -> list | None:
+    """A package's templates for entry type ``slug``, checked against the schema they come with (services/entries/templates.py)."""
+    from marvin.services.entries.templates import TemplateError, check_templates
+
+    try:
+        return check_templates(templates, schema_json)
+    except TemplateError as e:
+        raise BlueprintParameterError(f"the templates of entry type '{slug}' don't fit it: {e}") from e
+
+
+def template_additions(entry_type, blueprint: Blueprint) -> tuple[list | None, list[str]]:
+    """(the type's templates with the declared ones it lacks added, by slug; what was added in words). A template the type
+    already has is never changed (it may have been edited here), and none is removed."""
+    declared = [t for t in ((blueprint.payload or {}).get("templates_json") or []) if isinstance(t, dict) and t.get("slug")]
+    have = list(entry_type.templates_json or [])
+    slugs = {t.get("slug") for t in have if isinstance(t, dict)}
+    lacking = [t for t in declared if t["slug"] not in slugs]
+    if not lacking:
+        return None, []
+    return [*have, *lacking], [f"template {t['slug']}" for t in lacking]
+
+
 def update_entry_type(session, group_id, blueprint: Blueprint, row) -> BlueprintApplyResult:
-    """Add what the package declares and this type lacks (see above). Flushes, never commits; the schema is validated first."""
+    """Add what the package declares and this type lacks (see above): fields and templates. Flushes, never commits; the
+    schema and templates are validated first."""
     from sqlalchemy.orm.attributes import flag_modified
 
     from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
 
     result = BlueprintApplyResult(slug=blueprint.slug, kind=blueprint.kind, created=False, name=row.name)
     schema, notes = entry_type_additions(row, blueprint)
-    if schema is None:
+    templates, template_notes = template_additions(row, blueprint)
+    if schema is None and templates is None:
         result.detail = "already up to date"
         return result
     try:
-        EntryTypeSchemaDefinition.model_validate(schema)
+        if schema is not None:
+            EntryTypeSchemaDefinition.model_validate(schema)
+        if templates is not None:
+            templates = _checked_templates(templates, schema if schema is not None else row.schema_json, row.slug)
+    except BlueprintParameterError as e:
+        result.detail = str(e)
+        return result
     except Exception as e:  # noqa: BLE001 — name the schema rule that failed, don't half-apply
         result.detail = f"the additions don't fit entry type '{row.slug}': {e}"
         return result
-    row.schema_json = schema
-    flag_modified(row, "schema_json")
+    notes += template_notes
+    if schema is not None:
+        row.schema_json = schema
+        flag_modified(row, "schema_json")
+    if templates is not None:
+        row.templates_json = templates
+        flag_modified(row, "templates_json")
     session.flush()
     result.updated = True
     result.detail = "added " + "; ".join(notes)

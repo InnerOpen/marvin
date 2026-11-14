@@ -36,6 +36,8 @@
     "metric": "Record a metric",
     "snapshot": "Save or restore a version",
     "delete_entries": "Delete entries in bulk",
+    "create_entries_from_template": "Create entries from a template",
+    "apply_template": "Apply a template",
     "automation_result": "Record an automation result",
     "wait": "Wait",
     "repeat": "Repeat for each",

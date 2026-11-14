@@ -2,9 +2,12 @@
 import SchemaEditor from "@/components/SchemaEditor.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { type CollectionRead, listCollections } from "@/lib/api/collections";
 import { getEntryType } from "@/lib/api/entryTypes";
+import { type MarvinAsset, getAssets } from "@/lib/api/platform";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { lockReason, usedBy } from "@/lib/entryTypeListing";
+import { TEMPLATE_VARIABLES, assetFields, valueFields } from "@/lib/entryTemplates";
 import { splitRecipe } from "@/lib/recipeForm";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
@@ -36,7 +39,7 @@ const capabilities = (entryType?.capabilitiesJson ?? {}) as Record<string, unkno
 const submission = (capabilities.submission ?? {}) as Record<string, unknown>;
 const subStr = (k: string) => (submission[k] == null ? "" : String(submission[k]));
 // "Same person = same …": the fields that can identify a submitter (single values, not long text).
-const schemaFields = ((entryType?.schemaJson as { fields?: { key?: string; label?: string; type?: string }[] } | null)?.fields ?? []);
+const schemaFields = ((entryType?.schemaJson as { fields?: { key?: string; label?: string; type?: string; options?: string[] }[] } | null)?.fields ?? []);
 const matchFieldOptions = schemaFields.filter((f) => f.key && ["text", "number", "select"].includes(f.type ?? ""));
 const matchField = subStr("matchField");
 // Where the submissions go (the backend defaults to the Audience, also for a type that never stored it) and what they are.
@@ -49,6 +52,31 @@ const recipe = (entryType?.recipeJson ?? {}) as Record<string, unknown>;
 // The authoring instructions and the drafts' voice (`enrichment.voice`) get their own boxes; the JSON textarea
 // holds the rest of the structured contract (lib/recipeForm).
 const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } = splitRecipe(recipe);
+
+// Templates (lib/entryTemplates): presets for making entries of this type from pictures. Saved on their own
+// (api/entry-types/[id]/templates), so the server's 400 can be shown next to the template that caused it.
+// templatesJson is newer than the SDK release the frontend pins.
+const templates = ((entryType as { templatesJson?: unknown } | null)?.templatesJson ?? []) as unknown[];
+const canEditTemplates = canManage && !lockedReason;
+const templateValueFields = valueFields(schemaFields);
+const templateAssetFields = assetFields(schemaFields);
+// The title preview uses the newest image in the library (the list has no limit, so only an editor asks), and the
+// collection boxes list the hand-picked collections (read once per request; the sidebar reads them too).
+const [samplePicture, handPicked]: [MarvinAsset | null, CollectionRead[]] = canEditTemplates && authToken && entryType
+  ? await Promise.all([
+      getAssets(authToken, { asset_type: "image", sort: "newest", limit: "1" }).then((a) => a[0] ?? null).catch(() => null),
+      listCollections(authToken, Astro.locals).then((cs) => cs.filter((c) => !c.isSmart)).catch(() => []),
+    ])
+  : [null, []];
+const json = (value: unknown) => JSON.stringify(value).replace(/</g, "\\u003c");
+const templateData = json({
+  id,
+  templates,
+  fields: schemaFields,
+  canEdit: canEditTemplates,
+  sample: samplePicture ? { name: samplePicture.name, originalFilename: samplePicture.originalFilename, filename: samplePicture.filename } : null,
+});
+const variableList = TEMPLATE_VARIABLES.map((v) => `{${v}}`).join(", ");
 ---
 
 <AppLayout
@@ -400,6 +428,134 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
           </form>
         )}
       </section>
+
+      {/* Templates: their own section and form (forms can't nest), saved on their own. The list and the editor's values
+          are drawn by the script below from #tpl-data. */}
+      <section class="form-section templates-section" id="templates">
+        <div class="form">
+          <details id="templates-details" open={templates.length > 0}>
+            <summary class="section-heading">Templates (<span id="tpl-count">{templates.length}</span>)</summary>
+            <div class="config-fields">
+              <p class="form-help">
+                Presets for making entries of this type from pictures, one entry per picture. Text may use {`${variableList} ({n} is the entry's number in the batch, from 1; {date} is today).`}
+              </p>
+              <ul class="tpl-list" id="tpl-list"></ul>
+              <p class="form-help" id="tpl-empty" hidden>No templates yet.</p>
+              <div class="tpl-message" id="tpl-message" role="alert" hidden></div>
+              {canEditTemplates && (
+                <button type="button" class="button secondary tpl-add" id="tpl-add">Add template</button>
+              )}
+
+              {canEditTemplates && (
+                <form class="tpl-editor" id="tpl-editor" hidden>
+                  <h3 class="tpl-editor-title" id="tpl-editor-title">New template</h3>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="tpl_name">Name *</label>
+                      <input type="text" id="tpl_name" required maxlength="120" />
+                    </div>
+                    <div class="form-group">
+                      <label for="tpl_slug">Slug *</label>
+                      <input type="text" id="tpl_slug" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*" spellcheck="false" />
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="tpl_description">What it is for</label>
+                    <input type="text" id="tpl_description" maxlength="500" placeholder="Shown where the template is picked" />
+                  </div>
+                  <div class="form-group">
+                    <label for="tpl_title">Title</label>
+                    <input type="text" id="tpl_title" maxlength="300" placeholder="{asset.name}" spellcheck="false" />
+                    <p class="form-help tpl-preview" id="tpl_title_preview" aria-live="polite"></p>
+                    <p class="tpl-warning" id="tpl_title_warning" hidden></p>
+                  </div>
+                  <div class="form-group">
+                    <label for="tpl_summary">Summary</label>
+                    <textarea id="tpl_summary" rows="2" maxlength="2000"></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for="tpl_entry_description">Description text</label>
+                    <textarea id="tpl_entry_description" rows="3" maxlength="20000"></textarea>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="tpl_status">New entries start in</label>
+                      <select id="tpl_status">
+                        <option value="inbox">Inbox</option>
+                        <option value="draft">Draft</option>
+                        <option value="needs_review">Needs review</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="tpl_asset_field">The picture goes in</label>
+                      <select id="tpl_asset_field">
+                        <option value="">No field (attached only)</option>
+                        {templateAssetFields.map((f) => <option value={f.key}>{f.label || f.key}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="tpl_asset_role">Attached as</label>
+                      <input type="text" id="tpl_asset_role" maxlength="40" placeholder="featured" spellcheck="false" />
+                    </div>
+                    <div class="form-group">
+                      <label for="tpl_tags">Tags</label>
+                      <input type="text" id="tpl_tags" placeholder="birds, field notes" />
+                      <p class="form-help">Comma separated; missing tags are made.</p>
+                    </div>
+                  </div>
+                  <fieldset class="tpl-group">
+                    <legend>Collections</legend>
+                    <div class="tpl-checks" id="tpl_collections">
+                      {handPicked.map((c) => (
+                        <label class="checkbox-label"><input type="checkbox" value={c.slug} /> {c.name}</label>
+                      ))}
+                    </div>
+                    {handPicked.length === 0 && <p class="form-help">No hand-picked collections yet.</p>}
+                  </fieldset>
+                  {/* A number field gets a text box: its value may be a variable ({n}), which type="number" would blank. */}
+                  {templateValueFields.length > 0 && (
+                    <fieldset class="tpl-group">
+                      <legend>Field values</legend>
+                      <p class="form-help">Blank leaves a field unset. Lists saved fields, so save a new field before giving it a value.</p>
+                      {templateValueFields.map((f) => (
+                        <div class="form-group">
+                          <label for={`tpl_field_${f.key}`}>{f.label || f.key}</label>
+                          {f.type === "boolean" ? (
+                            <select id={`tpl_field_${f.key}`} data-tpl-field={f.key}>
+                              <option value="">Not set</option>
+                              <option value="true">Yes</option>
+                              <option value="false">No</option>
+                            </select>
+                          ) : f.type === "select" ? (
+                            <select id={`tpl_field_${f.key}`} data-tpl-field={f.key}>
+                              <option value="">Not set</option>
+                              {(f.options ?? []).map((o) => <option value={o}>{o}</option>)}
+                            </select>
+                          ) : f.type === "textarea" || f.type === "markdown" ? (
+                            <textarea id={`tpl_field_${f.key}`} data-tpl-field={f.key} rows="2"></textarea>
+                          ) : f.type === "number" ? (
+                            <input type="text" inputmode="decimal" id={`tpl_field_${f.key}`} data-tpl-field={f.key} placeholder="a number or {n}" spellcheck="false" />
+                          ) : (
+                            <input type="text" id={`tpl_field_${f.key}`} data-tpl-field={f.key} />
+                          )}
+                        </div>
+                      ))}
+                    </fieldset>
+                  )}
+                  <div class="tpl-message" id="tpl-editor-message" role="alert" hidden></div>
+                  <div class="form-actions">
+                    <button type="submit" class="button" id="tpl-save">Save template</button>
+                    <button type="button" class="button secondary" id="tpl-cancel">Cancel</button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </details>
+        </div>
+        <script type="application/json" id="tpl-data" is:inline set:html={templateData}></script>
+      </section>
     </>
   ) : null}
 </AppLayout>
@@ -602,6 +758,93 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
     .form-actions .button { flex: 1; min-height: 44px; }
     .delete-form .button { width: 100%; min-height: 44px; }
   }
+
+  /* Templates: compact rows (name and slug, then the title pattern), the editor below the list. The rows, the extra
+     collection boxes and the preview's text are made by the script, so their rules are :global() under a scoped parent. */
+  .templates-section { margin-top: 1.5rem; }
+  .tpl-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+  .tpl-list:empty { display: none; }
+  .tpl-list :global(.tpl-row) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+  }
+  .tpl-list :global(.tpl-row-text) { flex: 1; min-width: 0; }
+  .tpl-list :global(.tpl-row-name) { font-weight: 600; font-size: 0.875rem; overflow-wrap: anywhere; }
+  .tpl-list :global(.tpl-row-slug),
+  .tpl-list :global(.tpl-row-title) {
+    font-size: 0.75rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .tpl-list :global(.tpl-row-slug),
+  .tpl-list :global(.tpl-row-title code) { font-family: ui-monospace, monospace; }
+  .tpl-list :global(.tpl-row-actions) { display: flex; gap: 0.5rem; flex-shrink: 0; }
+  .tpl-list :global(.tpl-row-actions .button) { padding: 0.25rem 0.6rem; font-size: 0.8125rem; }
+  .tpl-list :global(.button.danger) { color: var(--color-error); border-color: var(--color-error); }
+  .tpl-add { justify-self: start; }
+  .tpl-add[hidden] { display: none; }
+  .tpl-editor {
+    display: grid;
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .tpl-editor[hidden] { display: none; }
+  .tpl-editor-title { margin: 0; font-size: 1rem; }
+  .tpl-group {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0.75rem 1rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    min-width: 0;
+  }
+  .tpl-group legend { font-weight: 600; font-size: 0.875rem; padding: 0 0.4rem; }
+  .tpl-checks { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+  .tpl-checks :global(.tpl-extra) { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; cursor: pointer; }
+  .tpl-checks:empty { display: none; }
+  .tpl-preview :global(strong) { color: var(--ink); overflow-wrap: anywhere; }
+  .tpl-warning, .tpl-message {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+  .tpl-warning {
+    background: rgb(169 99 47 / 0.1);
+    border: 1px solid var(--warn);
+    color: var(--ink);
+  }
+  .tpl-message {
+    background: var(--color-error-bg);
+    border: 1px solid var(--color-error);
+    color: var(--color-error);
+  }
+  .tpl-message.is-ok {
+    background: transparent;
+    border-color: var(--line);
+    color: var(--muted);
+  }
+  .tpl-warning[hidden], .tpl-message[hidden] { display: none; }
+  @media (max-width: 640px) {
+    .tpl-list :global(.tpl-row) { flex-wrap: wrap; }
+    .tpl-list :global(.tpl-row-actions .button) { min-height: 36px; }
+    .tpl-add { width: 100%; min-height: 44px; }
+  }
 </style>
 
 <script>
@@ -754,5 +997,257 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
         .replace(/^-+|-+$/g, '');
       slugInput.value = slug;
     });
+  }
+</script>
+
+<script>
+  // Templates: the list, the editor and saving (lib/entryTemplates). Each Save or Delete sends the whole list to
+  // api/entry-types/[id]/templates; the server checks it against the saved schema and its message is shown here.
+  import {
+    formFromTemplate,
+    putTemplate,
+    renderPattern,
+    sampleValues,
+    slugify,
+    templateFromForm,
+    unknownVariables,
+    type EntryTemplate,
+    type SchemaField,
+    type TemplateForm,
+  } from '@/lib/entryTemplates';
+
+  const dataEl = document.getElementById('tpl-data');
+  const data = dataEl ? JSON.parse(dataEl.textContent || '{}') : null;
+  if (data) {
+    const fields: SchemaField[] = data.fields ?? [];
+    const canEdit: boolean = data.canEdit === true;
+    const sample = sampleValues(data.sample);
+    let templates: EntryTemplate[] = Array.isArray(data.templates) ? data.templates : [];
+    let editing: string | null = null; // the slug being edited; null for a new template
+    let slugTouched = false;
+
+    const listEl = document.getElementById('tpl-list') as HTMLUListElement;
+    const emptyEl = document.getElementById('tpl-empty') as HTMLElement;
+    const countEl = document.getElementById('tpl-count');
+    const messageEl = document.getElementById('tpl-message') as HTMLElement;
+    const editor = document.getElementById('tpl-editor') as HTMLFormElement | null;
+    const editorMessage = document.getElementById('tpl-editor-message') as HTMLElement | null;
+    const addButton = document.getElementById('tpl-add') as HTMLButtonElement | null;
+    const input = (id: string) => document.getElementById(id) as HTMLInputElement;
+    const nameInput = input('tpl_name');
+    const slugInput = input('tpl_slug');
+    const titleInput = input('tpl_title');
+
+    function show(el: HTMLElement | null, text: string, ok = false) {
+      if (!el) return;
+      el.textContent = text;
+      el.classList.toggle('is-ok', ok);
+      el.hidden = !text;
+    }
+
+    function renderList() {
+      listEl.replaceChildren(
+        ...templates.map((t) => {
+          const li = document.createElement('li');
+          li.className = 'tpl-row';
+          const text = document.createElement('div');
+          text.className = 'tpl-row-text';
+          const name = document.createElement('div');
+          name.className = 'tpl-row-name';
+          name.textContent = t.name;
+          const slug = document.createElement('div');
+          slug.className = 'tpl-row-slug';
+          slug.textContent = t.slug;
+          const title = document.createElement('div');
+          title.className = 'tpl-row-title';
+          const code = document.createElement('code');
+          code.textContent = t.title || '{asset.name}';
+          title.append('Title: ', code);
+          text.append(name, slug, title);
+          li.append(text);
+          if (canEdit) {
+            const actions = document.createElement('div');
+            actions.className = 'tpl-row-actions';
+            const edit = document.createElement('button');
+            edit.type = 'button';
+            edit.className = 'button secondary';
+            edit.textContent = 'Edit';
+            edit.addEventListener('click', () => openEditor(t));
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'button secondary danger';
+            del.textContent = 'Delete';
+            del.addEventListener('click', () => remove(t));
+            actions.append(edit, del);
+            li.append(actions);
+          }
+          return li;
+        }),
+      );
+      emptyEl.hidden = templates.length > 0;
+      if (countEl) countEl.textContent = String(templates.length);
+    }
+
+    function renderPreview() {
+      const pattern = titleInput.value.trim() || '{asset.name}';
+      const preview = document.getElementById('tpl_title_preview') as HTMLElement;
+      const strong = document.createElement('strong');
+      strong.textContent = renderPattern(pattern, sample);
+      const from = data.sample ? 'the newest picture in the library' : 'a sample picture';
+      preview.replaceChildren('Preview: ', strong, ` (${from}, ${sample['asset.filename']}, entry 1, today)`);
+      const unknown = unknownVariables(pattern);
+      show(
+        document.getElementById('tpl_title_warning'),
+        unknown.length
+          ? `${unknown.map((v) => `{${v}}`).join(', ')} ${unknown.length > 1 ? 'are not variables' : 'is not a variable'}: use {asset.name}, {asset.filename}, {n} or {date}. The template can't be saved with it.`
+          : '',
+      );
+    }
+
+    function fieldInputs() {
+      return [...document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[data-tpl-field]')];
+    }
+
+    function collectionBoxes() {
+      return [...document.querySelectorAll<HTMLInputElement>('#tpl_collections input[type="checkbox"]')];
+    }
+
+    function fillEditor(form: TemplateForm) {
+      nameInput.value = form.name;
+      slugInput.value = form.slug;
+      input('tpl_description').value = form.description;
+      titleInput.value = form.title;
+      (document.getElementById('tpl_summary') as HTMLTextAreaElement).value = form.summary;
+      (document.getElementById('tpl_entry_description') as HTMLTextAreaElement).value = form.entryDescription;
+      (document.getElementById('tpl_status') as HTMLSelectElement).value = form.status;
+      const assetField = document.getElementById('tpl_asset_field') as HTMLSelectElement;
+      keepOption(assetField, form.assetField);
+      assetField.value = form.assetField;
+      input('tpl_asset_role').value = form.assetRole;
+      input('tpl_tags').value = form.tags;
+      // A collection the template names that isn't a hand-picked one here (a package's) gets a box of its own, kept until unticked.
+      const box = document.getElementById('tpl_collections') as HTMLElement;
+      box.querySelectorAll('.tpl-extra').forEach((el) => el.remove());
+      for (const slug of form.collections) {
+        if (collectionBoxes().some((b) => b.value === slug)) continue;
+        const label = document.createElement('label');
+        label.className = 'checkbox-label tpl-extra';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = slug;
+        label.append(cb, ` ${slug}`);
+        box.append(label);
+      }
+      for (const cb of collectionBoxes()) cb.checked = form.collections.includes(cb.value);
+      for (const el of fieldInputs()) {
+        const value = form.fields[el.dataset.tplField as string] ?? '';
+        if (el instanceof HTMLSelectElement) keepOption(el, value);
+        el.value = value;
+      }
+    }
+
+    // A stored value the select doesn't offer (an option since removed) is shown, not lost.
+    function keepOption(select: HTMLSelectElement, value: string) {
+      if (value && ![...select.options].some((o) => o.value === value)) select.add(new Option(value, value));
+    }
+
+    function readEditor(): TemplateForm {
+      const fieldValues: Record<string, string> = {};
+      for (const el of fieldInputs()) fieldValues[el.dataset.tplField as string] = el.value;
+      return {
+        name: nameInput.value,
+        slug: slugInput.value,
+        description: input('tpl_description').value,
+        title: titleInput.value,
+        summary: (document.getElementById('tpl_summary') as HTMLTextAreaElement).value,
+        entryDescription: (document.getElementById('tpl_entry_description') as HTMLTextAreaElement).value,
+        status: (document.getElementById('tpl_status') as HTMLSelectElement).value,
+        assetField: (document.getElementById('tpl_asset_field') as HTMLSelectElement).value,
+        assetRole: input('tpl_asset_role').value,
+        tags: input('tpl_tags').value,
+        collections: collectionBoxes().filter((cb) => cb.checked).map((cb) => cb.value),
+        fields: fieldValues,
+      };
+    }
+
+    function openEditor(template: EntryTemplate | null) {
+      if (!editor) return;
+      editing = template ? template.slug : null;
+      slugTouched = template != null;
+      fillEditor(formFromTemplate(template, fields));
+      (document.getElementById('tpl-editor-title') as HTMLElement).textContent = template ? `Edit ${template.name}` : 'New template';
+      show(editorMessage, '');
+      show(messageEl, '');
+      renderPreview();
+      editor.hidden = false;
+      if (addButton) addButton.hidden = true;
+      editor.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      nameInput.focus({ preventScroll: true });
+    }
+
+    function closeEditor() {
+      if (!editor) return;
+      editor.hidden = true;
+      editing = null;
+      if (addButton) addButton.hidden = false;
+    }
+
+    /** Send the whole list; true when the server took it (and the list is then what it stored). */
+    async function save(next: EntryTemplate[], messageTarget: HTMLElement | null): Promise<boolean> {
+      show(messageTarget, '');
+      try {
+        const res = await fetch(`/api/entry-types/${encodeURIComponent(data.id)}/templates`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ templates: next }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          show(messageTarget, body.error || `The templates could not be saved (${res.status}).`);
+          return false;
+        }
+        templates = Array.isArray(body.templates) ? body.templates : next;
+        renderList();
+        return true;
+      } catch {
+        show(messageTarget, 'The templates could not be saved: no answer from the server.');
+        return false;
+      }
+    }
+
+    async function remove(template: EntryTemplate) {
+      if (!confirm(`Delete the template "${template.name}"?`)) return;
+      if (await save(templates.filter((t) => t.slug !== template.slug), messageEl)) {
+        if (editing === template.slug) closeEditor();
+        show(messageEl, `Deleted "${template.name}".`, true);
+      }
+    }
+
+    if (editor) {
+      addButton?.addEventListener('click', () => openEditor(null));
+      document.getElementById('tpl-cancel')?.addEventListener('click', closeEditor);
+      titleInput.addEventListener('input', renderPreview);
+      nameInput.addEventListener('input', () => {
+        if (!slugTouched) slugInput.value = slugify(nameInput.value);
+      });
+      slugInput.addEventListener('input', () => {
+        slugTouched = slugInput.value !== '';
+      });
+      editor.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const stored = editing == null ? null : templates.find((t) => t.slug === editing) ?? null;
+        const template = templateFromForm(readEditor(), fields, stored);
+        const saveButton = document.getElementById('tpl-save') as HTMLButtonElement;
+        saveButton.disabled = true;
+        const ok = await save(putTemplate(templates, template, editing), editorMessage);
+        saveButton.disabled = false;
+        if (ok) {
+          closeEditor();
+          show(messageEl, `Saved "${template.name}".`, true);
+        }
+      });
+    }
+
+    renderList();
   }
 </script>
