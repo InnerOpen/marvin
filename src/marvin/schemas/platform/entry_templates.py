@@ -58,7 +58,10 @@ class EntriesFromTemplateRequest(_MarvinModel):
     replace: bool = False
     """Fill only empty values (the default), or replace what an existing entry already has."""
     mark_unnamed: bool = False
-    """Tag an entry whose title came out as its picture's file name (IMG_4491) with needs-a-name, and say so on its row."""
+    """Tag a new entry whose title came out as a camera's file name (IMG_4491) "Needs a name", and say so on its row."""
+    titles: dict[str, Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)]] = Field(default_factory=dict)
+    """Titles for some new entries, by their picture's id (a name just given, e.g. by the AI on upload): they win over the
+    template's title pattern."""
 
 
 class EntriesApplyTemplateRequest(_MarvinModel):

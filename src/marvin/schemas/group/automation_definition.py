@@ -814,8 +814,8 @@ class ApplyTemplateAction(_StepBase):
 
 
 class ApplyPicturePresetAction(_StepBase):
-    """Treats pictures with one of an entry type's picture presets (crop, size, grade, format in one pass; or the preset
-    a `template` names). `assets` treats those pictures; `entries` treats each entry's picture and puts the treated one in
+    """Treats pictures with an entry type's picture preset. The preset (or a `template`'s) crops, sizes, grades and converts
+    in one pass. `assets` treats those pictures; `entries` treats each entry's picture and puts the treated one in
     its place (the template's treated role, featured by default, and its asset field). A list of ids or slugs, or a
     template naming one (${steps.<collect>.output.ids}); at most 200. `mode` preview (the default) changes nothing; apply
     makes them here, needs `confirm_total` (the preview's todo) and outputs `treated` (original → treated id) and `ids`.

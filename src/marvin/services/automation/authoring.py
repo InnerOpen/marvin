@@ -82,8 +82,8 @@ SECTION_GUIDE: dict[str, str] = {
     "examples": "the Library recipes this workspace can run; recipe=<id> shows one in full · first, to start from one instead of writing",
     "editor": "the workflow editor's own labels for each part · when telling a person what to click",
 }
-INDEX_BUDGET = 4_700  # characters: the index is read on every request; a new step kind costs ~40 here, a section ~130 (was 4_600; +2 template steps)
-SECTION_BUDGET = 16_950  # characters: the `actions` section lists every step kind, so each new kind costs ~120 here (was 16_700; +2 template steps)
+INDEX_BUDGET = 4_750  # characters: the index is read on every request; a new step kind costs ~40 here, a section ~130 (was 4_700; +apply_picture_preset)
+SECTION_BUDGET = 17_100  # characters: the `actions` section lists every step kind, so each new kind costs ~120 here (was 16_950; +apply_picture_preset)
 
 # Workspace lists are capped, like workspace_overview's structure: the guide must stay one tool result.
 REF_LIMIT = 50

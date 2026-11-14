@@ -228,7 +228,14 @@ class EntriesController(BaseUserController):
         require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
         try:
             plan = templates.plan_from_assets(
-                self.session, self.group_id, body.entry_type, body.template, body.assets, replace=body.replace, mark_unnamed=body.mark_unnamed
+                self.session,
+                self.group_id,
+                body.entry_type,
+                body.template,
+                body.assets,
+                replace=body.replace,
+                mark_unnamed=body.mark_unnamed,
+                titles=body.titles,
             )
         except templates.TemplateNotFound as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

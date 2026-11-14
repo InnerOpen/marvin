@@ -492,12 +492,21 @@ def _new_entry(row: Row, entry_type, template, parsed, values: dict, overrides: 
 
 
 def plan_from_assets(
-    session, group_id, entry_type_ref, template_slug, assets, *, replace: bool = False, overrides: dict | None = None, mark_unnamed: bool = False
+    session,
+    group_id,
+    entry_type_ref,
+    template_slug,
+    assets,
+    *,
+    replace: bool = False,
+    overrides: dict | None = None,
+    mark_unnamed: bool = False,
+    titles: dict | None = None,
 ) -> Plan:
     """One row per picture (in the order given): ``create``, or ``fill`` for a picture that an entry of this type already
     has (in its asset field or attached), or ``skip``. ``overrides`` (title, summary, description, fields) win over the
-    template's values on a new entry (see _new_entry). ``mark_unnamed``: a new entry whose title is only its picture's
-    file name (IMG_4491) gets the tag "Needs a name". Reads only.
+    template's values on a new entry (see _new_entry); ``titles`` (by picture id) win over its title. ``mark_unnamed``: a
+    new entry whose title is only a camera's file name (IMG_4491) gets the tag "Needs a name". Reads only.
 
     With a template that names a picture preset, each picture is first traced back to its original (a treated picture
     asked for stands for the one it was made from), an entry holding a version of it holds it, and the entry gets the
@@ -579,7 +588,8 @@ def plan_from_assets(
             if preset is not None:
                 _picture_pending(row, entry, links)
         else:
-            _new_entry(row, entry_type, template, parsed, values, overrides)
+            given = str((titles or {}).get(str(asset.id)) or "").strip()
+            _new_entry(row, entry_type, template, parsed, values, {**(overrides or {}), "title": given} if given else overrides)
             if unnamed_slug and named_after_file(row.title):
                 row.tags.append(unnamed_slug)
                 row.note = f"named after its file: give it a name (tagged {UNNAMED_TAG})"

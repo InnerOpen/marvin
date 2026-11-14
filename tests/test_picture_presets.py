@@ -474,12 +474,15 @@ class TestRest:
     def test_from_template_with_mark_unnamed_and_a_preset(self, pw):
         src = pw.stored("IMG_0007", filename="IMG_0007.jpeg")
         client = _sign_in(pw, WorkspaceRole.EDITOR)
-        body = {"entryType": "artwork", "template": "treated", "assets": [str(src.id)], "markUnnamed": True}
+        named = pw.stored("IMG_0008", filename="IMG_0008.jpeg")
+        body = {"entryType": "artwork", "template": "treated", "assets": [str(src.id), str(named.id)], "markUnnamed": True}
+        body["titles"] = {str(named.id): "Red cardinal ornament"}  # the AI's name for it, given on upload
         preview = client.post("/api/platform/entries/from-template", json=body).json()
         assert preview["picturePreset"] == "ornament-look" and "Needs a name" in preview["rows"][0]["tags"]
+        assert preview["rows"][1]["title"] == "Red cardinal ornament" and "Needs a name" not in preview["rows"][1]["tags"]
         made = client.post("/api/platform/entries/from-template", json={**body, "preview": False}).json()
-        assert made["created"] == 1 and made["treatmentJob"]
-        assert P.wait(made["treatmentJob"])["placed"] == 1
+        assert made["created"] == 2 and made["treatmentJob"]
+        assert P.wait(made["treatmentJob"])["placed"] == 2
 
 
 class TestWorkflowStep:
@@ -526,3 +529,21 @@ class TestWorkflowStep:
             adapter.validate_python({"kind": "media", "op": "crop", "aspect": "1:1", "focus": "top"})
         with pytest.raises(ValidationError, match="grade needs a preset or a setting"):
             adapter.validate_python({"kind": "media", "op": "grade"})
+
+
+class TestAiTool:
+    def test_apply_preset_previews_then_starts_the_job(self, pw):
+        import json
+
+        from marvin.services.ai.tools import get_tool
+        from marvin.services.ai.tools.base import ToolContext
+
+        src = pw.stored("Owl")
+        call = lambda args: json.loads(get_tool("apply_preset").handler(ToolContext(session=pw.session, group_id=pw.gid, user=None), args))  # noqa: E731
+        preview = call({"entry_type": "artwork", "template": "treated", "assets": [str(src.id)]})
+        assert preview["preview"] and preview["create"] == 1 and len(_assets(pw)) == 1
+        done = call({"entry_type": "artwork", "template": "treated", "assets": [str(src.id)], "confirm": True})
+        assert P.wait(done["job"]["id"])["made"] == 1
+        assert "no picture preset 'nope'" in call({"entry_type": "artwork", "preset": "nope", "assets": [str(src.id)]})["error"]
+        listed = json.loads(get_tool("list_templates").handler(ToolContext(session=pw.session, group_id=pw.gid, user=None), {}))
+        assert {t["slug"]: t.get("picturePreset") for t in listed["templates"]} == {"ornament": None, "treated": "ornament-look"}
