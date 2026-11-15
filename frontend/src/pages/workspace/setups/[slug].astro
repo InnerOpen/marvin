@@ -256,9 +256,14 @@ if (authToken && def && step) {
     if (step.kind === "form") {
       const type = await typeBySlug(entryTypeOf(def, step.entry), authToken, Astro.locals);
       const all = fieldsOf(type, step.fields);
-      formFields = simple(all);
-      leftOut = all.filter((f) => !SIMPLE_FIELD_TYPES.includes(f.type));
+      // A file field (one asset, or a list of them) is the entry's own asset control: choose one, upload, or record. It posts as a hidden `dataJson.<key>` like the rest.
+      const shown = (f: any) => SIMPLE_FIELD_TYPES.includes(f.type) || f.type === "asset" || f.type === "asset-list";
+      formFields = all.filter(shown);
+      leftOut = all.filter((f) => !shown(f));
       refs = await refsFor(formFields);
+      if (formFields.some((f) => f.type === "asset" || f.type === "asset-list")) {
+        pickerAssets = authToken ? await getAssets(authToken, { sort: "newest" }).catch(() => []) : [];
+      }
     }
   } else if (step.kind === "gallery") {
     const type = await typeBySlug(step.entry_type, authToken, Astro.locals);
@@ -547,7 +552,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           {step.kind === "form" && (
             entry ? (
               <form method="post" class="form">
-                <SchemaForm schema={{ fields: formFields }} values={entry.dataJson ?? {}} refs={refs} />
+                <SchemaForm schema={{ fields: formFields }} values={entry.dataJson ?? {}} refs={refs} assets={pickerAssets.map(assetItem)} />
                 {leftOut.length > 0 && <p class="muted">{leftOut.map((f) => f.label).join(", ")} can be edited in the <a href={`/workspace/entries/${entry.id}`}>entry itself</a>.</p>}
                 <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
               </form>

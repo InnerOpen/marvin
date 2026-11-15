@@ -26,7 +26,7 @@ A setup is a list of steps. The kinds:
 |---|---|
 | `option` | Picks one of a few labelled values, only to branch on (`when` shows a later step only for a choice). |
 | `choose` | Picks an entry of a type, or makes a new one. With `picture` (and `subtitle`) the choices are picture tiles; without one, they are still picture tiles when the type has a picture field (its first single asset field that takes pictures) and the entries have pictures in it, a character with its master, and a plain list otherwise. **`cards: true`** makes them tiles anyway, for a type with no picture (a world, a chapter): each tile shows the first letter of its title. A list longer than eight gets a **search box** that filters as you type, and **"make a new one" moves above it** so it is not lost. With `create.upload` the new one starts from a **file**: upload a picture, and the entry is made from it, named for what you typed or for the file. With **`multiple: true`** it picks several: see *Picking several* below. |
-| `form` | Edits some fields of an entry chosen earlier. |
+| `form` | Edits some fields of an entry chosen earlier. A file field (one asset, or a list) shows the entry's own asset control: choose one from the workspace, upload, or record. |
 | `upload` | A file for an entry's field. Shows the picture as it is now, and asks before replacing one. |
 | `list` | The entries that belong to another (a story's characters), editable in place, with a way to add one. **Without a parent** it is a checklist over the entries a `where` finds: see *Checking a list of entries* below. |
 | `gallery` | Entries as picture cards with a play button for sound; upload a picture or sound to make a new entry, or start a generation. |
