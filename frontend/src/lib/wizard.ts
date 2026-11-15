@@ -289,6 +289,24 @@ export function optionStepOf(def: WizardDefinition, key: string): Step | undefin
   return def.steps.find((s) => s.kind === "option" && s.as === key);
 }
 
+/** One choice of an option step: its value, its words and, for a template, what it is for. */
+export interface OptionChoice {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+/** The choices of an option step with `templates`: the entry type's templates as it has them now (each one's name, and what it is
+ *  for), in the type's order. None when the type is not there or has no template yet. */
+export function templateOptions(type: { templatesJson?: unknown } | null | undefined): OptionChoice[] {
+  const stored = Array.isArray(type?.templatesJson) ? (type.templatesJson as unknown[]) : [];
+  return stored.flatMap((raw) => {
+    const t = raw && typeof raw === "object" ? (raw as { slug?: unknown; name?: unknown; description?: unknown }) : {};
+    if (typeof t.slug !== "string" || !t.slug) return [];
+    return [{ value: t.slug, label: typeof t.name === "string" && t.name.trim() ? t.name : t.slug, description: typeof t.description === "string" ? t.description.trim() : "" }];
+  });
+}
+
 export function shownSteps(def: WizardDefinition, ctx: Ctx): Step[] {
   return def.steps.filter((s) => isShown(s, ctx));
 }

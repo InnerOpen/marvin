@@ -568,3 +568,118 @@ class TestWorkflowSteps:
         assert "replaces what entries already have" in unasked_template_issues(replacing)[0]["message"]
         asked = {"trigger": {"type": "event"}, "actions": [{"kind": "approval"}, {**step, "confirm_total": 1, "replace": True}]}
         assert not unasked_template_issues(asked)
+
+
+# ── A guided setup's run step: what the workflow would make, before it runs ────
+
+# The workflow a package brings for "make entries from the pictures I picked": the picks and the template are its inputs
+# (a multi-select step's list is comma-separated text, so `pictures` is a textarea: 100 ids are longer than a text input).
+FROM_PICTURES = {
+    "trigger": {
+        "type": "manual",
+        "inputs": [
+            {"name": "pictures", "label": "Pictures", "type": "textarea", "required": True},
+            {"name": "template", "label": "Template", "type": "text", "required": True},
+        ],
+    },
+    "actions": [
+        {
+            "id": "preview",
+            "kind": "create_entries_from_template",
+            "entry_type": "artwork",
+            "template": "${input.template}",
+            "assets": "${input.pictures}",
+        },
+        {
+            "id": "make",
+            "kind": "create_entries_from_template",
+            "mode": "create",
+            "entry_type": "artwork",
+            "template": "${input.template}",
+            "assets": "${input.pictures}",
+            "confirm_total": "${steps.preview.output.todo}",
+        },
+    ],
+}
+SELECTION = "/api/automations/selection"
+
+
+def _workflow(ws, definition: dict, slug: str = "artwork-from-pictures"):
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+    row = WorkspaceAutomationModel(session=ws.session, group_id=ws.gid, name="Artwork from pictures", slug=slug, enabled=True, definition=definition)
+    ws.session.add(row)
+    ws.session.commit()
+    return row
+
+
+class TestRunStepPreview:
+    def test_a_workflow_that_starts_with_a_template_preview_says_what_it_would_make(self, ws):
+        a, b = ws.picture("Snowy Owl"), ws.picture("Blue Jay")
+        _workflow(ws, FROM_PICTURES)
+        before = _count(ws)
+
+        r = _sign_in(ws, WorkspaceRole.AUTHOR).post(
+            SELECTION, json={"slug": "artwork-from-pictures", "inputs": {"pictures": f"{a.id},{b.id}", "template": "ornament"}}
+        )
+
+        assert r.status_code == 200, r.text
+        found = r.json()
+        assert (found["found"], found["step"], found["count"], found["ids"], found["leftOut"]) == (True, "preview", 2, [], [])
+        rows = found["preview"]["rows"]
+        assert [(row["action"], row["title"], row["asset"]["name"]) for row in rows] == [
+            ("create", "Snowy Owl", "Snowy Owl"),
+            ("create", "Blue Jay", "Blue Jay"),
+        ]
+        assert rows[0]["changes"]["fields"]["medium"] == "Acrylic and Ink on Ceramic" and rows[0]["changes"]["status"] == "inbox"
+        assert _count(ws) == before  # asking makes nothing
+
+    def test_the_run_makes_what_the_preview_showed_and_then_there_is_nothing_left(self, ws):
+        from marvin.services.automation.engine import run_automation_now
+
+        a, b = ws.picture("Snowy Owl"), ws.picture("Blue Jay")
+        row = _workflow(ws, FROM_PICTURES)
+        inputs = {"pictures": f"{a.id},{b.id}", "template": "ornament"}
+        before = _count(ws)
+
+        ran = run_automation_now(ws.session, ws.gid, row, inputs=inputs, user_id=ws.users["editor"])
+
+        assert ran["ok"], ran
+        assert _count(ws) == before + 2
+        found = _sign_in(ws, WorkspaceRole.AUTHOR).post(SELECTION, json={"slug": "artwork-from-pictures", "inputs": inputs}).json()
+        assert (found["count"], found["preview"]["skip"]) == (0, 2)
+        assert all(r["entryId"] and "already has everything" in r["note"] for r in found["preview"]["rows"])  # each names the entry it made
+
+    @pytest.mark.parametrize(
+        "first",
+        [
+            {**FROM_PICTURES["actions"][1], "confirm_total": 2},  # it writes: there is no preview before it
+            {**FROM_PICTURES["actions"][0], "when": {"field": "input.template", "op": "exists"}},  # it may not run at all
+            {**FROM_PICTURES["actions"][0], "assets": "${steps.pick.output.ids}"},  # reads a step before it
+        ],
+    )
+    def test_a_first_step_that_is_no_plain_preview_has_no_list(self, ws, first):
+        a = ws.picture("Snowy Owl")
+        _workflow(ws, {**FROM_PICTURES, "actions": [first]})
+        r = _sign_in(ws, WorkspaceRole.AUTHOR).post(
+            SELECTION, json={"slug": "artwork-from-pictures", "inputs": {"pictures": str(a.id), "template": "ornament"}}
+        )
+        assert r.status_code == 200 and r.json()["found"] is False and r.json()["preview"] is None
+
+    def test_a_template_the_type_does_not_have_is_said_not_listed(self, ws):
+        a = ws.picture("Snowy Owl")
+        _workflow(ws, FROM_PICTURES)
+        r = _sign_in(ws, WorkspaceRole.AUTHOR).post(
+            SELECTION, json={"slug": "artwork-from-pictures", "inputs": {"pictures": str(a.id), "template": "vase"}}
+        )
+        assert r.status_code == 400 and "no template 'vase'" in r.json()["detail"]
+
+    def test_filling_an_existing_entry_is_previewed_the_same_way(self, ws):
+        e = ws.entry("Ornament 3")
+        definition = {
+            "trigger": {"type": "manual", "inputs": [{"name": "works", "label": "Works", "type": "textarea", "required": True}]},
+            "actions": [{"id": "look", "kind": "apply_template", "entry_type": "artwork", "template": "ornament", "entries": "${input.works}"}],
+        }
+        _workflow(ws, definition, slug="fill-works")
+        found = _sign_in(ws, WorkspaceRole.VIEWER).post(SELECTION, json={"slug": "fill-works", "inputs": {"works": e.slug}}).json()
+        assert (found["found"], found["count"], found["preview"]["rows"][0]["action"]) == (True, 1, "fill")  # any member, as the list of a collect

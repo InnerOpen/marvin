@@ -19,15 +19,15 @@ import { refOptionsFor } from "@/lib/refFieldsApi";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
-  type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
+  type ApprovalCard, type Check, type Ctx, type OptionChoice, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
   MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets, pictureFieldOf, skipTo, withoutFrom,
   StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
-import { jobLead, leftOutLine, listLine, nothingLine, runButton } from "@/lib/runList";
+import { jobLead, leftOutLine, listLine, nothingLine, previewCards, previewLine, previewProblem, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
 import { getRunState, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { runKey, runLine } from "@/lib/runState";
-import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
+import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, optionsOf, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
 import { isScopedList } from "@/lib/wizardScopedList";
 import { lastPage, rangeText, readPage } from "@/lib/pagination";
 
@@ -78,8 +78,10 @@ async function checkedCtx(raw: Ctx): Promise<Ctx> {
         out[key] = value;
         entries[key] = found;
       }
-    } else if (optionStepOf(def, key)?.options?.some((o: { value: string }) => o.value === value)) {
-      out[key] = value;
+    } else {
+      // An option's answer is one of its choices as they are now: its own, or (with `templates`) the entry type's templates.
+      const asked = optionStepOf(def, key);
+      if (asked && (await optionsOf(asked, authToken, Astro.locals)).some((o) => o.value === value)) out[key] = value;
     }
   }
   return out;
@@ -137,6 +139,9 @@ let watchIds: string[] = [];
 let lacking: string | null = null; // a run step's `requires` not met
 let picked: Awaited<ReturnType<typeof runSelection>> = null; // a run step's list: what its workflow will act on, from the workflow itself
 let leftSays: string | null = null; // and why some are not in it, in the package's words
+// A run step whose workflow starts by previewing a template: what it would make, as cards, and what stops it (a row with a problem).
+let previewed: { line: string | null; problem: string | null; cards: ReturnType<typeof previewCards> } | null = null;
+let options: OptionChoice[] = []; // an option step's choices: its own, or an entry type's templates
 let jobSays: { lead: string; more: boolean; all: string } | null = null; // what the worker job the run started said
 let report: { label: string; text: string; title: string; href: string } | null = null; // the field the run writes, to read here
 let cards: Row[] = [];
@@ -313,6 +318,12 @@ if (authToken && def && step) {
     const reasons = (step.left_out ?? []) as { label: string; where: SelectionCondition[] }[];
     picked = await runSelection(step.workflow, runInputs(step, ctx), reasons.map((r) => r.where), authToken);
     leftSays = picked ? leftOutLine(reasons, picked.selection.leftOut) : null;
+    const shown = picked?.selection.preview ?? null;
+    if (shown) {
+      // The values are said as the type's own fields say them (a choice by its label, a switch by its name).
+      const made = await typeBySlug(shown.entryType, authToken, Astro.locals);
+      previewed = { line: previewLine(shown), problem: previewProblem(shown), cards: previewCards(shown, (made?.schemaJson as { fields?: any[] } | null)?.fields ?? []) };
+    }
     const job = runNow?.job?.finished ? (await findEntries({ entries: [runNow.job.entryId] }, authToken, 1)).entries[0] : null;
     const log = String(job?.dataJson?.log ?? "").trim();
     // A run whose step names a report shows the report: the job's own words only when it failed (they say why).
@@ -326,6 +337,13 @@ if (authToken && def && step) {
     const cards = await approvalCards(step.workflow, authToken);
     pendingCards = approvalsOf(cards.pending, step.workflow, about, askedBy(runNow));
     decidedCards = approvalsOf(cards.decided, step.workflow, about).slice(0, MAX_DECIDED_SHOWN);
+  } else if (step.kind === "option") {
+    options = await optionsOf(step, authToken, Astro.locals);
+    if (step.templates) {
+      const type = await typeBySlug(step.templates, authToken, Astro.locals);
+      missingType = !type;
+      typeName = type?.name ?? step.templates;
+    }
   } else if (step.kind === "review") {
     checks = await Promise.all(
       (step.checks as (Check & { step?: string })[]).map(async (c) => {
@@ -455,15 +473,33 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           )}
           {stepProblem && <div class="step-error" role="alert">{stepProblem}</div>}
 
-          {step.kind === "option" && (
+          {step.kind === "option" && missingType && <div class="alert alert-info">This workspace has no “{step.templates}” entry type yet, so there is no template to pick.</div>}
+          {step.kind === "option" && !missingType && options.length === 0 && (
+            <p class="muted none">“{typeName}” has no template yet. A workspace admin adds one under Workspace → Entry types → {typeName} → Templates; then come back.</p>
+          )}
+          {step.kind === "option" && options.length > 0 && (
             <form method="post" class="form">
-              <div class="choices">
-                {step.options.map((o: { value: string; label: string }) => (
-                  <label class="choice">
-                    <input type="radio" name="value" value={o.value} checked={ctx[step.as] === o.value} required /> {o.label}
-                  </label>
-                ))}
-              </div>
+              {/* An entry type's templates are cards (its name and what it is for), and the only one there is starts picked. */}
+              {step.templates ? (
+                <div class="tiles" role="radiogroup">
+                  {options.map((o) => (
+                    <label class="tile">
+                      <input type="radio" name="value" value={o.value} checked={ctx[step.as] === o.value || options.length === 1} required />
+                      <span class="tpic"><span class="gnone" aria-hidden="true">{(o.label || "?").slice(0, 1)}</span></span>
+                      <strong>{o.label}</strong>
+                      {o.description && <span class="muted gsub">{o.description}</span>}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div class="choices">
+                  {options.map((o) => (
+                    <label class="choice">
+                      <input type="radio" name="value" value={o.value} checked={ctx[step.as] === o.value} required /> {o.label}
+                    </label>
+                  ))}
+                </div>
+              )}
               <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
             </form>
           )}
@@ -830,7 +866,17 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 <div class="alert alert-info">“{flow.name}” is switched off. Turn it on under <a href="/automation/workflows">Automation → Workflows</a> (it runs with its author’s permissions), then come back.</div>
               )}
 
-              {picked && (nothingToDo ? (
+              {previewed && nothingToDo && !running && <p class="nothing">{nothingLine(step.empty, !!after)}</p>}
+              {previewed && previewed.cards.length > 0 && (
+                <section class="runlist" aria-label={nothingToDo ? "What is there" : "What it will make"}>
+                  {previewed.line && <p class="label">{previewed.line}</p>}
+                  <div class="cards rows">
+                    {previewed.cards.map((c) => <WizardCard href={c.href} title={c.title} picture={c.picture} subtitle={c.subtitle} pills={c.pills} />)}
+                  </div>
+                  {previewed.problem && <div class="alert alert-error">{previewed.problem}</div>}
+                </section>
+              )}
+              {picked && !previewed && (nothingToDo ? (
                 !running && <p class="nothing">{nothingLine(step.empty, !!after)}</p>
               ) : (
                 <section class="runlist" aria-label="What it works on">
@@ -891,7 +937,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               <form method="post" class="form">
                 <div class="actions">
                   {!nothingToDo && (
-                    <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking}>
+                    <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking || (!!previewed && (running || !!previewed.problem))}>
                       {picked ? runButton(step.button, picked.selection.count) : pendingCards.length > 0 || decidedCards.length > 0 || runNow ? `${runButton(step.button, null)} again` : runButton(step.button, null)}
                     </button>
                   )}

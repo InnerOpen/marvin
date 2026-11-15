@@ -12,6 +12,7 @@ from pydantic import UUID4, ConfigDict, Field
 
 from marvin.schemas._marvin import _MarvinModel
 from marvin.schemas.group.social_inbox import CaptionCheckResult
+from marvin.schemas.platform.entry_templates import EntryTemplateResult
 
 
 class AutomationCreate(_MarvinModel):
@@ -569,7 +570,8 @@ class WorkflowSelectionRequest(_MarvinModel):
 
 class WorkflowSelection(_MarvinModel):
     """What a manual workflow would act on if it ran now: the entries its first step, a `collect`, gathers
-    (services/automation/selection.py). `found` false: the workflow does not start by gathering entries (or is not here)."""
+    (services/automation/selection.py), or, when it starts by previewing a template, that preview. `found` false: the
+    workflow starts with neither (or is not here)."""
 
     found: bool
     step: str | None = None  # the collect step's id
@@ -580,6 +582,10 @@ class WorkflowSelection(_MarvinModel):
     limit: int | None = None
     left_out: list[int] = Field(default_factory=list)
     """For each reason asked, how many entries of the same query match it instead (they may overlap)."""
+    preview: EntryTemplateResult | None = None
+    """A workflow that starts with a template's preview step (`create_entries_from_template` or `apply_template`): what that
+    step answers, one row per picture or entry with its title, the values it would set and its picture. `count` is its
+    `todo`; there are no `ids` and nothing is counted as left out."""
 
 
 class WorkflowApprovalDecision(_MarvinModel):

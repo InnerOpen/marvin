@@ -904,3 +904,135 @@ def test_a_package_brings_the_price_check_with_the_yes_no_field_it_marks(db_sess
     assert fields["priceChecked"]["type"] == "boolean"
     assert fields["price"] == {"key": "price", "label": "Price", "type": "text"}  # an existing field is never changed
     assert [w.slug for w in service.list_wizards(db_session, workspace.id)] == ["check-prices"]
+
+
+# ── Entries from the pictures picked: a template to choose, and the workflow that makes them ────────────────────────────────────────────
+
+FROM_PICTURES = {
+    "title": "Add artwork from pictures",
+    "steps": [
+        {
+            "id": "pictures",
+            "kind": "choose",
+            "title": "Pick the pictures",
+            "as": "pictures",
+            "multiple": True,
+            "assets": {"asset_type": "image", "unused": True},
+        },
+        {"id": "template", "kind": "option", "title": "What are they?", "as": "template", "templates": "artwork"},
+        {
+            "id": "make",
+            "kind": "run",
+            "title": "Check and make",
+            "workflow": "artwork-from-pictures",
+            "inputs": {"pictures": "${pictures}", "template": "${template}"},
+            "button": "Make these ${count} works",
+            "empty": "Every picture you picked has its work now.",
+        },
+    ],
+    "again": {"label": "Add more pictures", "step": "pictures"},
+}
+ORNAMENT = {"slug": "ornament", "name": "Ornament", "fields": {"price": "$85", "sellOnline": True}, "asset_field": "image"}
+MAKE_THEM = {
+    "trigger": {
+        "type": "manual",
+        "inputs": [{"name": "pictures", "label": "Pictures", "type": "textarea"}, {"name": "template", "label": "Template", "type": "text"}],
+    },
+    "actions": [
+        {
+            "id": "preview",
+            "kind": "create_entries_from_template",
+            "entry_type": "artwork",
+            "template": "${input.template}",
+            "assets": "${input.pictures}",
+        },
+        {
+            "id": "make",
+            "kind": "create_entries_from_template",
+            "mode": "create",
+            "entry_type": "artwork",
+            "template": "${input.template}",
+            "assets": "${input.pictures}",
+            "confirm_total": "${steps.preview.output.todo}",
+        },
+    ],
+}
+
+
+def test_an_option_step_may_offer_an_entry_types_templates_as_its_choices():
+    assert payload_problem(FROM_PICTURES, "from-pictures") is None
+
+
+@pytest.mark.parametrize(
+    ("change", "says"),
+    [
+        ({"options": [{"value": "a", "label": "A"}, {"value": "b", "label": "B"}]}, "options or templates, not both"),
+        ({"templates": ["artwork"]}, "templates is the slug of the entry type"),
+        ({"templates": "Art Work"}, "templates is the slug of the entry type"),
+        ({"optional": "yes"}, "optional is true or false"),
+        ({"as": "pictures"}, "already set by an earlier step"),
+    ],
+)
+def test_a_templates_option_step_that_is_wrong_says_why(change, says):
+    payload = copy.deepcopy(FROM_PICTURES)
+    payload["steps"][1].update(change)
+    assert says in (payload_problem(payload, "from-pictures") or "")
+
+
+def test_a_package_adds_a_template_to_a_type_the_workspace_has_and_brings_the_setup_that_uses_it(db_session, workspace):  # noqa: F811
+    """The type is the workspace's own (the package declares only the template), so an update adds the template and leaves the type's
+    fields as they are; the workflow the run step starts arrives switched off, as every packaged workflow does."""
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+    fields = [
+        {"key": "image", "label": "Image", "type": "asset"},
+        {"key": "price", "label": "Price", "type": "text"},
+        {"key": "sellOnline", "label": "Sell online", "type": "boolean"},
+    ]
+    artwork = EntryTypes(session=db_session, group_id=workspace.id, name="Artwork", slug="artwork", schema_json={"fields": fields})
+    db_session.add(artwork)
+    db_session.commit()
+    manifest = _manifest("gallery")
+    manifest["blueprints"] = [
+        {"kind": "entry_type", "slug": "artwork", "name": "Artwork", "payload": {"name": "Artwork", "templates_json": [ORNAMENT]}},
+        {
+            "kind": "workflow",
+            "slug": "artwork-from-pictures",
+            "name": "Artwork from pictures",
+            "payload": {"name": "Artwork from pictures", "definition": MAKE_THEM},
+        },
+        _wizard_blueprint("from-pictures", FROM_PICTURES),
+    ]
+
+    found = service.update(db_session, workspace.id, service.parse_manifest(manifest), actor_id=workspace.user_id)
+    db_session.commit()
+
+    by_slug = {i.slug: i for i in found.items}
+    assert (by_slug["artwork"].status, by_slug["artwork"].detail) == ("updated", "added template ornament")
+    db_session.refresh(artwork)
+    assert artwork.schema_json["fields"] == fields  # the type's own fields are untouched
+    [template] = artwork.templates_json
+    assert (template["slug"], template["status"], template["asset_role"], template["fields"]["price"]) == ("ornament", "inbox", "featured", "$85")
+    assert db_session.query(WorkspaceAutomationModel).filter_by(group_id=workspace.id, slug="artwork-from-pictures").one().enabled is False
+    assert [w.slug for w in service.list_wizards(db_session, workspace.id)] == ["from-pictures"]
+    again = service.update(db_session, workspace.id, service.parse_manifest(manifest), preview_only=True, actor_id=workspace.user_id)
+    assert {i.slug: i.status for i in again.items}["artwork"] == "current"  # a second update has nothing to add
+
+
+def test_a_template_that_does_not_fit_the_workspaces_type_is_refused_and_nothing_else_is_lost(db_session, workspace):  # noqa: F811
+    artwork = EntryTypes(
+        session=db_session,
+        group_id=workspace.id,
+        name="Artwork",
+        slug="artwork",
+        schema_json={"fields": [{"key": "price", "label": "Price", "type": "text"}]},
+    )
+    db_session.add(artwork)
+    db_session.commit()
+    manifest = _manifest("gallery")
+    manifest["blueprints"] = [
+        {"kind": "entry_type", "slug": "artwork", "name": "Artwork", "payload": {"name": "Artwork", "templates_json": [ORNAMENT]}}
+    ]
+    found = service.update(db_session, workspace.id, service.parse_manifest(manifest), preview_only=True, actor_id=workspace.user_id)
+    [item] = found.items
+    assert item.status == "blocked" and "'sellOnline' is not a field" in item.detail

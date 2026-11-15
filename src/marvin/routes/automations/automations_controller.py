@@ -485,7 +485,12 @@ class AutomationsController(BaseUserController):
         `limit`) and, for each `left_out` reason (a `where` put in place of the collect's own), how many match it
         instead. `found` false: no such workflow, or it does not start by gathering entries. A page that offers to run
         it (a guided setup's run step) lists them first. 400 for inputs it does not take. Any member, as for reading
-        entries (it says no more than an entry query would): someone who may not run it still sees what it would do."""
+        entries (it says no more than an entry query would): someone who may not run it still sees what it would do.
+
+        A workflow that starts by previewing a template (`create_entries_from_template` or `apply_template`, `mode:
+        preview`) answers that step's `preview` instead: one row per picture or entry, with the title, the values it
+        would set and the picture; `count` is its `todo`. Any member too: it names pictures, a template's values and the
+        entries those pictures already have, which the assets, the entry type and an entry query say to any member."""
         from marvin.services.automation.actions.base import AutomationActionError
         from marvin.services.automation.inputs import RunInputError
         from marvin.services.automation.selection import selection

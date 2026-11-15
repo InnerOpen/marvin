@@ -12,7 +12,7 @@ import type { RequestScope } from "./requestCache";
 import { coerceDataJsonValue, fieldTypeMap } from "./schemaFields";
 import { createSdkClient } from "./sdk";
 import { inOrder } from "./runList";
-import type { ApprovalCard, Ctx, Step } from "./wizard";
+import { type ApprovalCard, type Ctx, type OptionChoice, type Step, templateOptions } from "./wizard";
 import { type Flag, type ListState, type ListView, flagSpec, listView, readListState, scopedSpecs, unionRows, SCOPED_PER } from "./wizardScopedList";
 import { PAGE_SIZES, readPage } from "./pagination";
 
@@ -67,6 +67,13 @@ export async function entryBySlug(slug: string | undefined, authToken: string): 
 
 export async function typeBySlug(slug: string | undefined, authToken: string, scope?: RequestScope): Promise<EntryTypeRead | null> {
   return (await listEntryTypes(authToken, scope)).find((t) => t.slug === slug) ?? null;
+}
+
+/** What an option step offers: its own `options`, or, with `templates`, the templates of that entry type as the workspace has them now. */
+export async function optionsOf(step: Step, authToken: string, scope?: RequestScope): Promise<OptionChoice[]> {
+  if (!step.templates) return (step.options ?? []) as OptionChoice[];
+  // templatesJson is newer than the SDK release the frontend pins.
+  return templateOptions((await typeBySlug(step.templates, authToken, scope)) as { templatesJson?: unknown } | null);
 }
 
 /** The posted `dataJson.<key>` values for the named keys, each coerced to its declared type (FormData is all strings). */
