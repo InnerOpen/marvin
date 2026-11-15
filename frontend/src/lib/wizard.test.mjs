@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom } from "./wizard.ts";
+import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -441,4 +441,32 @@ test("an option step's templates are the entry type's own, by name, with what ea
   ]);
   assert.deepEqual(templateOptions({ templatesJson: null }), []); // a type with no template yet
   assert.deepEqual(templateOptions(null), []); // a type the workspace does not have
+});
+
+test("a question a later step waits on is not the end while it has no answer", () => {
+  const one = { ctx: "how", op: "eq", value: "one" };
+  const several = { ctx: "how", op: "eq", value: "several" };
+  // One front door, two ways through: every step after the question belongs to one answer or the other.
+  const merged = {
+    title: "Add artwork",
+    steps: [
+      { id: "how", kind: "option", title: "One work or several?", as: "how", options: [{ value: "one", label: "One" }, { value: "several", label: "Several" }] },
+      { id: "work", kind: "choose", title: "Work", as: "work", entry_type: "artwork", when: one },
+      { id: "about", kind: "form", title: "About", entry: "work", fields: ["medium"], when: one },
+      { id: "ready", kind: "review", title: "Check", checks: [], when: one },
+      { id: "pictures", kind: "choose", title: "Pictures", as: "pictures", multiple: true, assets: {}, when: several },
+      { id: "next", kind: "review", title: "What next", checks: [], when: several },
+    ],
+  };
+  const [how, work, , ready, pictures, next] = merged.steps;
+  assert.equal(nextStep(merged, {}, "how"), null, "no step shows after the question until it is answered");
+  assert.equal(opensMore(merged, {}, how), true, "but it is not the end: both branches wait on it");
+  assert.equal(opensMore(merged, { how: "one" }, how), false, "answered, the step after it is simply there");
+  assert.equal(nextStep(merged, { how: "one" }, "how"), work);
+  assert.equal(opensMore(merged, { how: "one" }, work), true, "the form waits on the work as its entry");
+  assert.equal(nextStep(merged, { how: "one", work: "w" }, "ready"), null, "a branch ends at its own review: the steps after are the other branch's");
+  assert.equal(opensMore(merged, { how: "one", work: "w" }, ready), false, "a step that sets nothing opens nothing");
+  assert.deepEqual(shownSteps(merged, { how: "several" }).map((s) => s.id), ["how", "pictures", "next"]);
+  assert.equal(opensMore(merged, { how: "several" }, pictures), false, "a pick nothing later waits on opens nothing");
+  assert.equal(opensMore(merged, { how: "several", pictures: "a,b" }, next), false);
 });

@@ -316,6 +316,15 @@ export function nextStep(def: WizardDefinition, ctx: Ctx, currentId: string): St
   return def.steps.slice(index + 1).find((s) => isShown(s, ctx)) ?? null;
 }
 
+/** A question not answered yet that a later step waits on, by its `when` or as the entry it works on: what follows depends on the answer,
+ *  so the step is not the end even while nothing after it shows. A setup may open on one ("One work or several?", every later step being
+ *  one branch or the other); a step that sets nothing, or one already answered, is the end when no step shows after it. */
+export function opensMore(def: WizardDefinition, ctx: Ctx, step: Step): boolean {
+  if ((step.kind !== "option" && step.kind !== "choose") || ctx[step.as]) return false;
+  const index = def.steps.findIndex((s) => s.id === step.id);
+  return def.steps.slice(index + 1).some((s) => s.when?.ctx === step.as || s.entry === step.as || s.parent === step.as);
+}
+
 export function previousStep(def: WizardDefinition, ctx: Ctx, currentId: string): Step | null {
   const index = def.steps.findIndex((s) => s.id === currentId);
   const before = index < 0 ? [] : def.steps.slice(0, index);
