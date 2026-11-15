@@ -80,7 +80,7 @@ All the steps run on the picture in one pass and it is saved once, at the end, s
 
 **On upload.** The **Upload Asset** page has **Make an entry for each**: `none` (the default, which changes nothing) or one of the workspace's templates. With a template chosen, once the files are up Marvin:
 
-1. names each picture: the AI looks at it and gives it a short name ("Red cardinal ornament"; one AI call each, and it can be switched off). Without one, the picture keeps a tidied file name ("IMG 4491") and its entry is tagged **Needs a name**;
+1. names each picture: by default from its file name; tick "Suggest a name for each picture with AI" and the AI looks at it and gives it a short name ("Red cardinal ornament"; one AI call each, off unless you tick it). Without one, the picture keeps a tidied file name ("IMG 4491") and its entry is tagged **Needs a name**;
 2. treats the pictures with the template's preset, when it has one, and waits for that (the batch's own "apply my last adjustments" is switched off, so nothing is treated twice);
 3. shows the entries the template would make, with their titles and the treated pictures, and makes them as Inbox drafts when you say so.
 
