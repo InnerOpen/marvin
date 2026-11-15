@@ -20,7 +20,7 @@ import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
-  MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets, pictureFieldOf, skipTo,
+  MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets, pictureFieldOf, skipTo, withoutFrom,
   StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { jobLead, leftOutLine, listLine, nothingLine, runButton } from "@/lib/runList";
@@ -355,6 +355,11 @@ const running = !!runSays && !runSays.over;
 const continues = !!after && !held && (nothingToDo || decidedCards.length > 0 || !!notice || !!runNow);
 const made = Object.entries(entries).map(([key, e]) => ({ key, ...e }));
 const opened = def?.open ? entries[def.open.entry] ?? null : null;
+// "Go again" at the end: back to the step the setup names, with what was chosen from there on forgotten (the earlier choices kept).
+const againHref: string | null = (() => {
+  const to = def?.again ? def.steps.find((s) => s.id === def.again!.step) : null;
+  return def && to ? stepHref(slug, withoutFrom(def, ctx, to.id), to.id) : null;
+})();
 const submitLabel = after ? "Continue" : "Save";
 // One way to skip, the same on every step: a link at the bottom. An optional choice or option skipped is no choice (what was picked, and
 // what later steps picked on the strength of it, is dropped, as a changed choice drops it), so the step after it is worked out without it.
@@ -937,6 +942,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
             </>
           )}
 
+          {againHref && !nextStep(def!, ctx, step.id) && <p class="open"><a class="button secondary" href={againHref}>↻ {def!.again!.label}</a></p>}
           <div class="nav">
             {before ? <a class="button secondary" href={stepHref(slug, ctx, before.id)}>← Previous step</a> : <span />}
             {skipHref && <a class="muted" href={skipHref}>Skip without saving →</a>}

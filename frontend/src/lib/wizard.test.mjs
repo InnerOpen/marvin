@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo } from "./wizard.ts";
+import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, withoutFrom } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -426,4 +426,9 @@ test("a pick with no picture named shows the type's first single picture field, 
   assert.equal(pictureFieldOf({ schemaJson: { fields: [{ key: "image", type: "asset" }] } }), "image");
   assert.equal(pictureFieldOf({ schemaJson: { fields: [{ key: "sheets", type: "asset-list" }] } }), undefined);
   assert.equal(pictureFieldOf(null), undefined);
+});
+
+test("going again keeps the choices before the step and forgets it and what came after", () => {
+  const ctx = { world: "w", series: "se", story: "s", input: "script" };
+  assert.deepEqual(withoutFrom(def, ctx, "story"), { world: "w", series: "se" }); // `how` sets `input`, after the story: gone too
 });
