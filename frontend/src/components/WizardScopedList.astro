@@ -7,10 +7,12 @@
  * and not saved yet, asks before leaving the page with any, and fills an empty box on every card of the page (`fill`).
  */
 import SchemaFormField from "@/components/SchemaFormField.astro";
+import WizardEmpty from "@/components/WizardEmpty.astro";
 import type { Step } from "@/lib/wizard";
 import { cardPicture, subtitleOf } from "@/lib/wizard";
 import { type Row, type ScopedListPage } from "@/lib/wizardApi";
 import { FILTERS, flagsOf, type Flag } from "@/lib/wizardScopedList";
+import { type EmptyLink, emptyLine } from "@/lib/wizardEmpty";
 import { PAGE_SIZES, lastPage, rangeText } from "@/lib/pagination";
 import type { RefOption } from "@/lib/refFields";
 
@@ -24,9 +26,11 @@ interface Props {
   pictureRole: string | undefined;
   refs: Record<string, RefOption[]>;
   submitLabel: string;
+  /** Where the step points when it lists nothing (its `empty_next`). */
+  emptyNext?: EmptyLink[];
 }
 
-const { step, list, columns, checkField, pictureRole, refs, submitLabel } = Astro.props;
+const { step, list, columns, checkField, pictureRole, refs, submitLabel, emptyNext = [] } = Astro.props;
 const { view, state, per, flagged } = list;
 const flags = (step.flags ?? []) as Flag[];
 // The facet's row is named for its field, as the entry's own page names it ("Page"); the filters' row is "Show".
@@ -97,7 +101,8 @@ const last = lastPage(view.total, per);
   ))}
 
   {list.capped && <p class="muted none">Only the first 200 are listed: narrow the search to find the others.</p>}
-  {view.rows.length === 0 && <p class="muted none">{view.all === 0 ? "There is nothing to check here." : "None of them match. Choose All, or clear the search."}</p>}
+  {view.rows.length === 0 && view.all === 0 && <WizardEmpty text={emptyLine(step, list.type.name ?? step.entry_type)} links={emptyNext} />}
+  {view.rows.length === 0 && view.all > 0 && <p class="muted none">None of them match. Choose All, or clear the search.</p>}
 
   <div class="sl-cards">
     {view.rows.map((r) => {
