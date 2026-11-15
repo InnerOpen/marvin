@@ -151,7 +151,23 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             known.add(step["as"])
         if kind == "choose":
             (lists if step.get("multiple") is True else entries).add(step["as"])
-    return _check_open(payload.get("open"), entries, slug) or _check_buttons(payload.get("button"), entries, seen, slug)
+    return (
+        _check_open(payload.get("open"), entries, slug)
+        or _check_again(payload.get("again"), seen, slug)
+        or _check_buttons(payload.get("button"), entries, seen, slug)
+    )
+
+
+def _check_again(spec: Any, steps: set[str], slug: str) -> str | None:
+    """``again``: the button at the end that goes round once more, ``{label, step}``: ``step`` is where it starts again, with the choices made
+    from that step on forgotten and the ones before it kept ("Cast another role" back at the role pick, the world and story still chosen)."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("label"), str) or not spec["label"].strip():
+        return f"wizard {slug!r}: again is {{label, step}}: the words on the button and the step it goes back to"
+    if spec.get("step") not in steps:
+        return f"wizard {slug!r}: again.step {spec.get('step')!r} is not a step of it"
+    return None
 
 
 def _check_open(spec: Any, entries: set[str], slug: str) -> str | None:

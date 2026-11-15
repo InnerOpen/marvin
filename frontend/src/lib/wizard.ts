@@ -34,6 +34,8 @@ export interface WizardDefinition {
   next?: NextLine[];
   /** The button at the end that opens what was made: `entry` is a key a choose step set; `view` a view (the same package's) it opens in. */
   open?: { entry: string; label: string; view?: string };
+  /** The button at the end that goes round once more: back to `step`, the choices from there on forgotten. */
+  again?: { label: string; step: string };
 }
 
 /** Entries by title as people count: "2" before "10", ignoring case, so a long list of numbered lines runs from the lowest to the highest. */
@@ -257,6 +259,13 @@ export function isShown(step: Step, ctx: Ctx): boolean {
 export function keysAfter(def: WizardDefinition, stepId: string): string[] {
   const index = def.steps.findIndex((s) => s.id === stepId);
   return def.steps.slice(index + 1).map((s) => s.as).filter((k): k is string => typeof k === "string");
+}
+
+/** The context without the keys the step `stepId` and the steps after it set: the setup as it stands on coming back to that step to go again. */
+export function withoutFrom(def: WizardDefinition, ctx: Ctx, stepId: string): Ctx {
+  const index = def.steps.findIndex((s) => s.id === stepId);
+  const drop = new Set(def.steps.slice(Math.max(index, 0)).map((s) => s.as).filter((k): k is string => typeof k === "string"));
+  return Object.fromEntries(Object.entries(ctx).filter(([k]) => !drop.has(k)));
 }
 
 /** The context without the keys the steps after `stepId` set. */
