@@ -1,0 +1,39 @@
+---
+/**
+ * The notice a paid action of a guided setup shows before anything is sent: that it goes to an outside service that charges for it,
+ * the text that will be sent as it is now, and a warning when something it needs is empty. The button sits right under it, in a
+ * section of its own (the page's), never among an add form's own buttons.
+ */
+import { paidWarning, type Sent } from "@/lib/wizardPaid";
+
+interface Props {
+  line: string;
+  sent?: Sent;
+}
+const { line, sent = { lines: [], missing: [] } } = Astro.props;
+const warning = paidWarning(sent.missing);
+---
+
+<aside class="paid" aria-label="Paid service">
+  <p class="paid-line"><span class="paid-mark">Paid</span> {line}</p>
+  {
+    sent.lines.length > 0 && (
+      <div class="paid-sent">
+        <p class="paid-label">What will be sent</p>
+        <dl>{sent.lines.map((l) => (<><dt>{l.label}</dt><dd>{l.value}</dd></>))}</dl>
+      </div>
+    )
+  }
+  {warning && <p class="paid-warn" role="status">{warning}</p>}
+</aside>
+
+<style>
+  .paid { display: grid; gap: 10px; margin: 0; padding: 12px 14px; border: 1px solid var(--warn, #d08700); border-left-width: 3px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn, #d08700) 6%, var(--bg)); }
+  .paid-line { margin: 0; }
+  .paid-mark { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: var(--warn, #d08700); color: #fff; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+  .paid-label { margin: 0 0 4px; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+  .paid-sent dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 14px; max-height: 20em; overflow: auto; }
+  .paid-sent dt { color: var(--muted); }
+  .paid-sent dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .paid-warn { margin: 0; font-weight: 600; }
+</style>

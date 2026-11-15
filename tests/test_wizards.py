@@ -677,6 +677,61 @@ def test_a_wrong_empty_line_or_link_says_what_is_wrong(settings, words):
         assert problem is not None and words in problem
 
 
+# --- a paid action says so ---------------------------------------------------------------------------------------------------------------
+
+PAID = {"service": "ElevenLabs", "cost": "About 2 cents a line.", "sends": ["text", "direction"], "needs": ["direction"]}
+CARD = {"label": "Make this one", "set": {"status": "queued"}}
+ADD = {"fields": ["text", "direction"], "buttons": [{"label": "Save my take"}, {"label": "Make with ElevenLabs", "paid": PAID}]}
+
+
+def test_a_run_a_generate_a_card_action_and_an_add_button_may_say_they_are_paid():
+    assert _bad(_run_with(paid=True)) is None
+    assert _bad(_run_with(paid=False)) is None
+    assert _bad(_run_with(paid={"service": "OpenAI", "cost": "A few cents a picture."})) is None
+    assert _bad(_run_with(paid={**PAID, "entry": "story"})) is None  # the chosen entry whose fields are sent
+    assert _bad(lambda p: p["steps"][7].update(generate={"workflow": "make-voices", "inputs": {}, "paid": {**PAID, "entry": "story"}})) is None
+    assert _bad(lambda p: p["steps"][7].update(card_actions=[{**CARD, "paid": PAID}])) is None  # the card's own fields
+    assert _bad(lambda p: p["steps"][7].update(add=ADD)) is None  # the form's
+
+
+@pytest.mark.parametrize(
+    ("paid", "words"),
+    [
+        ("yes", "paid is true, or"),
+        ({"price": "2 cents"}, "paid is true, or"),
+        ({"service": ""}, "paid.service"),
+        ({"service": "x" * 41}, "paid.service"),
+        ({"cost": "x" * 121}, "paid.cost"),
+        ({"entry": "story", "sends": []}, "paid.sends must be a non-empty list of field keys"),
+        ({"entry": "story", "sends": ["no spaces"]}, "paid.sends"),
+        ({"entry": "story", "sends": [f"f{n}" for n in range(7)]}, "at most 6"),
+        ({"entry": "story", "sends": ["text"], "needs": ["direction"]}, "paid.needs lists the fields of sends"),
+        ({"entry": "story", "sends": ["text"], "needs": []}, "paid.needs"),
+        ({"sends": ["text"]}, "paid.entry and paid.sends go together"),
+        ({"entry": "story"}, "paid.entry and paid.sends go together"),
+        ({"entry": "input", "sends": ["text"]}, "an option, not an entry"),
+        ({"entry": "nobody", "sends": ["text"]}, "which no earlier step sets"),
+    ],
+)
+def test_a_wrong_paid_on_a_run_says_what_is_wrong(paid, words):
+    problem = _bad(_run_with(paid=paid))
+    assert problem is not None and words in problem
+    problem = _bad(lambda p: p["steps"][7].update(generate={"workflow": "make-voices", "inputs": {}, "paid": paid}))
+    assert problem is not None and words in problem and "generate" in problem
+
+
+def test_a_card_action_or_an_add_button_sends_its_own_fields_not_a_chosen_entrys():
+    card = _bad(lambda p: p["steps"][7].update(card_actions=[{**CARD, "paid": {**PAID, "entry": "story"}}]))
+    assert card is not None and "a card action's paid.entry is for a run" in card
+    button = _bad(lambda p: p["steps"][7].update(add={**ADD, "buttons": [{"label": "Make it", "paid": {**PAID, "entry": "story"}}]}))
+    assert button is not None and "a button's paid.entry is for a run" in button
+    stranger = _bad(lambda p: p["steps"][7].update(add={**ADD, "fields": ["text"]}))
+    assert stranger is not None and "names direction, which the form does not have" in stranger
+    with_file = {**CARD, "paid": True, "file": {"field": "audio", "accept": "audio/*"}}
+    filed = _bad(lambda p: p["steps"][7].update(card_actions=[with_file]))
+    assert filed is not None and "takes a file is not paid" in filed
+
+
 # --- a run step says what it will act on, and what came of it -------------------------------------------------------------------------
 
 RUN_LIST = {
