@@ -98,6 +98,8 @@ export interface TemplatePreviewRow {
   changes?: { fields?: Record<string, unknown>; [key: string]: unknown } | null;
   tags?: string[];
   collections?: string[];
+  /** The picture would be attached to the entry (it is not yet). */
+  attach?: boolean;
   note?: string | null;
   /** What stops it: nothing is made while any row has one. */
   error?: string | null;

@@ -1,0 +1,335 @@
+---
+/**
+ * Selecting several entries on the Entries page, and applying one of their type's templates to them.
+ *
+ * The page's Select button (`[data-select-entries]`) turns selecting on: a click on an entry then picks it instead of
+ * opening it (the cards and the list rows carry `data-entry-id`, and both show the pick), and this bar says how many are
+ * picked. "Apply a template…" opens the dialog: the templates of the entries' type (only when they share one), the
+ * preview of what each entry would get (POST /entries/apply-template, which changes nothing), and the button that does
+ * it. Only empty fields are filled unless "Replace existing values" is ticked (off, and set apart).
+ *
+ * An entry can be picked when this person may edit it, as on its own page (an EDITOR any, an AUTHOR their own drafts).
+ */
+import { templateType } from "@/lib/applyTemplate";
+
+interface Props {
+  entries: any[];
+  entryTypes: any[];
+  canEditEntry: (entry: { createdBy?: string | null; status?: string | null }) => boolean;
+}
+
+const { entries, entryTypes, canEditEntry } = Astro.props;
+const data = {
+  entries: entries.filter((e) => canEditEntry(e)).map((e) => ({ id: e.id, entryTypeId: e.entryTypeId })),
+  types: entryTypes.map(templateType),
+};
+---
+
+<div class="select-bar" id="select-bar" hidden role="region" aria-label="Selected entries">
+  <strong id="select-count" aria-live="polite">Nothing selected</strong>
+  <button type="button" class="select-link" id="select-all">Select all on this page</button>
+  <button type="button" class="select-link" id="select-none">Clear</button>
+  <span class="select-space"></span>
+  <button type="button" class="button" id="select-apply" disabled>Apply a template…</button>
+  <button type="button" class="button secondary" id="select-done">Done</button>
+</div>
+
+<dialog id="apply-template-dialog" class="apply-template" aria-labelledby="at-title">
+  <div class="at-head">
+    <h3 id="at-title">Apply a template</h3>
+    <button type="button" class="at-close" data-at-close aria-label="Close">×</button>
+  </div>
+  <div class="at-body" id="at-body"></div>
+  <div class="at-foot" id="at-foot"></div>
+</dialog>
+
+<script is:inline type="application/json" id="entry-selection-data" set:html={JSON.stringify(data).replace(/</g, "\\u003c")} />
+
+<script>
+  import { applyTemplate, type ApplyTemplateResult } from "@/lib/api/entryTemplates";
+  import { canConfirm, confirmLabel, doneLine, MAX_ENTRIES, type PickedEntry, previewLine, rowLine, selectionOf, type TemplateType } from "@/lib/applyTemplate";
+
+  const data = JSON.parse(document.getElementById("entry-selection-data")?.textContent || "{}") as { entries: PickedEntry[]; types: TemplateType[] };
+  const pickable = new Map((data.entries ?? []).map((e) => [e.id, e]));
+  const toggle = document.querySelector<HTMLButtonElement>("[data-select-entries]");
+  const bar = document.getElementById("select-bar") as HTMLElement;
+  const count = document.getElementById("select-count") as HTMLElement;
+  const applyButton = document.getElementById("select-apply") as HTMLButtonElement;
+  const dialog = document.getElementById("apply-template-dialog") as HTMLDialogElement;
+  const body = document.getElementById("at-body") as HTMLElement;
+  const foot = document.getElementById("at-foot") as HTMLElement;
+
+  const picked = new Set<string>();
+  let selecting = false;
+  const wrappers = () => Array.from(document.querySelectorAll<HTMLElement>(".entry-wrapper[data-entry-id]"));
+
+  // A small element builder: text is always set as text, never parsed as HTML.
+  function h(tag: string, attrs: Record<string, string> = {}, ...children: (Node | string | null | false)[]): HTMLElement {
+    const el = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+    el.append(...children.filter((c): c is Node | string => c !== null && c !== false));
+    return el;
+  }
+
+  // ── Selecting ─────────────────────────────────────────────────────────────────────────────────────────────────
+  function paint() {
+    for (const w of wrappers()) {
+      const id = w.dataset.entryId!;
+      const on = picked.has(id);
+      w.classList.toggle("picked", on);
+      w.classList.toggle("not-pickable", selecting && !pickable.has(id));
+      const link = w.querySelector("a");
+      if (!link) continue;
+      // While selecting, an entry's link is a checkbox (it picks; it does not open).
+      if (selecting && pickable.has(id)) {
+        link.setAttribute("role", "checkbox");
+        link.setAttribute("aria-checked", String(on));
+      } else {
+        link.removeAttribute("role");
+        link.removeAttribute("aria-checked");
+      }
+      if (selecting && !pickable.has(id)) w.title = "You cannot change this entry";
+      else w.removeAttribute("title");
+    }
+    count.textContent = picked.size ? `${picked.size} selected` : "Nothing selected";
+    applyButton.disabled = picked.size === 0;
+  }
+
+  function setSelecting(on: boolean) {
+    selecting = on;
+    if (!on) picked.clear();
+    document.body.classList.toggle("selecting-entries", on);
+    bar.hidden = !on;
+    if (toggle) {
+      toggle.setAttribute("aria-pressed", String(on));
+      toggle.textContent = on ? "Stop selecting" : "Select";
+    }
+    paint();
+  }
+
+  toggle?.addEventListener("click", () => setSelecting(!selecting));
+  document.getElementById("select-done")?.addEventListener("click", () => setSelecting(false));
+  document.getElementById("select-none")?.addEventListener("click", () => {
+    picked.clear();
+    paint();
+  });
+  document.getElementById("select-all")?.addEventListener("click", () => {
+    for (const id of pickable.keys()) picked.add(id);
+    paint();
+  });
+  // In the capture phase, so a card's link and a row's play button stay quiet while selecting.
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!selecting) return;
+      const wrap = (event.target as Element | null)?.closest<HTMLElement>(".entry-wrapper[data-entry-id]");
+      if (!wrap) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const id = wrap.dataset.entryId!;
+      if (!pickable.has(id)) return;
+      if (picked.has(id)) picked.delete(id);
+      else picked.add(id);
+      paint();
+    },
+    true,
+  );
+
+  // ── The dialog ────────────────────────────────────────────────────────────────────────────────────────────────
+  let changed = false; // something was filled: closing reloads the page to show it
+  let asked = 0; // the latest preview asked for; an older answer arriving late is dropped
+
+  function close() {
+    dialog.close();
+  }
+  dialog.addEventListener("close", () => {
+    if (changed) window.location.reload();
+  });
+  dialog.querySelector("[data-at-close]")!.addEventListener("click", close);
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) close(); // a click on the backdrop
+  });
+
+  function closeButton(text = "Close"): HTMLElement {
+    const b = h("button", { type: "button", class: "button secondary" }, text);
+    b.addEventListener("click", close);
+    return b;
+  }
+
+  function rowsTable(result: ApplyTemplateResult, type: TemplateType, replace: boolean): HTMLElement {
+    const template = type.templates.find((t) => t.slug === result.template)!;
+    const tbody = h("tbody");
+    // The preview says what would happen; the answer after doing it says what did.
+    const words = result.preview ? { fills: replace ? "Sets" : "Fills", adds: "Adds" } : { fills: replace ? "Set" : "Filled", adds: "Added" };
+    for (const row of result.rows) {
+      const line = rowLine(row, template, type.fields, replace);
+      const what = h("td");
+      if (line.state === "skip") what.append(h("div", { class: "at-kept" }, `Left as it is${line.note ? `: ${line.note}` : ""}`));
+      else {
+        if (line.fills.length) what.append(h("div", {}, h("b", {}, `${words.fills}: `), line.fills.join(", ")));
+        if (line.adds.length) what.append(h("div", {}, h("b", {}, `${words.adds}: `), line.adds.join("; ")));
+        if (line.kept.length) what.append(h("div", { class: "at-kept" }, `Left as ${line.kept.length === 1 ? "it is" : "they are"}: ${line.kept.join(", ")}`));
+        if (line.note) what.append(h("div", { class: line.state === "problem" ? "at-problem" : "at-kept" }, line.note));
+      }
+      tbody.append(h("tr", { class: `at-${line.state}` }, h("td", {}, line.title || "Untitled"), what));
+    }
+    return h("table", { class: "at-rows" }, h("thead", {}, h("tr", {}, h("th", {}, "Entry"), h("th", {}, result.preview ? "What would happen" : "What happened"))), tbody);
+  }
+
+  function openDialog() {
+    changed = false;
+    const chosen = [...picked].map((id) => pickable.get(id)!).filter(Boolean);
+    const selection = selectionOf(chosen, data.types ?? []);
+    body.replaceChildren();
+    foot.replaceChildren(closeButton());
+    if (selection.kind === "none") return;
+    if (selection.kind === "too-many") {
+      body.append(h("p", {}, `${selection.count} entries are selected. A template is applied to at most ${MAX_ENTRIES} at once: select fewer and do them in parts.`));
+    } else if (selection.kind === "mixed") {
+      body.append(
+        h("p", {}, `The selected entries are of ${selection.names.length} types: ${selection.names.join(", ")}.`),
+        h("p", {}, "A template belongs to one entry type, so select entries of one type. Searching by type first shows only those."),
+      );
+    } else if (selection.kind === "no-templates") {
+      const link = h("a", { href: selection.type.id ? `/workspace/entry-types/${encodeURIComponent(selection.type.id)}` : "/workspace/entry-types" }, "the type's settings");
+      body.append(h("p", {}, `${selection.type.name} has no templates yet. A workspace admin adds one in `, link, ", under Templates."));
+    } else {
+      ready(selection.type, chosen.map((e) => e.id));
+    }
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function ready(type: TemplateType, ids: string[]) {
+    const select = h("select", { id: "at-template" }) as HTMLSelectElement;
+    for (const t of type.templates) select.append(h("option", { value: t.slug }, t.name || t.slug));
+    const about = h("small", { class: "at-about" });
+    const replace = h("input", { type: "checkbox", id: "at-replace" }) as HTMLInputElement;
+    const status = h("p", { class: "at-status", role: "status" });
+    const rows = h("div", { class: "at-table" });
+    const confirm = h("button", { type: "button", class: "button" }) as HTMLButtonElement;
+    const request = () => ({ entryType: type.slug, template: select.value, entries: ids, replace: replace.checked });
+
+    body.append(
+      h("p", { class: "at-lead" }, `${ids.length} ${type.name} ${ids.length === 1 ? "entry" : "entries"} selected.`),
+      h("div", { class: "at-field" }, h("label", { for: "at-template" }, "Template"), select, about),
+      h(
+        "div",
+        { class: "at-replace" },
+        h("label", { for: "at-replace" }, replace, " Replace existing values"),
+        h("small", {}, "Off: only empty fields are filled, and nothing an entry already has is changed. On: the template's values overwrite what the entries have, and their titles follow the template's pattern again."),
+      ),
+      status,
+      rows,
+    );
+    foot.replaceChildren(closeButton("Cancel"), confirm);
+
+    async function preview() {
+      const mine = ++asked;
+      const template = type.templates.find((t) => t.slug === select.value);
+      about.textContent = template?.description || "";
+      confirm.disabled = true;
+      confirm.textContent = confirmLabel(null, replace.checked);
+      confirm.classList.toggle("at-replacing", replace.checked);
+      status.className = "at-status";
+      status.textContent = "Working out what would change…";
+      try {
+        const result = await applyTemplate(request(), true);
+        if (mine !== asked) return;
+        status.textContent = previewLine(result, replace.checked);
+        rows.replaceChildren(rowsTable(result, type, replace.checked));
+        confirm.textContent = confirmLabel(result, replace.checked);
+        confirm.disabled = !canConfirm(result);
+      } catch (error: any) {
+        if (mine !== asked) return;
+        rows.replaceChildren();
+        status.className = "at-status at-problem";
+        status.textContent = `The preview could not be made: ${error?.message || error}`;
+      }
+    }
+
+    select.addEventListener("change", preview);
+    replace.addEventListener("change", preview);
+    confirm.addEventListener("click", async () => {
+      const replacing = replace.checked;
+      asked += 1; // a preview still on its way is dropped
+      confirm.disabled = true;
+      select.disabled = replace.disabled = true;
+      status.className = "at-status";
+      status.textContent = replacing ? "Replacing…" : "Filling…";
+      try {
+        const result = await applyTemplate(request(), false);
+        changed = true;
+        status.textContent = doneLine(result, replacing);
+        rows.replaceChildren(rowsTable(result, type, replacing));
+        foot.replaceChildren(closeButton("Done"));
+      } catch (error: any) {
+        select.disabled = replace.disabled = false;
+        confirm.disabled = false;
+        status.className = "at-status at-problem";
+        status.textContent = `Nothing was changed: ${error?.message || error}`;
+      }
+    });
+    void preview();
+  }
+
+  applyButton.addEventListener("click", openDialog);
+</script>
+
+<style is:global>
+  /* Selecting: the cards and the list rows live in other components, so these are global and named for this page. */
+  .select-bar {
+    position: sticky; top: 8px; z-index: 5; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+    padding: 0.6rem 0.9rem; margin-bottom: 1rem; background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.08);
+  }
+  .select-bar[hidden] { display: none; }
+  .select-bar .select-space { flex: 1; }
+  .select-bar .select-link { padding: 0; border: none; background: none; color: var(--accent); font: inherit; font-size: 0.875rem; cursor: pointer; }
+  .select-bar .select-link:hover { text-decoration: underline; }
+  body.selecting-entries .entry-wrapper[data-entry-id] { position: relative; cursor: pointer; border-radius: var(--radius); }
+  body.selecting-entries .entry-wrapper[data-entry-id]::before {
+    content: ""; position: absolute; top: 10px; left: 10px; z-index: 2; width: 22px; height: 22px; box-sizing: border-box;
+    border: 2px solid var(--muted); border-radius: 6px; background: var(--panel); color: #fff; font-size: 14px; font-weight: 700; line-height: 18px; text-align: center;
+  }
+  body.selecting-entries .entry-wrapper.picked { outline: 2px solid var(--accent); outline-offset: 1px; }
+  body.selecting-entries .entry-wrapper.picked::before { content: "✓"; border-color: var(--accent); background: var(--accent); }
+  body.selecting-entries .entry-wrapper.not-pickable { opacity: 0.45; cursor: not-allowed; }
+  body.selecting-entries .entry-wrapper.not-pickable::before { display: none; }
+  /* A list row: the box sits before the row's own content. */
+  body.selecting-entries .inbox-row.entry-wrapper[data-entry-id] { padding-left: 40px; }
+  body.selecting-entries .inbox-row.entry-wrapper[data-entry-id]::before { top: 50%; transform: translateY(-50%); }
+  body.selecting-entries .inbox-row.entry-wrapper.picked { outline-offset: -2px; border-radius: 0; }
+
+  .apply-template {
+    width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--panel); color: var(--ink); box-shadow: 0 8px 32px rgb(0 0 0 / 0.18);
+  }
+  .apply-template[open] { display: flex; flex-direction: column; }
+  .apply-template::backdrop { background: rgb(0 0 0 / 0.5); }
+  .apply-template .at-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .apply-template .at-head h3 { margin: 0; font-size: 17px; }
+  .apply-template .at-close { border: none; background: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; }
+  .apply-template .at-body { padding: 16px 18px; overflow-y: auto; font-size: 14px; line-height: 1.5; }
+  .apply-template .at-body p { margin: 0 0 10px; }
+  .apply-template .at-body a { color: var(--accent); }
+  .apply-template .at-foot { display: flex; justify-content: flex-end; gap: 0.6rem; padding: 12px 18px; border-top: 1px solid var(--line); }
+  .apply-template .at-field { display: flex; flex-direction: column; gap: 4px; margin: 0 0 14px; }
+  .apply-template .at-field label { font-weight: 600; font-size: 13px; }
+  .apply-template .at-field select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: inherit; }
+  .apply-template small { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+  /* Replace is the one choice that overwrites: set apart, in the warning colour. */
+  .apply-template .at-replace {
+    display: flex; flex-direction: column; gap: 4px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+    border-radius: 8px; background: color-mix(in srgb, var(--warn) 7%, transparent);
+  }
+  .apply-template .at-replace label { font-weight: 600; cursor: pointer; }
+  .apply-template .at-status { margin: 0 0 8px; font-weight: 600; }
+  .apply-template .at-problem { color: var(--color-error); }
+  .apply-template .at-kept { color: var(--muted); }
+  .apply-template .at-rows { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .apply-template .at-rows th { padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; text-transform: uppercase; letter-spacing: 0.04em; }
+  .apply-template .at-rows td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+  .apply-template .at-rows td:first-child { width: 38%; font-weight: 600; }
+  .apply-template .at-rows tr.at-skip td:first-child { color: var(--muted); font-weight: 400; }
+  .apply-template .button.at-replacing { background: var(--warn); border-color: var(--warn); }
+</style>
