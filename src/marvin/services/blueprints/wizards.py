@@ -53,6 +53,11 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   counted and compared (``gt gte eq lte lt``) to a number; ``step`` names the step that makes it, linked when it fails. All passing means
   the wizard is done.
 
+Any step that can come up with nothing to show (a pick, a list, a gallery, a run) says why and where to go: ``empty`` is its line
+(a plain default otherwise) and ``empty_next`` the place it points to, an earlier step or a path in the app (``_check_empty``). A run
+step whose ``requires`` is not met names the earlier step that fills the field (a form that shows it, an upload into it, a run whose
+``report`` is it), or the entry's own page when no step does.
+
 ``next`` ([{text, href?}]) is shown at the end: what to do once the wizard is done, with paths inside the app.
 ``when`` ({ctx, op: eq|neq|set|unset, value?}) hides a step unless it holds, which is how an upload step follows the option chosen.
 Progress is never stored: the context rides in the page's address and each step shows done from what exists.
@@ -148,6 +153,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             or (problem := _check_step(step, kind, known, entries, label, seen - {sid}, lists))
             or (problem := _check_show(step.get("show"), entries, label))
             or (problem := _check_selection(step.get("selection"), lists, label))
+            or (problem := _check_empty(step, seen - {sid}, label))
         ):
             return problem
         if kind in ("option", "choose"):
@@ -239,6 +245,33 @@ def _check_show(spec: Any, entries: set[str], label: str) -> str | None:
     fields = spec.get("fields")
     if not isinstance(fields, list) or not fields or len(fields) > MAX_SHOWN or not all(_is_field(f) for f in fields):
         return f"{label}: show.fields is a list of 1 to {MAX_SHOWN} field keys"
+    return None
+
+
+MAX_EMPTY = 300
+MAX_EMPTY_NEXT = 80
+
+
+def _check_empty(step: dict, earlier: set[str], label: str) -> str | None:
+    """What a step says when it has nothing to show, the same on every kind (a pick, a list, a gallery, a run): ``empty`` is the line,
+    in the package's words (the page has a plain default that says why), and ``empty_next`` where it points from there: ``{step}``, an
+    earlier step of the setup (the one that makes what is missing), or ``{text, href}``, a path in the app (another setup); a ``{step}``
+    may carry ``text`` too, to say it otherwise than *Go to "…"*."""
+    empty = step.get("empty")
+    if empty is not None and not (isinstance(empty, str) and empty.strip() and len(empty) <= MAX_EMPTY):
+        return f"{label}: empty is the line shown when the step has nothing to show or do (at most {MAX_EMPTY} characters)"
+    go = step.get("empty_next")
+    if go is None:
+        return None
+    if not isinstance(go, dict) or (go.get("step") is None) == (go.get("href") is None):
+        return f"{label}: empty_next is where an empty step points: {{step}}, an earlier step, or {{text, href}}, a path in the app"
+    text, href = go.get("text"), go.get("href")
+    if (text is not None or href is not None) and not (isinstance(text, str) and text.strip() and len(text) <= MAX_EMPTY_NEXT):
+        return f"{label}: empty_next.text is the link's words (at most {MAX_EMPTY_NEXT} characters), needed with an href"
+    if href is not None and (not isinstance(href, str) or not href.startswith("/") or href.startswith("//")):
+        return f"{label}: empty_next.href is a path in the app, starting with /"
+    if href is None and (not isinstance(go["step"], str) or go["step"] not in earlier):
+        return f"{label}: empty_next names step {go['step']!r}, which is not before it"
     return None
 
 
@@ -574,10 +607,10 @@ MAX_RUN_BADGES = 2
 def _check_run_list(s: _Step) -> str | None:
     """What a run step shows besides its button. The entries the workflow will act on are listed from the workflow itself (its first
     step, a collect: services/automation/selection.py); the step only says how a row looks (``audio``, ``badges`` (up to 2), ``subtitle``,
-    as a gallery's), what to say when there is none (``empty``) and, in ``left_out`` (up to 4 ``{label, where}``), the package's words for
-    what is not in the list: each ``where`` (a collect's ``where``, 1 to 4 plain conditions) is counted over the rest of the collect's query,
-    "Not included: 1 music". ``report`` ({entry, field, label?}) is a field of a chosen entry the run writes, shown on the step with a link
-    to edit it: what a check found."""
+    as a gallery's), what to say when there is none (``empty``, as any step's: ``_check_empty``) and, in ``left_out``
+    (up to 4 ``{label, where}``), the package's words for what is not in the list: each ``where`` (a collect's ``where``, 1 to 4 plain
+    conditions) is counted over the rest of the collect's query, "Not included: 1 music". ``report`` ({entry, field, label?}) is a field
+    of a chosen entry the run writes, shown on the step with a link to edit it: what a check found."""
     step = s.step
     if step.get("audio") is not None and not _is_field(step["audio"]):
         return f"{s.label}: audio must be a field key"
@@ -585,8 +618,6 @@ def _check_run_list(s: _Step) -> str | None:
         return problem or f"{s.label}: badges is at most {MAX_RUN_BADGES} field keys"
     if problem := _check_subtitle(s):
         return problem
-    if step.get("empty") is not None and not (isinstance(step["empty"], str) and step["empty"].strip() and len(step["empty"]) <= 300):
-        return f"{s.label}: empty is the line shown when there is nothing to do (at most 300 characters)"
     if (left := step.get("left_out")) is not None:
         if not isinstance(left, list) or not 1 <= len(left) <= MAX_LEFT_OUT:
             return f"{s.label}: left_out is a list of 1 to {MAX_LEFT_OUT} reasons, each {{label, where}}"

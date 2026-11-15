@@ -1,0 +1,30 @@
+---
+/**
+ * What a guided setup's step shows when it has nothing to list: why, in plain words, and where to go from there. The same on every
+ * kind of step (a pick, a list, a gallery, a run): the line, then links, the one marked `main` drawn as the step's button.
+ */
+interface Props {
+  text: string;
+  links?: { label: string; href: string; main?: boolean; out?: boolean }[];
+}
+const { text, links = [] } = Astro.props;
+---
+
+<div class="empty-step">
+  <p class="empty-why">{text}</p>
+  {
+    links.length > 0 && (
+      <p class="empty-next">
+        {links.map((l) => (
+          <a class:list={["button", !l.main && "secondary", !l.main && "small"]} href={l.href}>{l.label} {l.out ? "↗" : "→"}</a>
+        ))}
+      </p>
+    )
+  }
+</div>
+
+<style>
+  .empty-step { grid-column: 1 / -1; display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--radius); background: var(--panel-2); }
+  .empty-why { margin: 0; }
+  .empty-next { margin: 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+</style>

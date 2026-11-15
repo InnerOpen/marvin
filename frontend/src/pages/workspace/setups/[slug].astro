@@ -5,6 +5,7 @@ import ImageCropper from "@/components/ImageCropper.astro";
 import LinkedItemsField from "@/components/schema-fields/LinkedItemsField.astro";
 import WizardCard from "@/components/WizardCard.astro";
 import WizardCreate from "@/components/WizardCreate.astro";
+import WizardEmpty from "@/components/WizardEmpty.astro";
 import WizardScopedList from "@/components/WizardScopedList.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import SchemaFormField from "@/components/SchemaFormField.astro";
@@ -25,6 +26,7 @@ import {
 } from "@/lib/wizard";
 import { jobLead, leftOutLine, listLine, nothingLine, previewCards, previewLine, previewProblem, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
+import { emptyLine, emptyLinks, lackingOf, narrowedBy } from "@/lib/wizardEmpty";
 import { getRunState, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { runKey, runLine } from "@/lib/runState";
 import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, optionsOf, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -136,7 +138,7 @@ const askedBy = (run: WorkflowRunState | null): string[] => (run?.waitingOn ?? [
 let pendingCards: ApprovalCard[] = [];
 let decidedCards: ApprovalCard[] = [];
 let watchIds: string[] = [];
-let lacking: string | null = null; // a run step's `requires` not met
+let lacking: ReturnType<typeof lackingOf> | null = null; // a run step's `requires` not met: what is missing, and where to fill it
 let picked: Awaited<ReturnType<typeof runSelection>> = null; // a run step's list: what its workflow will act on, from the workflow itself
 let leftSays: string | null = null; // and why some are not in it, in the package's words
 // A run step whose workflow starts by previewing a template: what it would make, as cards, and what stops it (a row with a problem).
@@ -312,7 +314,10 @@ if (authToken && def && step) {
     watchIds = about;
     if (step.requires) {
       const needed = entries[step.requires.entry];
-      if (!needed || !hasValue(needed.dataJson?.[step.requires.field])) lacking = `“${step.requires.field}” on ${needed?.title ?? step.requires.entry} is empty: fill it in (or upload it) in an earlier step first.`;
+      if (!needed || !hasValue(needed.dataJson?.[step.requires.field])) {
+        const label = fieldsOf(await typeBySlug(entryTypeOf(def, step.requires.entry) ?? "", authToken, Astro.locals), [step.requires.field])[0]?.label;
+        lacking = lackingOf(def, ctx, step, slug, { label, entry: needed });
+      }
     }
     runNow = await runOf(step.workflow);
     const reasons = (step.left_out ?? []) as { label: string; where: SelectionCondition[] }[];
@@ -393,6 +398,13 @@ const skipHref: string | null = (() => {
   if (!after || (step.kind === "run" && (held || continues))) return null;
   return stepHref(slug, ctx, after.id);
 })();
+// An empty step says why and where to go, the same on every kind (lib/wizardEmpty.ts): the place its package names (`empty_next`), and for
+// a pick with nothing to pick, the earlier choices that narrow it and, when the choice is optional and nothing can be made here, the way on.
+const narrowed = def && step ? narrowedBy(def, ctx, step) : [];
+const emptyNext = def && step ? emptyLinks(def, ctx, step, slug) : [];
+const emptyPick = def && step ? [...emptyLinks(def, ctx, step, slug, narrowed), ...(skipHref && !step.create ? [{ label: "Go on without choosing", href: skipHref, main: true }] : [])] : [];
+// The step that picks the entry a form or an upload works on, to point at when nothing is chosen.
+const chooser = def && typeof step?.entry === "string" ? (def.steps.find((s) => s.kind === "choose" && s.as === step.entry) ?? null) : null;
 // A column heading is the field's label without its explanation in brackets (the full label stays as the hover text).
 const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || label;
 const uploadAccept = step?.kind === "gallery" && step.upload ? galleryAccept(step, galleryFields) : null;
@@ -477,7 +489,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
 
           {step.kind === "option" && missingType && <div class="alert alert-info">This workspace has no “{step.templates}” entry type yet, so there is no template to pick.</div>}
           {step.kind === "option" && !missingType && options.length === 0 && (
-            <p class="muted none">“{typeName}” has no template yet. A workspace admin adds one under Workspace → Entry types → {typeName} → Templates; then come back.</p>
+            <WizardEmpty text={step.empty ?? `“${typeName}” has no template yet. A workspace admin adds one under Workspace → Entry types → ${typeName} → Templates; then come back.`} links={emptyPick} />
           )}
           {step.kind === "option" && options.length > 0 && (
             <form method="post" class="form">
@@ -509,7 +521,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           {step.kind === "choose" && step.multiple === true && (
             <div class="form">
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet, so there is nothing to pick. Install the package’s types first.</div>}
-              {!missingType && pageRows.length === 0 && <p class="muted none">{step.empty ?? `There is nothing to pick here yet.`}</p>}
+              {!missingType && pageRows.length === 0 && <WizardEmpty text={emptyLine(step, typeName, { narrowed })} links={emptyPick} />}
               {!missingType && pageRows.length > 0 && (
                 <form method="post" class="form" data-multi data-off={String(offPage)}>
                   <input type="hidden" name="page" value={String(pageAt.page)} />
@@ -555,6 +567,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           {step.kind === "choose" && step.multiple !== true && (
             <div class="form">
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet, so there is nothing to pick. Install the package’s types first.</div>}
+              {!missingType && choices.length === 0 && <WizardEmpty text={emptyLine(step, typeName, { narrowed, todo: step.create ? "Make the first one below." : "" })} links={emptyPick} />}
               {step.create && !missingType && createFirst && <WizardCreate step={step} typeName={typeName} hasChoices={choices.length > 0} first={true} formFields={formFields} refs={refs} badFields={badFields} />}
               {choices.length > 0 && (
                 <form method="post" class="form">
@@ -599,7 +612,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 {leftOut.length > 0 && <p class="muted">{leftOut.map((f) => f.label).join(", ")} can be edited in the <a href={`/workspace/entries/${entry.id}`}>entry itself</a>.</p>}
                 <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
               </form>
-            ) : <div class="alert alert-info">Choose the {step.entry} in an earlier step first.</div>
+            ) : <div class="alert alert-info">Nothing is chosen for this step to work on yet. {chooser && <a href={stepHref(slug, ctx, chooser.id)}>Go to “{chooser.title}” →</a>}</div>
           )}
 
           {step.kind === "upload" && (
@@ -626,13 +639,13 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   <button class="button" type="submit">Upload</button>
                 </div>
               </form>
-            ) : <div class="alert alert-info">Choose the {step.entry} in an earlier step first.</div>
+            ) : <div class="alert alert-info">Nothing is chosen for this step to work on yet. {chooser && <a href={stepHref(slug, ctx, chooser.id)}>Go to “{chooser.title}” →</a>}</div>
           )}
 
           {isScopedList(step) && (
             missingType || !scoped
               ? <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>
-              : <WizardScopedList step={step} list={scoped} columns={columns} checkField={checkField} pictureRole={pictureRole} refs={refs} submitLabel={submitLabel} />
+              : <WizardScopedList step={step} list={scoped} columns={columns} checkField={checkField} pictureRole={pictureRole} refs={refs} submitLabel={submitLabel} emptyNext={emptyNext} />
           )}
 
           {step.kind === "list" && !isScopedList(step) && (
@@ -640,7 +653,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
               {!missingType && (
                 <div class="rows">
-                  {listRows.length === 0 && <p class="muted none">None yet. Add the first one below.</p>}
+                  {listRows.length === 0 && <WizardEmpty text={emptyLine(step, typeName, { owner: entries[step.parent]?.title, todo: step.add !== false ? "Add the first one below." : "" })} links={emptyNext} />}
                   {listRows.map((r) => (
                     <div class="row">
                       <div class="row-head"><a href={`/workspace/entries/${r.id}`}>{r.title}</a></div>
@@ -748,7 +761,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       </div>
                     );
                   })}
-                  {cards.length === 0 && <p class="muted none">{step.empty ?? `No ${typeName.toLowerCase()} yet.`}</p>}
+                  {cards.length === 0 && <WizardEmpty text={emptyLine(step, typeName, { owner: step.parent ? entries[step.parent]?.title : null, todo: step.add || step.upload || step.generate ? "Add the first one below." : "" })} links={emptyNext} />}
                   {/* A card action's file box, once for the step: the script puts it under the card whose button was pressed and posts it as soon as it holds an asset. */}
                   {cards.length > 0 && cardFiles.map((c) => (
                     <form method="post" class="gfile-panel" data-card-file-panel={String(c.n)} hidden>
@@ -863,12 +876,15 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               {flow.forbidden && <div class="alert alert-info">Only a workspace admin can start a workflow today. Ask one to run this step; what it makes shows here for everyone.</div>}
               {!flow.found && !flow.forbidden && <div class="alert alert-info">This workspace has no workflow “{step.workflow}”. Install the package that brings it.</div>}
               {flow.found && flow.enabled && <p class="muted runs">Runs “{flow.name}”</p>}
-              {lacking && flow.found && flow.enabled && <div class="alert alert-info">{lacking}</div>}
+              {lacking && flow.found && flow.enabled && (
+                <div class="alert alert-info">{lacking.text} {lacking.link && <a href={lacking.link.href}>{lacking.link.label} {lacking.link.out ? "↗" : "→"}</a>}</div>
+              )}
               {flow.found && !flow.enabled && (
                 <div class="alert alert-info">“{flow.name}” is switched off. Turn it on under <a href="/automation/workflows">Automation → Workflows</a> (it runs with its author’s permissions), then come back.</div>
               )}
 
-              {previewed && nothingToDo && !running && <p class="nothing">{nothingLine(step.empty, !!after)}</p>}
+              {/* Nothing to do: said once, and not at all when what the step needs is missing (that is why, and it is said above). */}
+              {previewed && nothingToDo && !running && !lacking && <WizardEmpty text={nothingLine(step.empty, !!after)} links={emptyNext} />}
               {previewed && previewed.cards.length > 0 && (
                 <section class="runlist" aria-label={nothingToDo ? "What is there" : "What it will make"}>
                   {previewed.line && <p class="label">{previewed.line}</p>}
@@ -879,7 +895,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 </section>
               )}
               {picked && !previewed && (nothingToDo ? (
-                !running && <p class="nothing">{nothingLine(step.empty, !!after)}</p>
+                !running && !lacking && <WizardEmpty text={nothingLine(step.empty, !!after)} links={emptyNext} />
               ) : (
                 <section class="runlist" aria-label="What it works on">
                   <p class="label">{listLine(picked.selection)}</p>
@@ -1342,7 +1358,6 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   /* A run step's list of what it works on, why some are left out, and what came of it. */
   .runlist { display: grid; gap: 8px; }
   .runlist .label, .said .label { margin: 0; }
-  .nothing { margin: 0; padding: 10px 14px; border-radius: var(--radius); background: var(--panel-2); }
   .leftout { margin: 0; font-size: 13px; }
   .said { display: grid; gap: 6px; }
   .said-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }

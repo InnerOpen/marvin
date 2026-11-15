@@ -643,6 +643,40 @@ def test_a_choose_or_gallery_step_may_show_one_field_or_up_to_three_under_each_t
     assert _bad(lambda p: p["steps"][7].update(subtitle=subtitle)) is None  # the gallery
 
 
+# --- an empty step says why, and where to go -------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("at", [1, 4, 5, 7])  # a choose, a run, a list and a gallery
+def test_any_step_may_say_what_it_shows_when_empty_and_where_that_points(at):
+    assert _bad(lambda p: p["steps"][at].update(empty="Nothing here yet.", empty_next={"step": "world"})) is None
+    assert _bad(lambda p: p["steps"][at].update(empty_next={"step": "world", "text": "Pick another world"})) is None
+    assert _bad(lambda p: p["steps"][at].update(empty_next={"text": "Open the casting call", "href": "/workspace/setups/casting-call"})) is None
+
+
+@pytest.mark.parametrize(
+    ("settings", "words"),
+    [
+        ({"empty": ""}, "empty is the line"),
+        ({"empty": ["no"]}, "empty is the line"),
+        ({"empty": "x" * 301}, "at most 300"),
+        ({"empty_next": "world"}, "empty_next is where an empty step points"),
+        ({"empty_next": {}}, "empty_next is where an empty step points"),
+        ({"empty_next": {"step": "world", "href": "/workspace"}}, "empty_next is where an empty step points"),
+        ({"empty_next": {"step": "ready"}}, "which is not before it"),
+        ({"empty_next": {"step": ["world"]}}, "which is not before it"),
+        ({"empty_next": {"step": "world", "text": ""}}, "empty_next.text"),
+        ({"empty_next": {"href": "/workspace/setups/casting-call"}}, "empty_next.text"),
+        ({"empty_next": {"text": "x" * 81, "href": "/workspace"}}, "empty_next.text"),
+        ({"empty_next": {"text": "Elsewhere", "href": "https://example.com/"}}, "a path in the app"),
+        ({"empty_next": {"text": "Elsewhere", "href": "//example.com/"}}, "a path in the app"),
+    ],
+)
+def test_a_wrong_empty_line_or_link_says_what_is_wrong(settings, words):
+    for at in (1, 4):  # the same on a choose and on a run
+        problem = _bad(lambda p, at=at: p["steps"][at].update(**settings))
+        assert problem is not None and words in problem
+
+
 # --- a run step says what it will act on, and what came of it -------------------------------------------------------------------------
 
 RUN_LIST = {
@@ -671,7 +705,6 @@ def test_a_run_step_may_list_what_it_will_act_on_count_it_say_why_some_are_left_
     ("settings", "words"),
     [
         ({"button": "Make ${story} sounds"}, "button may only use ${count}"),
-        ({"empty": ""}, "empty is the line"),
         ({"audio": "Audio file"}, "audio must be a field key"),
         ({"badges": ["kind", "status", "source"]}, "badges"),
         ({"subtitle": ["bad key"]}, "subtitle must be a field key"),
