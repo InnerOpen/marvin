@@ -31,7 +31,7 @@ const CARDS_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="curren
   </ListBar>
   <section class="grid" data-pane="cards" aria-label="Entries">
     {entries.map((entry) => (
-      <div class="entry-wrapper" data-status={entry.status} data-title={(entry.title || "").toLowerCase()}>
+      <div class="entry-wrapper" data-entry-id={entry.id} data-status={entry.status} data-title={(entry.title || "").toLowerCase()}>
         <EntryCard entry={entry} collectionsMap={collectionsMap} />
       </div>
     ))}

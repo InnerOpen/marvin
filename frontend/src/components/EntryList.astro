@@ -34,7 +34,7 @@ const statusMeta: Record<string, { label: string; cls: string }> = {
     const thumb = thumbOf(entry.assets, entry.title);
     const sound = extraSound(entry.assets, entry.title);
     return (
-      <li class="inbox-row entry-wrapper" data-status={entry.status} data-title={(entry.title || "").toLowerCase()}>
+      <li class="inbox-row entry-wrapper" data-entry-id={entry.id} data-status={entry.status} data-title={(entry.title || "").toLowerCase()}>
         <a class="inbox-link" href={`/workspace/entries/${entry.id}`}>
           <span class={`status-dot ${s.cls}`} title={s.label}></span>
           {thumb?.kind === "audio" && <PlayButton src={thumb.url} label={`Play ${entry.title}`} />}
