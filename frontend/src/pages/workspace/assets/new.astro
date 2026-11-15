@@ -86,8 +86,8 @@ try {
           </select>
           <p class="form-help" id="makeForHelp">Leave it at none to just upload. Choose a template and each picture becomes an Inbox entry made with it, after you check the list.</p>
           <div class="name-with-ai" id="nameWithAi" hidden>
-            <label class="batch-adjust"><input type="checkbox" id="nameWithAiOn" /> <span>Suggest a name for each picture with AI</span></label>
-            <p class="form-help" id="nameWithAiHelp">Off: each entry is titled after its file name and tagged “Needs a name”, so you can find and rename it later. On: the AI looks at every picture and gives it a short name and an alt text. That is one AI call per picture, which uses your AI credit.</p>
+            <label for="nameWithAiOn"><input type="checkbox" id="nameWithAiOn" /> Suggest a name for each picture with AI</label>
+            <p class="form-help" id="nameWithAiHelp">Off: each entry is titled after its file name and tagged “Needs a name”, so you can find it later. On: the AI gives each picture a short name and an alt text (one AI call each, which uses your AI credit).</p>
           </div>
         </div>
       )}
@@ -295,9 +295,12 @@ try {
   .entries-table :global(.error) { color: var(--danger, #b42318); font-size: 0.8rem; }
   .batch-summary { margin: 0 0 0.5rem; font-weight: 600; }
   .batch-adjust { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0 0 0.75rem; font-size: 0.875rem; font-weight: 400; }
-  .name-with-ai { margin: 0.5rem 0 0; }
+  .name-with-ai { margin: 0.75rem 0 0; padding: 0.7rem 0.9rem; border: 1px solid var(--line); border-radius: 8px; }
   .name-with-ai[hidden] { display: none; }
-  .name-with-ai .form-help { margin: -0.25rem 0 0 1.5rem; }
+  .name-with-ai label { display: flex; align-items: center; gap: 0.6rem; margin: 0; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+  /* the form's `input { width: 100% }` would stretch the checkbox across the row and push its words aside */
+  .name-with-ai input[type="checkbox"] { width: 1.05rem; height: 1.05rem; flex: none; padding: 0; margin: 0; }
+  .name-with-ai .form-help { margin: 0.4rem 0 0 1.65rem; }
   .batch-adjust[hidden] { display: none; } /* display: flex would otherwise show a hidden option */
   .batch-list { margin: 0 0 1rem; padding: 0; list-style: none; max-height: 240px; overflow: auto; font-size: 0.875rem; }
   .batch-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-bottom: 1px solid var(--line); }
