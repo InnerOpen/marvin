@@ -6,6 +6,7 @@ import LinkedItemsField from "@/components/schema-fields/LinkedItemsField.astro"
 import WizardCard from "@/components/WizardCard.astro";
 import WizardCreate from "@/components/WizardCreate.astro";
 import WizardEmpty from "@/components/WizardEmpty.astro";
+import WizardPaid from "@/components/WizardPaid.astro";
 import WizardScopedList from "@/components/WizardScopedList.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import SchemaFormField from "@/components/SchemaFormField.astro";
@@ -27,6 +28,7 @@ import {
 import { jobLead, leftOutLine, listLine, nothingLine, previewCards, previewLine, previewProblem, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
 import { emptyLine, emptyLinks, lackingOf, narrowedBy } from "@/lib/wizardEmpty";
+import { type Paid, type Sent, paidCardsLine, paidConfirm, paidFields, paidLine, paidOf, paidSent } from "@/lib/wizardPaid";
 import { getRunState, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { runKey, runLine } from "@/lib/runState";
 import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, optionsOf, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -143,6 +145,14 @@ let picked: Awaited<ReturnType<typeof runSelection>> = null; // a run step's lis
 let leftSays: string | null = null; // and why some are not in it, in the package's words
 // A run step whose workflow starts by previewing a template: what it would make, as cards, and what stops it (a row with a problem).
 let previewed: { line: string | null; problem: string | null; cards: ReturnType<typeof previewCards> } | null = null;
+// A run (a run step, or a gallery's generate) that says `paid`: it sends to an outside service that charges, and what it sends, as it is now.
+let runPaid: Paid | null = null;
+let runSent: Sent = { lines: [], missing: [] };
+const sentBy = async (paid: Paid | null): Promise<Sent> => {
+  if (!paid?.entry || !def || !authToken) return { lines: [], missing: [] };
+  const type = await typeBySlug(entryTypeOf(def, paid.entry) ?? "", authToken, Astro.locals);
+  return paidSent(paid, entries[paid.entry]?.dataJson, (type?.schemaJson as { fields?: any[] } | null)?.fields ?? []);
+};
 let options: OptionChoice[] = []; // an option step's choices: its own, or an entry type's templates
 let jobSays: { lead: string; more: boolean; all: string } | null = null; // what the worker job the run started said
 let report: { label: string; text: string; title: string; href: string } | null = null; // the field the run writes, to read here
@@ -299,6 +309,8 @@ if (authToken && def && step) {
     }
     if (step.generate) {
       genStep = generateAsRun(step, undefined).run;
+      runPaid = paidOf(step.generate.paid);
+      runSent = await sentBy(runPaid);
       flow = await workflowState(genStep.workflow, authToken);
       const about = inputKeys(genStep).map((k) => entries[k]).filter((e): e is Row => !!e).map((e) => e.id);
       watchIds = about;
@@ -320,6 +332,8 @@ if (authToken && def && step) {
       }
     }
     runNow = await runOf(step.workflow);
+    runPaid = paidOf(step.paid);
+    runSent = await sentBy(runPaid);
     const reasons = (step.left_out ?? []) as { label: string; where: SelectionCondition[] }[];
     picked = await runSelection(step.workflow, runInputs(step, ctx), reasons.map((r) => r.where), authToken);
     leftSays = picked ? leftOutLine(reasons, picked.selection.leftOut) : null;
@@ -427,7 +441,13 @@ const boxKinds = [...cardFiles.map((c) => c.accept), ...(addAccept ? [addAccept]
 const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept) || boxKinds.some((k) => k === "audio" || k === "any");
 const takesPicture = boxKinds.some((k) => k === "image" || k === "any");
 // The add form's save buttons, and how its file box can be filled: a button that needs the file says what it is waiting for.
-const addButtons = ((step?.add?.buttons ?? [{ label: "Add" }]) as { label: string; file?: string; skip_required?: boolean }[]).map((b) => ({ ...b, needs: b.file }));
+const addButtons = ((step?.add?.buttons ?? [{ label: "Add" }]) as { label: string; file?: string; skip_required?: boolean; paid?: unknown }[]).map((b, n) => ({ ...b, n, needs: b.file, paid: paidOf(b.paid) }));
+// A button that sends to a paid outside service is kept out of the form's own row of buttons: a section of its own under the form, with
+// its notice. Enter in the form never presses it (the form's first button is one of its own, or one that does nothing).
+const plainButtons = addButtons.filter((b) => !b.paid);
+const paidButtons = addButtons.filter((b) => b.paid);
+// The card buttons that send to a paid outside service: each asks first, with the text that goes; the step says so once above the cards.
+const paidCards = (step?.kind === "gallery" ? ((step.card_actions ?? []) as { label: string; paid?: unknown; file?: unknown }[]) : []).flatMap((a) => (!a.file && paidOf(a.paid) ? [{ label: a.label, paid: paidOf(a.paid)! }] : []));
 const addWays = fileWays(!!step?.add?.file?.assets, acceptKind(addAccept) === "audio");
 // What the recorder shows to read from (`add.file.script`: field keys of the add form, labelled as the form labels them): a take's words and direction.
 const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?? []) as string[]).map((key) => ({
@@ -718,6 +738,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   {pendingCards.length === 0 && <p class="muted waiting">A take is being made. Whatever needs your answer appears here, so you can stay on this page.</p>}
                 </section>
               )}
+              {!missingType && cards.length > 0 && paidCards.length > 0 && (
+                <p class="muted paid-cards">{paidCardsLine(paidCards)}</p>
+              )}
               {!missingType && (
                 <div class:list={["cards", { rows: step.layout === "list" }]}>
                   {cards.map((r) => {
@@ -738,10 +761,10 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       <div class="gbar">
                       {(step.card_actions ?? []).some((a: any) => cardActionShown(a, r.dataJson)) && (
                         <div class="gacts">
-                          {(step.card_actions as { label: string; when?: any; file?: { accept?: string; assets?: boolean } }[]).map((a, n) => cardActionShown(a, r.dataJson) && (a.file ? (
+                          {(step.card_actions as { label: string; when?: any; paid?: unknown; file?: { accept?: string; assets?: boolean } }[]).map((a, n) => cardActionShown(a, r.dataJson) && (a.file ? (
                             <button type="button" class="button secondary small" data-card-file={String(n)} data-card-id={r.id} data-card-title={r.title} aria-expanded="false">{a.label}</button>
                           ) : (
-                            <form method="post" class="gact">
+                            <form method="post" class="gact" data-confirm={paidOf(a.paid) ? paidConfirm(a.label, paidOf(a.paid)!, paidSent(paidOf(a.paid)!, r.dataJson, galleryFields)) : undefined}>
                               <input type="hidden" name="action" value="card" />
                               <input type="hidden" name="card_id" value={r.id} />
                               <input type="hidden" name="card_do" value={String(n)} />
@@ -787,7 +810,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   {step.add && (
                     <details class="gaction" open={step.add.open === true || undefined}>
                       <summary class="button secondary">＋ {step.add.title ?? `Add ${typeName.toLowerCase()}`}</summary>
-                      <form method="post" class="form gform" data-file-box={step.add.file ? fileNoun(addAccept) : undefined} data-ways={step.add.file ? addWays : undefined}>
+                      <form method="post" id="add-form" class="form gform" data-file-box={step.add.file ? fileNoun(addAccept) : undefined} data-ways={step.add.file ? addWays : undefined}>
+                        {/* With only paid buttons, the form's first button does nothing: Enter never sends a paid request. */}
+                        {plainButtons.length === 0 && <button type="submit" disabled hidden tabindex="-1" aria-hidden="true">Nothing</button>}
                         <input type="hidden" name="action" value="add" />
                         {step.add.file?.seconds && <input type="hidden" name="upload_seconds" value="" />}
                         <div class="form-group">
@@ -806,13 +831,33 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             items={step.add.file.assets ? assetsFor(addAccept ?? "audio/*") : []}
                           />
                         )}
-                        <div class="actions">
-                          {addButtons.map((b, n) => (
-                            <button class:list={["button", n > 0 && "secondary"]} type="submit" name="do" value={String(n)} data-needs-file={b.file} disabled={(!!step.add.file && fileButtonOff(b.file, false)) || undefined} formnovalidate={b.skip_required || undefined}>{b.label}</button>
-                          ))}
-                        </div>
+                        {plainButtons.length > 0 && (
+                          <div class="actions">
+                            {plainButtons.map((b, i) => (
+                              <button class:list={["button", i > 0 && "secondary"]} type="submit" name="do" value={String(b.n)} data-needs-file={b.file} disabled={(!!step.add.file && fileButtonOff(b.file, false)) || undefined} formnovalidate={b.skip_required || undefined}>{b.label}</button>
+                            ))}
+                          </div>
+                        )}
                         {step.add.file && <p class="muted gneeds" data-file-note>{fileButtonNote(addButtons, false, fileNoun(addAccept), addWays)}</p>}
                       </form>
+                      {paidButtons.map((b) => (
+                        <section class="paid-apart" aria-label={b.label}>
+                          <WizardPaid line={paidLine(b.paid!, b.paid!.sends.length ? `the ${paidFields(b.paid!, addFields)} above` : "what is above")} />
+                          <div class="actions">
+                            <button
+                              class:list={["button", plainButtons.length > 0 && "secondary"]}
+                              type="submit"
+                              form="add-form"
+                              name="do"
+                              value={String(b.n)}
+                              data-needs-file={b.file}
+                              data-paid-needs={b.paid!.needs.length ? JSON.stringify(b.paid!.needs.map((key) => ({ key, label: paidFields({ ...b.paid!, sends: [key] }, addFields) }))) : undefined}
+                              disabled={(!!step.add.file && fileButtonOff(b.file, false)) || undefined}
+                              formnovalidate={b.skip_required || undefined}
+                            >{b.label}</button>
+                          </div>
+                        </section>
+                      ))}
                     </details>
                   )}
                   {step.upload && (
@@ -860,6 +905,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                         <form method="post" class="form">
                           <input type="hidden" name="action" value="generate" />
                           {step.generate.prompt && <label class="col"><span>{step.generate.prompt.label}</span><textarea class="input" rows="3" name="prompt" required /></label>}
+                          {runPaid && <WizardPaid line={paidLine(runPaid, step.generate.prompt ? "what you type here" : "your request")} sent={runSent} />}
                           <div class="actions"><button class="button" type="submit" disabled={!flow.canRun}>{step.generate.button ?? "Generate"}</button></div>
                         </form>
                       </div>
@@ -952,7 +998,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 </aside>
               )}
 
+              {/* The run's button is a form of its own, under its paid notice when it has one: never among another form's buttons. */}
               <form method="post" class="form">
+                {runPaid && !nothingToDo && <WizardPaid line={paidLine(runPaid)} sent={runSent} />}
                 <div class="actions">
                   {!nothingToDo && (
                     <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking || (!!previewed && (running || !!previewed.problem))}>
@@ -1021,6 +1069,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
 
 <script>
   import { MAX_PICKS, fileButtonNote, fileButtonOff, pickedLine } from "@/lib/wizard";
+  import { paidWarning } from "@/lib/wizardPaid";
 
   // A multi-select step: the count says how many are picked as boxes are ticked (with those picked on other pages, `data-off`). Select all
   // and Clear work here without a round trip; without a script they post and the server does the same. Clear drops the picks on other
@@ -1074,7 +1123,8 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   document.querySelectorAll<HTMLFormElement>("form[data-file-box]").forEach((form) => {
     const held = form.querySelector<HTMLInputElement>("[data-linked-value]");
     if (!held) return;
-    const buttons = [...form.querySelectorAll<HTMLButtonElement>('button[name="do"]')];
+    // The form's own buttons and the paid ones under it (outside the form, tied to it by `form=`).
+    const buttons = [...form.elements].filter((el): el is HTMLButtonElement => el instanceof HTMLButtonElement && el.name === "do");
     const note = form.querySelector<HTMLElement>("[data-file-note]");
     const refresh = () => {
       const has = !!held.value;
@@ -1163,6 +1213,16 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
     });
   }
   // A form that moves something to the Trash asks first.
+  // A paid button of the add form asks before it sends without something it needs (a line's direction): the boxes are read as they are now.
+  document.querySelectorAll<HTMLButtonElement>("button[data-paid-needs]").forEach((button) => {
+    button.addEventListener("click", (e) => {
+      const needs = JSON.parse(button.dataset.paidNeeds ?? "[]") as { key: string; label: string }[];
+      const held = (key: string) => String((button.form?.elements.namedItem(`dataJson.${key}`) as HTMLInputElement | null)?.value ?? "").trim();
+      const warning = paidWarning(needs.filter((n) => !held(n.key)).map((n) => n.label));
+      if (warning && !window.confirm(`${warning}\n\nSend it anyway?`)) e.preventDefault();
+    });
+  });
+
   document.querySelectorAll<HTMLFormElement>("form[data-confirm]").forEach((form) => {
     form.addEventListener("submit", (e) => {
       if (!window.confirm(form.dataset.confirm ?? "Are you sure?")) e.preventDefault();
@@ -1353,6 +1413,8 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .gactions { display: grid; gap: 10px; }
   .gaction summary { display: inline-flex; list-style: none; cursor: pointer; }
   .gaction summary::-webkit-details-marker { display: none; }
+  .paid-apart { display: grid; gap: 10px; margin-top: 10px; padding: 14px 16px; background: var(--bg); border-radius: var(--radius); }
+  .paid-cards { margin: 0; font-size: 13px; }
   .gform { margin-top: 10px; padding: 14px 16px; border: 0; background: var(--bg); border-radius: var(--radius); }
   .runs { margin: 0; font-size: 13px; }
   /* A run step's list of what it works on, why some are left out, and what came of it. */

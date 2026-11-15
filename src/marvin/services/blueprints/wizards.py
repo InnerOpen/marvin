@@ -49,6 +49,9 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   the step lists them above the button, from the workflow itself, and ``button`` may say ``${count}``; ``audio``, ``badges``, ``subtitle``,
   ``empty`` (nothing to do), ``left_out`` (why some are not in it) and ``report`` (a field the run writes, shown after) are in
   ``_check_run_list``. Every run step but the last can be passed without running.
+  ``paid`` (on a run step, a gallery's ``generate``, a ``card_actions`` item or an ``add.buttons`` item) says the action sends to an
+  outside service that charges for it: the page says so before anything goes, shows the text that will be sent, warns when a field it
+  needs is empty and keeps the button apart from an add form's own buttons (``_check_paid``).
 - ``review``: ``checks``, each ``{label, query, op, value, step?}``: the query (entry-query spec: ``entry_type``, ``fields``, ``where``…) is
   counted and compared (``gt gte eq lte lt``) to a number; ``step`` names the step that makes it, linked when it fails. All passing means
   the wizard is done.
@@ -597,11 +600,43 @@ def _check_run(s: _Step, *, listed: bool = True) -> str | None:
             return f"{s.label}: requires must be {{entry, field}}, the field that has to hold something before it can run"
         if (problem := _Step(requires, s.known, s.entries, s.label, lists=s.lists).ctx("entry")) is not None:
             return problem
-    return s.refs_known(inputs, "inputs") or (_check_run_list(s) if listed else None)
+    return s.refs_known(inputs, "inputs") or _check_paid(s, s.step.get("paid"), "paid", chosen=True) or (_check_run_list(s) if listed else None)
 
 
 MAX_LEFT_OUT = 4
 MAX_RUN_BADGES = 2
+MAX_PAID_FIELDS = 6
+PAID_KEYS = ("service", "cost", "entry", "sends", "needs")
+
+
+def _check_paid(s: _Step, spec: Any, what: str, *, chosen: bool, form: list | None = None) -> str | None:
+    """``paid``: the action sends something to an outside service that charges for it (a voice from ElevenLabs, a picture from an image
+    model), so the page says so before anything goes, in a marked notice, and keeps the button in a section of its own. ``true``, or
+    ``{service?, cost?, sends?, needs?}``: ``service`` names it, ``cost`` says what it costs in the package's words, ``sends`` (up to 6
+    field keys) is the text that goes, shown as it is now, and ``needs`` (some of ``sends``) the fields that should not be empty: the page
+    warns when one is. Whose fields they are depends on where ``paid`` is: a run step or a generate (``chosen``) names the chosen entry
+    in ``entry``; a card action sends its card's; an add button its form's (``form``: the add form's fields)."""
+    if spec is None or isinstance(spec, bool):
+        return None
+    if not isinstance(spec, dict) or any(k not in PAID_KEYS for k in spec):
+        return f"{s.label}: {what} is true, or {{service?, cost?, sends?, needs?}}: the service it pays, and the fields it sends"
+    for key, most in (("service", 40), ("cost", 120)):
+        if spec.get(key) is not None and not (isinstance(spec[key], str) and spec[key].strip() and len(spec[key]) <= most):
+            return f"{s.label}: {what}.{key} is a few words (at most {most} characters)"
+    sends, needs = spec.get("sends"), spec.get("needs")
+    if sends is not None and ((problem := _keys(sends, f"{s.label}: {what}.sends")) or len(sends) > MAX_PAID_FIELDS):
+        return problem or f"{s.label}: {what}.sends is at most {MAX_PAID_FIELDS} field keys"
+    if needs is not None and (not isinstance(needs, list) or not needs or any(k not in (sends or []) for k in needs)):
+        return f"{s.label}: {what}.needs lists the fields of sends that should not be empty"
+    if not chosen:
+        if spec.get("entry") is not None:
+            return f"{s.label}: {what}.entry is for a run: here the fields sent are the card's own, or the form's"
+        if form is not None and (strangers := [k for k in sends or [] if k not in form]):
+            return f"{s.label}: {what}.sends names {', '.join(strangers)}, which the form does not have (add.fields)"
+        return None
+    if (spec.get("entry") is None) != (sends is None):
+        return f"{s.label}: {what}.entry and {what}.sends go together: the chosen entry, and its fields that are sent"
+    return None if sends is None else _Step(spec, s.known, s.entries, f"{s.label}: {what}", lists=s.lists).ctx("entry")
 
 
 def _check_run_list(s: _Step) -> str | None:
@@ -694,6 +729,8 @@ def _check_add_extras(s: _Step, add: Any) -> str | None:
                 return f"{s.label}: a button's file is required or none"
             if b.get("skip_required") is not None and not isinstance(b["skip_required"], bool):
                 return f"{s.label}: a button's skip_required is true or false: whether the form's required fields stop it"
+            if problem := _check_paid(s, b.get("paid"), "a button's paid", chosen=False, form=add.get("fields") or []):
+                return problem
     return None
 
 
@@ -714,6 +751,10 @@ def _check_gallery_extras(s: _Step) -> str | None:
             ):
                 return f"{s.label}: a card action's set maps field keys to text, numbers or true/false"
             if a.get("file") is not None and (problem := _check_upload_spec(s, a["file"], "a card action's file")):
+                return problem
+            if a.get("file") is not None and a.get("paid"):
+                return f"{s.label}: a card action that takes a file is not paid: it sends nothing out"
+            if problem := _check_paid(s, a.get("paid"), "a card action's paid", chosen=False):
                 return problem
             when = a.get("when")
             if when is not None and not (

@@ -83,6 +83,31 @@ A pick with nothing to pick also offers **Change "…"** for each earlier choice
 
 A `run` step whose `requires` is not met says what is missing by the field's own name (*"Voice" on The Young Man is empty, and this step needs it.*) and links to the earlier step that fills it: a `form` that shows the field, an `upload` into it, or a `run` whose `report` is that field. When no step of the setup fills it, the link opens the entry itself. It no longer also says that there is nothing to do.
 
+### Paid actions
+
+Some buttons send something to an outside service that charges for it: a voice made by ElevenLabs, a picture made by an image model. A package marks those with **`paid`**, and the page then says so before anything goes.
+
+`paid` is `true`, or an object:
+
+| Key | What it does |
+|---|---|
+| `service` | The service's name, shown in the notice: *This sends your request to a paid outside service (ElevenLabs).* |
+| `cost` | What it costs, in the package's words, after the notice (*About 2 cents a line.*). |
+| `sends` | Up to six field keys: the text that goes. The page shows it as it is now, under each field's name (*What will be sent*). |
+| `needs` | Those of `sends` that should not be empty (a line's direction). The page warns when one is: *"Direction" is empty: it is sent without it.* |
+| `entry` | On a run or a generate only: the chosen entry whose fields `sends` names. |
+
+It can sit in four places, and whose fields `sends` reads follows from the place:
+
+| Where | What the page does |
+|---|---|
+| a `run` step | The marked notice, the text that will be sent (`entry` and `sends`) and the warning stand right above the run button, which is a form of its own. `requires` still decides whether the button is off; `paid.needs` only warns. |
+| a gallery's `generate` | The same, inside the generate box, above its button. |
+| a `card_actions` item | The step says once, above the cards, which buttons are paid. Pressing one asks first, with the card's own text (`sends`) and what is missing. Not for a card action that takes a `file`. |
+| an `add.buttons` item | The button leaves the form's row of buttons for **a section of its own under the form**, with the notice (*This sends the Words and Direction above to a paid outside service*). `sends` names fields of the add form. Pressing it with a `needs` box empty asks first. Enter in the form never presses a paid button. |
+
+The engine does not look into the workflow to find what it sends: the package declares it.
+
 ### Moving around
 
 Every step in the list at the top is a link, so you can jump ahead. A step that needs an earlier answer (a story list needs its world) opens on that earlier step instead, and says why. **Skip without saving →** at the bottom of a step goes on without it, the same on every kind of step; on an optional choice it also clears what was chosen there, and what later steps chose on the strength of it, as changing the choice would. A choice that is not optional has no skip: the steps after it need it.
