@@ -406,6 +406,8 @@ def _check_choose(s: _Step) -> str | None:
         return f"{s.label}: scope must map field keys to values"
     if s.step.get("picture") is not None and not _is_field(s.step["picture"]):  # a pick with a picture is drawn as tiles, not a plain list
         return f"{s.label}: picture must be a field key"
+    if s.step.get("cards") is not None and not isinstance(s.step["cards"], bool):
+        return f"{s.label}: cards is true or false: whether the choices are tiles even when the type has no picture (a letter stands for it)"
     if problem := _check_subtitle(s):
         return problem
     return s.sets_context() or s.entry_type() or s.refs_one(scope, "scope") or (create is not None and _check_create(s, create)) or None

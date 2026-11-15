@@ -165,6 +165,7 @@ def _bad(mutate) -> str | None:
         (lambda p: p["steps"][7].update(upload={}), "upload needs"),
         (lambda p: p["steps"][7].update(audio="Voice Sample"), "audio must be a field key"),
         (lambda p: p["steps"][1].update(picture="Head Shot"), "picture must be a field key"),
+        (lambda p: p["steps"][0].update(cards="yes"), "cards is true or false"),
         (lambda p: p["steps"][1].update(subtitle=["build", "bad key"]), "subtitle must be a field key"),
         (lambda p: p["steps"][1].update(subtitle=["a", "b", "c", "d"]), "up to three"),
         (lambda p: p["steps"][1].update(subtitle=[]), "subtitle must be a field key"),
@@ -185,6 +186,7 @@ def test_a_wrong_wizard_says_what_is_wrong(mutate, words):
     [
         lambda p: p["steps"][7].update(audio="voice_sample"),
         lambda p: p["steps"][1].update(picture="general_view", subtitle="build"),  # a pick drawn as tiles
+        lambda p: p["steps"][0].update(cards=True),  # tiles for a type with no picture
         lambda p: p["steps"][7]["upload"].update(accept="audio/*"),
         lambda p: p["steps"][7]["upload"].update(accept="image/png, .webp"),
         lambda p: p["steps"][7]["upload"].update(accept=".mp3,.wav,audio/x-m4a"),

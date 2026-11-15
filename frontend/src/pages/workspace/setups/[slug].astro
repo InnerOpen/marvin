@@ -236,7 +236,7 @@ if (authToken && def && step) {
       // pictures in it (a character with its master): never radio buttons for things that have a face.
       const picture = step.picture ?? pictureFieldOf(type);
       pictureRole = fieldRole(type, picture);
-      pictureCards = !!step.picture || (!!picture && choices.some((c) => !!cardPicture(c.assets, pictureRole)));
+      pictureCards = !!step.picture || step.cards === true || (!!picture && choices.some((c) => !!cardPicture(c.assets, pictureRole)));
       createFirst = !!step.create && (!!step.create.upload || choices.length > LONG_LIST);
       formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields, Object.keys(suppliedData(step, ctx)))));
       refs = await refsFor(formFields);
