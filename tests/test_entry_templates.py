@@ -569,6 +569,29 @@ class TestWorkflowSteps:
         asked = {"trigger": {"type": "event"}, "actions": [{"kind": "approval"}, {**step, "confirm_total": 1, "replace": True}]}
         assert not unasked_template_issues(asked)
 
+    def test_the_one_entry_an_events_own_picture_becomes_is_not_asked_about(self):
+        """A picture drop zone: under an event trigger, a create for `${asset.id}` alone makes one entry per event, as an
+        entry step's create does. Anything that can make more, or overwrite, is still said."""
+        from marvin.services.automation.validation import unasked_template_issues
+
+        own = {"kind": "create_entries_from_template", "entry_type": "artwork", "template": "ornament", "mode": "create", "confirm_total": 1}
+        uploaded = {"type": "event", "event": "asset_uploaded"}
+
+        def said(trigger, step, **more):
+            return [i["message"] for i in unasked_template_issues({"trigger": trigger, "actions": [step], **more})]
+
+        assert said(uploaded, {**own, "assets": ["${asset.id}"]}) == []
+        assert said(uploaded, {**own, "assets": "${asset.id}"}) == []
+        assert said(uploaded, {**own, "assets": ["${asset.slug}"]}) == []
+        # More than the event's own picture, a gathered list, a sweep over a target, a schedule, an overwrite: all said.
+        assert "without asking" in said(uploaded, {**own, "assets": ["${asset.id}", "another"]})[0]
+        assert "without asking" in said(uploaded, {**own, "assets": "${steps.pictures.output.rows}"})[0]
+        assert "without asking" in said(uploaded, {**own, "assets": ["${asset.id}"]}, target={"entity": "asset", "query": {}})[0]
+        assert "without asking" in said({"type": "schedule"}, {**own, "assets": ["${asset.id}"]})[0]
+        assert "replaces what entries already have" in said(uploaded, {**own, "assets": ["${asset.id}"], "replace": True})[0]
+        filling = {"kind": "apply_template", "entry_type": "artwork", "template": "ornament", "entries": ["${entry.id}"], "mode": "apply"}
+        assert "without asking" in said({"type": "event", "event": "entry_created"}, {**filling, "confirm_total": 1})[0]
+
 
 # ── A guided setup's run step: what the workflow would make, before it runs ────
 

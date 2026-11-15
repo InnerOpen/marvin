@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-123 recipes: **111** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
+124 recipes: **112** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -60,6 +60,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [contact-sheet-maker](../../src/marvin/services/automation/recipes/contact-sheet-maker.json) — Contact sheet maker | verified-current | `manual` | — | content mutation |
 | [ocr-notebook](../../src/marvin/services/automation/recipes/ocr-notebook.json) — OCR notebook | verified-current | `asset_uploaded` | — | content mutation, paid call |
 | [entry-from-upload](../../src/marvin/services/automation/recipes/entry-from-upload.json) — An entry for every picture uploaded | verified-current | `asset_uploaded` | — | content mutation |
+| [picture-drop-zone](../../src/marvin/services/automation/recipes/picture-drop-zone.json) — Picture drop zone | verified-current | `asset_uploaded` | — | content mutation |
 | [document-preview-factory](../../src/marvin/services/automation/recipes/document-preview-factory.json) — Document preview factory | verified-current | `asset_uploaded` | — | content mutation |
 | [file-format-converter](../../src/marvin/services/automation/recipes/file-format-converter.json) — File format converter (images) | verified-current | `asset_uploaded` | — | content mutation |
 | [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — Attribution companion | verified-current | `asset_attached_to_entry` | — | content mutation |
@@ -374,6 +375,14 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - The type needs an image field (add one in the content model editor: Image / file, with the role the site reads, e.g. featured or hero); the field does the attaching, so there is no role to type here.
   - The reverse of the entry editor's picker: start from the photo, get the entry. The asset page's "New entry from this asset" does the same by hand, one at a time.
   - A picture made by a workflow (a crop, a WebP copy) sends no asset_uploaded, so it never becomes an entry of its own.
+- [picture-drop-zone](../../src/marvin/services/automation/recipes/picture-drop-zone.json) — **Picture drop zone** · verified-current · `asset_uploaded`  
+  A picture uploaded into the asset collection you choose becomes an Inbox entry made with a template. The entry is titled after the picture and gets the template's values, tags and collections, with the picture in its place; a template with a picture preset treats the picture too.
+  - One picture, one run, one entry: nobody approves each one, so the entries are made where nothing is public. Keep the template's status at Inbox and look them over there.
+  - An asset collection fills itself from its rules; a picture cannot be put in one by hand. The rules a picture can meet at the moment it is uploaded are its file type and where it came from (an upload). Tags are given after the upload, so a collection that asks for a tag does not have the picture yet when this runs.
+  - Every upload counts, also a picture uploaded from an entry's own image field. Choose a collection narrow enough that those are not swept in, or use the upload page's Make an entry for each, which asks every time.
+  - Pictures only, and originals only: a version a preset or a workflow made sends no asset_uploaded and is left out even if another workflow sends one.
+  - Do not also choose a template on the upload page for the same pictures: this makes the entry first, titled after the file, and the page then only fills it.
+  - Uploading 200 pictures makes 200 entries, each in its own run.
 - [document-preview-factory](../../src/marvin/services/automation/recipes/document-preview-factory.json) — **Document preview factory** · verified-current · `asset_uploaded`  
   When a PDF is attached to an entry as its download, its first three pages become pictures attached as previews, and page one is also attached as the cover.
   - The cover is page one at 1600 px — its own picture, as an entry links each asset once.

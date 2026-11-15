@@ -331,12 +331,26 @@ def unasked_delete_issues(definition: dict | None) -> list[dict]:
 
 
 TEMPLATE_STEPS = {"create_entries_from_template": "create", "apply_template": "apply"}
+OWN_ASSET = ("${asset.id}", "${asset.slug}")
+
+
+def _only_the_events_picture(definition: dict, step: dict) -> bool:
+    """A create_entries_from_template step whose pictures are the event's own one (`assets: ["${asset.id}"]`, under an
+    event trigger with no target sweep): one entry for the picture the event is about, as an entry step's create makes
+    one for its event. Nothing gathers more, so there is no batch for anyone to look over first."""
+    ttype = (definition.get("trigger") or {}).get("type", "event")
+    if ttype != "event" or isinstance(definition.get("target"), dict) or step.get("kind") != "create_entries_from_template":
+        return False
+    assets = step.get("assets")
+    items = assets if isinstance(assets, list) else [assets]
+    return len(items) == 1 and isinstance(items[0], str) and items[0].strip() in OWN_ASSET
 
 
 def unasked_template_issues(definition: dict | None) -> list[dict]:
     """A create_entries_from_template / apply_template step that writes (mode create / apply) with no approval before it:
     said when `replace` overwrites what entries already have, and when a trigger that fires on its own would make or
-    change entries each time without anyone looking at the preview."""
+    change entries each time without anyone looking at the preview. Not said for the one entry an event's own picture
+    becomes (a picture drop zone: `assets: ["${asset.id}"]` under an event trigger, without `replace`)."""
     definition = definition or {}
     ttype = (definition.get("trigger") or {}).get("type", "event")
     issues, asked = [], False
@@ -351,7 +365,7 @@ def unasked_template_issues(definition: dict | None) -> list[dict]:
         if step.get("replace"):
             message = "This step replaces what entries already have, without asking: add an approval after the preview step."
             issues.append(_issue("warning", message, "action", i))
-        elif ttype != "manual":
+        elif ttype != "manual" and not _only_the_events_picture(definition, step):
             message = f"This step makes or fills entries every time the {_pretty(ttype)} trigger fires, without asking: add an approval first."
             issues.append(_issue("warning", message, "action", i))
     return issues

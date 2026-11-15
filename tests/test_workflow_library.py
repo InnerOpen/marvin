@@ -280,6 +280,7 @@ def ws(db_session, monkeypatch):
     from marvin.db.models.platform.collections import Collections
     from marvin.db.models.users.users import Users
     from marvin.services.ai import factory
+    from marvin.services.entries.templates import check_templates
     from marvin.services.event_bus_service.event_types import WebhookMode
 
     providers = {
@@ -327,9 +328,20 @@ def ws(db_session, monkeypatch):
         et.id = uuid.uuid4()
         et.page_url_pattern = pattern
         et.capabilities_json = caps
+        if slug == "project":  # the template the picture drop zone makes its entries with
+            from_photo = {"slug": "from-photo", "name": "From a photo", "fields": {"stage": "photographed"}, "tags": ["from-a-photo"]}
+            et.templates_json = check_templates([{**from_photo, "assetField": "cover", "assetRole": "cover"}], et.schema_json)
         db_session.add(et)
         types[slug] = et.id
     db_session.add(Collections(session=db_session, group_id=gid, name="Featured", slug="featured"))
+    # The picture drop zone: an asset collection whose rules a PNG or a PDF meets when it is uploaded (a JPEG does not),
+    # and the project type's template.
+    db_session.add(
+        Collections(
+            session=db_session, group_id=gid, name="Studio photos", slug="studio-photos", target_type="asset", is_smart=True,
+            smart_rules={"mime_types": ["image/png", "application/pdf"]},
+        )
+    )  # fmt: skip
     for slug, provider in (
         ("newsletter", "buttondown"),
         ("alerts", "apprise"),
@@ -415,6 +427,8 @@ def ws(db_session, monkeypatch):
         "image_role": "hero",
         "picture_entry_type": "project",
         "image_field": "cover",
+        "drop_collection": "studio-photos",
+        "picture_template": "from-photo",
         "quality": 82,
         "min_width": 1200,
         "min_sharpness": 60,
@@ -1740,6 +1754,41 @@ class TestExecution:
         # the image field did the attaching, in its role (the key, "cover", as the fixture's project type sets none)
         links = [(ea.asset_id, ea.role) for ea in ws.session.query(EntryAssets).filter_by(entry_id=entry.id)]
         assert links == [(painting.id, "cover")]
+
+    def test_picture_drop_zone(self, ws, store):
+        from marvin.db.models.platform import Entries, EntryAssets
+        from marvin.services.collections.smart_collections import sync_item
+
+        _install(ws, "picture-drop-zone")
+
+        def uploaded(name, data=None, mime="image/png", **extra):
+            """A file as an upload leaves it: in the library, its smart collections worked out before the event is sent."""
+            row = self._picture_asset(ws, store, name, data or _picture(), mime=mime, **extra)
+            sync_item(ws.session, ws.gid, row, "asset")
+            ws.session.commit()
+            return row
+
+        owl = uploaded("snowy-owl")
+        banner = uploaded("site-banner", _picture(fmt="JPEG"), mime="image/jpeg")  # a picture the collection's rules leave out
+        crop = uploaded("snowy-owl-crop", source_asset_id=owl.id, origin="derived")  # in it, but a version made from the owl
+        guide = uploaded("wax-guide", pdf(["Warm the wax."]), mime="application/pdf", asset_type="document")  # in it, not a picture
+        context = event_context("asset_uploaded", {"asset_id": str(owl.id)}, entity_id=owl.id, entity_type="asset")
+        assert context["asset_id"] == str(owl.id)
+
+        for asset in (owl, banner, crop, guide):
+            self._upload(ws, asset, correlation_id=f"up-{asset.slug}")
+        self._upload(ws, owl, correlation_id="up-again")  # the picture has its entry: a second upload event makes no other
+
+        ws.session.expire_all()
+        (entry,) = [e for e in ws.session.query(Entries).filter_by(group_id=ws.gid).all() if e.entry_type_id == ws.types["project"]]
+        # One entry, in the Inbox, titled after the picture, with the template's values, tag and the picture in its place.
+        assert (entry.title, entry.status) == (owl.name, "inbox")
+        assert entry.data_json == {"stage": "photographed", "cover": str(owl.id)}
+        assert [t.slug for t in entry.tags] == ["from-a-photo"]
+        assert [(ea.asset_id, ea.role) for ea in ws.session.query(EntryAssets).filter_by(entry_id=entry.id)] == [(owl.id, "cover")]
+        # Only the owl started a run (the JPEG, the version and the PDF did not); its second event ran and made nothing.
+        first, again = _runs(ws, "picture-drop-zone")
+        assert (first.status, again.status) == ("success", "success")
 
     def test_document_preview_factory(self, ws, store):
         from marvin.db.models.platform import EntryAssets
@@ -3541,7 +3590,7 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert offered == set(WORKFLOW_RECIPES)  # the fixture has every connection and AI on
 
     section = authoring_guide(ws.session, ws.gid, "examples")
-    assert sorted(r["recipe"] for r in section["examples"]["recipes"]) == WORKFLOW_RECIPES and guide_size(section) < 17_000
+    assert sorted(r["recipe"] for r in section["examples"]["recipes"]) == WORKFLOW_RECIPES and guide_size(section) < 17_500
     one = authoring_guide(ws.session, ws.gid, "examples", "newsletter-delivery")["examples"]["newsletter-delivery"]
     assert one["definition"] == recipes.load_recipe("newsletter-delivery")["definition"] and "newsletter_integration" in one["setup_variables"]
     assert "{{" in json.dumps(one["definition"]) and "${entry.title}" in json.dumps(one["definition"])

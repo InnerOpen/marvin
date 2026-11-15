@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 111,
+    "verified-current": 112,
     "needs-adapter": 3,
     "needs-engine-capability": 1,
     "supported-after-configuration": 8
@@ -5655,6 +5655,94 @@
           "storage:local"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_entry_from_upload"
+      },
+      "brief": null
+    },
+    {
+      "id": "picture-drop-zone",
+      "title": "Picture drop zone",
+      "outcome": "A picture uploaded into the asset collection you choose becomes an Inbox entry made with a template. The entry is titled after the picture and gets the template's values, tags and collections, with the picture in its place; a template with a picture preset treats the picture too.",
+      "category": "Images and files",
+      "category_slug": "media",
+      "tags": [
+        "files",
+        "images",
+        "create-entry",
+        "templates"
+      ],
+      "target_entity": "asset",
+      "trigger": {
+        "type": "event",
+        "event": "asset_uploaded",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "picture-drop-zone.json",
+      "vars": "picture-drop-zone.vars.json",
+      "setup_variables": [
+        {
+          "name": "drop_collection",
+          "type": "collection_slug",
+          "description": "The asset collection that is the drop zone: a picture that is in it when it is uploaded gets an entry. An asset collection fills itself from its rules (file type, where a picture came from, tags), so choose one whose rules a new upload meets.",
+          "example": "ornament-photos"
+        },
+        {
+          "name": "picture_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type each picture becomes. It needs a template (the type's settings, Templates).",
+          "example": "artwork"
+        },
+        {
+          "name": "picture_template",
+          "type": "text",
+          "description": "The slug of that type's template, as its settings show it. It sets the title (from the picture's name), the field values, tags and collections, where the picture goes, and the picture preset when it names one. Keep its status at Inbox, so every entry waits there to be looked at.",
+          "example": "ornament"
+        }
+      ],
+      "requires": {
+        "trigger": "event:asset_uploaded",
+        "action_kinds": [
+          "create_entries_from_template"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "starts_with",
+          "exists",
+          "contains",
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Makes one entry per uploaded picture that is in the collection, in the template's status (Inbox unless the template says draft or needs review; a template never approves or publishes). With a picture preset, a treated copy of the picture is made and put in the entry; the original is not changed."
+        }
+      ],
+      "cost_notes": "No external calls. No AI, unless the template's picture preset crops to the subject (one vision call per picture).",
+      "failure_behaviour": "When the template cannot make the entry (a required field it does not fill, a collection it names that is gone), the run fails, says which, and the picture stays in the library untouched. A picture that already has an entry of the type makes no second one, and that entry is not changed.",
+      "dependencies": [],
+      "notes": [
+        "One picture, one run, one entry: nobody approves each one, so the entries are made where nothing is public. Keep the template's status at Inbox and look them over there.",
+        "An asset collection fills itself from its rules; a picture cannot be put in one by hand. The rules a picture can meet at the moment it is uploaded are its file type and where it came from (an upload). Tags are given after the upload, so a collection that asks for a tag does not have the picture yet when this runs.",
+        "Every upload counts, also a picture uploaded from an entry's own image field. Choose a collection narrow enough that those are not swept in, or use the upload page's Make an entry for each, which asks every time.",
+        "Pictures only, and originals only: a version a preset or a workflow made sends no asset_uploaded and is left out even if another workflow sends one.",
+        "Do not also choose a template on the upload page for the same pictures: this makes the entry first, titled after the file, and the page then only fills it.",
+        "Uploading 200 pictures makes 200 entries, each in its own run."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_picture_drop_zone"
       },
       "brief": null
     },

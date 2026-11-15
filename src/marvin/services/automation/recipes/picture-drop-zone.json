@@ -1,0 +1,56 @@
+{
+  "name": "Picture drop zone",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_uploaded"
+    },
+    "conditions": [
+      {
+        "field": "asset.mime_type",
+        "op": "starts_with",
+        "value": "image/"
+      },
+      {
+        "field": "asset.derived_from",
+        "op": "exists",
+        "value": false
+      },
+      {
+        "field": "asset.collections",
+        "op": "contains",
+        "value": "{{drop_collection}}"
+      }
+    ],
+    "actions": [
+      {
+        "id": "preview",
+        "kind": "create_entries_from_template",
+        "entry_type": "{{picture_entry_type}}",
+        "template": "{{picture_template}}",
+        "assets": [
+          "${asset.id}"
+        ],
+        "mode": "preview"
+      },
+      {
+        "id": "make",
+        "kind": "create_entries_from_template",
+        "entry_type": "{{picture_entry_type}}",
+        "template": "{{picture_template}}",
+        "assets": [
+          "${asset.id}"
+        ],
+        "mode": "create",
+        "confirm_total": "${steps.preview.output.todo}",
+        "when": [
+          {
+            "field": "steps.preview.output.create",
+            "op": "eq",
+            "value": 1
+          }
+        ]
+      }
+    ]
+  }
+}
