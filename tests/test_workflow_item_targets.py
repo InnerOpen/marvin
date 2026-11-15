@@ -166,6 +166,40 @@ def test_each_asset_row_is_bound_as_asset_and_as_the_events_subject(ws, items):
     assert "entry" not in ctx and "resource" not in ctx
 
 
+def test_an_item_names_the_collections_it_is_in_so_a_condition_can_ask_for_one(ws, items):
+    """`asset.collections` / `resource.collections`: the slugs of the collections the item is in, so a trigger condition
+    can ask for one (`asset.collections contains <slug>`)."""
+    from marvin.db.models.platform.collections import Collections
+    from marvin.services.automation.engine import _item_context
+    from marvin.services.automation.matcher import matches
+    from marvin.services.collections.smart_collections import sync_collection
+
+    marker = uuid.uuid4().hex[:6]
+    made = []
+    for name, rules in ((f"vectors-{marker}", {"asset_types": ["svg"]}), (f"all-files-{marker}", {"asset_types": ["svg", "image"]})):
+        row = Collections(session=ws.session, group_id=ws.gid, name=name, slug=name, target_type="asset", is_smart=True, smart_rules=rules)
+        ws.session.add(row)
+        ws.session.flush()
+        sync_collection(ws.session, ws.gid, row)
+        made.append(row)
+    ws.session.commit()
+    try:
+        logo = _item_context(ws.session, ws.gid, "asset", items.logo.id)
+        loose = _item_context(ws.session, ws.gid, "asset", items.loose.id)
+        assert logo["collections"] == [f"all-files-{marker}", f"vectors-{marker}"]
+        assert loose["collections"] == [f"all-files-{marker}"]
+        in_vectors = [{"field": "asset.collections", "op": "contains", "value": f"vectors-{marker}"}]
+        assert matches(in_vectors, {"asset": logo}) is True
+        assert matches(in_vectors, {"asset": loose}) is False
+        # A resource names its collections the same way (the fixture's mill is in Gallery).
+        assert _item_context(ws.session, ws.gid, "resource", items.mill.id)["collections"] == ["gallery"]
+        assert _item_context(ws.session, ws.gid, "resource", items.hammer.id)["collections"] == []
+    finally:
+        for row in made:
+            ws.session.delete(row)
+        ws.session.commit()
+
+
 def test_resource_rows_are_filtered_by_conditions_on_resource_fields(ws, items):
     definition = {
         "trigger": MANUAL,

@@ -259,10 +259,21 @@ def target_row_context(session, group_id, kind: str, row) -> dict:
     return _item_context(session, group_id, kind, row.id) or item_ref(kind, row)
 
 
+def _item_collections(session, kind: str, item_id) -> list[str]:
+    """The slugs of the collections an asset or resource is in now."""
+    from marvin.db.models.platform.collections import Collections
+    from marvin.services.collections.smart_collections import _membership
+
+    _model, junction, fk = _membership(kind)
+    rows = session.query(Collections.slug).join(junction, junction.collection_id == Collections.id).filter(getattr(junction, fk) == item_id)
+    return sorted(slug for (slug,) in rows)
+
+
 def _item_context(session, group_id, kind: str, item_id) -> dict | None:
     """The asset or resource facts conditions and actions reference (`asset.*` / `resource.*`): name, slug,
-    its type, `tags`, `metadata`, `url` (an asset's public URL, a resource's link) and whether it is in the
-    Trash — plus an asset's file facts (filename, mime_type, file_size, width, height, alt_text, checksum)."""
+    its type, `tags`, `collections` (the slugs of the collections it is in), `metadata`, `url` (an asset's public URL,
+    a resource's link) and whether it is in the Trash — plus an asset's file facts (filename, mime_type, file_size,
+    width, height, alt_text, checksum)."""
     from marvin.services import trash
 
     row = session.get(trash.model(kind), item_id)
@@ -275,6 +286,7 @@ def _item_context(session, group_id, kind: str, item_id) -> dict | None:
         f"{kind}_type": getattr(row, f"{kind}_type", None),
         "description": row.description,
         "tags": [t.slug for t in (getattr(row, "tags", None) or [])],
+        "collections": _item_collections(session, kind, row.id),
         "metadata": meta if isinstance(meta := row.metadata_json, dict) else {},
         "trashed": trash.is_trashed(row),
     }
@@ -448,10 +460,11 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
     "data.<field>, metadata.<key>, image (featured image URL), url (its page on the site), and the dates every entry has: "
     "published_at, publish_at (scheduled), expire_at, created_at, updated_at",
     "asset": "the asset the run acts on (an asset event's, or each asset-target match): id, name, slug, asset_type, mime_type, "
-    "filename, file_size, width, height, alt_text, checksum (sha256), description, tags, metadata.<key>, url (its public URL), trashed, "
+    "filename, file_size, width, height, alt_text, checksum (sha256), description, tags, collections (the slugs of the collections it is "
+    "in), metadata.<key>, url (its public URL), trashed, "
     "derived_from (the id of the asset it was made from; None for an original), origin (upload | derived | generated)",
     "resource": "the resource the run acts on (a resource event's, or each resource-target match): id, name, slug, resource_type, "
-    "description, url, external_id, tags, metadata.<key>, trashed",
+    "description, url, external_id, tags, collections (slugs), metadata.<key>, trashed",
     "form_submission": "a form submission event's (or a submittable entry's) submission: id, form (its name), form_slug, "
     "data.<field>, status, submitted_at, flagged (held for review by submission protection), review_reasons",
     "previous": "the previous step's output",

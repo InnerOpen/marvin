@@ -1,0 +1,20 @@
+{
+  "recipe": "picture-drop-zone",
+  "variables": {
+    "drop_collection": {
+      "type": "collection_slug",
+      "description": "The asset collection that is the drop zone: a picture that is in it when it is uploaded gets an entry. An asset collection fills itself from its rules (file type, where a picture came from, tags), so choose one whose rules a new upload meets.",
+      "example": "ornament-photos"
+    },
+    "picture_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type each picture becomes. It needs a template (the type's settings, Templates).",
+      "example": "artwork"
+    },
+    "picture_template": {
+      "type": "text",
+      "description": "The slug of that type's template, as its settings show it. It sets the title (from the picture's name), the field values, tags and collections, where the picture goes, and the picture preset when it names one. Keep its status at Inbox, so every entry waits there to be looked at.",
+      "example": "ornament"
+    }
+  }
+}

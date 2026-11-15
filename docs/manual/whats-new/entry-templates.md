@@ -46,7 +46,7 @@ An entry type can keep **templates**: named presets for the entries you make fro
 - `mode: preview`, the default, answers the rows and changes nothing. `mode: create` or `mode: apply` does the work, and needs `confirm_total`, the preview step's `todo` (`${steps.<id>.output.todo}`). When there is no longer that much to do, the step fails and changes nothing.
 - `assets` and `entries` take a list or a template, such as a collect step's ids.
 - Making entries needs an AUTHOR author; filling needs an EDITOR.
-- The editor's check warns when a step that writes has no approval before it under a trigger that fires on its own, and when `replace` overwrites values without asking.
+- The editor's check warns when a step that writes has no approval before it under a trigger that fires on its own, and when `replace` overwrites values without asking. One case is not warned about: under an event trigger, a create for the event's own picture alone (`assets: ["${asset.id}"]`, no `replace`, no target), which makes one entry per event, as an entry step's create does. That is the picture drop zone below.
 
 **The assistants.**
 
@@ -92,6 +92,20 @@ All the steps run on the picture in one pass and it is saved once, at the end, s
 3. shows the entries the template would make, with their titles and the treated pictures, and makes them as Inbox drafts when you say so.
 
 A guided setup's gallery can do the same for its upload button: `upload.template` names one of the type's templates, and the uploaded picture's entry is made with it, preset and all.
+
+**A collection as a drop zone.** The Workflow Library recipe **Picture drop zone** (`picture-drop-zone`; **Automation > Library**, or "Start from a recipe" in the workflow editor) makes an entry for every picture that lands in an asset collection, with no button to press. Its setup asks for the collection, the entry type and the template's slug, and it is saved switched off until you turn it on. Then, for each upload:
+
+1. It runs when a picture is uploaded (`asset_uploaded`) and is in the collection at that moment (`asset.collections` contains the collection's slug). Files that are not pictures and versions made from another picture are left out.
+2. It previews the template for that one picture, and makes the entry when the picture has none of that type yet: titled after the picture, with the template's values, tags and collections, the picture in the template's asset field and attached in its role. A template with a picture preset treats the picture too, in the background, and the treated one takes its place in the entry.
+3. A picture that already has an entry of the type makes no second one, and that entry is not changed.
+
+What to know before turning it on:
+
+- **Nobody approves each entry**, so they are made where nothing is public: in the template's status, which is Inbox unless the template says draft or needs review. A template can never approve or publish. Keep it at Inbox and look the entries over there. One picture is one run and one entry: 200 uploads make 200 Inbox entries.
+- **An asset collection fills itself from its rules.** A picture cannot be put in one by hand, and the upload page has no "add to this collection". The rules a picture can meet at the moment it is uploaded are its file type (`asset_types`, `mime_types`) and where it came from (`origins: upload`). Tags are given after the upload, so a collection that asks for a tag does not have the picture yet when the workflow runs.
+- **Every upload counts**, also a picture uploaded from an entry's own image field. With a collection as wide as "every uploaded picture", those get an entry too. When that is not what you want, use the upload page's **Make an entry for each** instead, which asks each time.
+- **Use one or the other for a batch.** With the drop zone on, choosing a template on the upload page as well makes the entry twice over: the workflow makes it first, titled after the file, and the page then only fills it.
+- When the template cannot make the entry (a required field it does not fill), the run fails and says which; the picture stays in the library.
 
 **Pictures and entries you already have.** Entries are picked on the Entries page (**Select**, then **Apply a template…**, above): a template that has a preset treats their pictures too. The Assets page has no way to select several pictures yet, so for those, or to run it as a setup, use a guided setup: a `choose` step with `multiple: true` (multi-select cards; see [Guided setups](guided-setups.md)) for the picks, then a run step that passes them on (`inputs: {pictures: "${pictures}"}`, comma-separated ids) to a workflow whose `apply_picture_preset` step takes `entries: ${input.pictures}` or `assets: ${input.pictures}` (preview, then apply), or whose `apply_template` step does. Applying a template that has a preset to existing entries treats their pictures and puts the treated ones in place in the same way. `POST /api/platform/assets/apply-preset` with `entries` does it too.
 
