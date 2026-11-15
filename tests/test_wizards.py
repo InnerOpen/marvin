@@ -199,6 +199,36 @@ def test_a_gallery_may_play_a_sound_and_take_an_upload_of_any_kind(mutate):
     assert _bad(mutate) is None
 
 
+def test_a_setup_may_open_on_a_question_every_later_step_waits_on():
+    """One front door, two ways through ("One work or several?"): each later step shows for one answer only, each branch ends in its own
+    review, and going again starts back at the question."""
+    one, several = ({"ctx": "how", "op": "eq", "value": v} for v in ("one", "several"))
+    options = [{"value": "one", "label": "One work"}, {"value": "several", "label": "Several at once"}]
+    check = {"label": "Has a medium", "query": {"entry_type": "artwork", "where": [{"field": "medium", "op": "exists"}]}, "op": "gte", "value": 1}
+    payload = {
+        "title": "Add artwork",
+        "steps": [
+            {"id": "how", "kind": "option", "title": "One work or several?", "as": "how", "options": options},
+            {"id": "work", "kind": "choose", "title": "The work", "as": "work", "entry_type": "artwork", "when": one},
+            {"id": "about", "kind": "form", "title": "About it", "entry": "work", "fields": ["medium"], "when": one},
+            {"id": "ready", "kind": "review", "title": "Check", "checks": [{**check, "step": "about"}], "when": one},
+            {
+                "id": "pictures",
+                "kind": "choose",
+                "title": "Pictures",
+                "as": "pictures",
+                "multiple": True,
+                "assets": {"unused": True},
+                "when": several,
+            },
+            {"id": "next", "kind": "review", "title": "What next", "checks": [check], "when": several},
+        ],
+        "open": {"entry": "work", "label": "Open the work"},
+        "again": {"label": "Add more", "step": "how"},
+    }
+    assert payload_problem(payload, "add-artwork") is None
+
+
 def test_a_wizard_is_a_blueprint_kind_that_takes_no_parameters():
     Blueprint.model_validate(_wizard_blueprint())
     with pytest.raises(ValueError, match="never required"):
@@ -259,6 +289,24 @@ def test_installing_again_replaces_the_wizard_and_says_so(db_session, workspace)
     item = next(i for i in result.items if i.kind == "wizard")
     assert "replaces" in item.detail
     assert service.get_wizard(db_session, workspace.id, "narrate").steps == 2
+
+
+def test_an_update_without_a_setup_the_package_brought_takes_it_away(db_session, workspace):  # noqa: F811
+    """A setup is data in the package's stored file, so a newer file that folds two setups into one leaves only the one it lists."""
+    both = _with_wizard()
+    both["blueprints"].append(_wizard_blueprint("narrate-from-notes"))
+    service.install(db_session, workspace.id, service.parse_manifest(both), actor_id=workspace.user_id)
+    db_session.commit()
+    assert service.get_wizard(db_session, workspace.id, "narrate-from-notes") is not None
+
+    service.update(db_session, workspace.id, service.parse_manifest(_with_wizard()), preview_only=True, actor_id=workspace.user_id)
+    assert service.get_wizard(db_session, workspace.id, "narrate-from-notes") is not None, "a preview takes nothing away"
+
+    service.update(db_session, workspace.id, service.parse_manifest(_with_wizard()), actor_id=workspace.user_id)
+    db_session.commit()
+
+    assert service.get_wizard(db_session, workspace.id, "narrate-from-notes") is None
+    assert service.get_wizard(db_session, workspace.id, "narrate") is not None
 
 
 def test_another_package_cannot_take_a_wizard_slug(db_session, workspace):  # noqa: F811

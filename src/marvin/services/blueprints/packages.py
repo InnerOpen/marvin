@@ -257,8 +257,9 @@ def update(
       did not install is left alone and said so;
     * a guided setup and a view are replaced, as on install; everything else is as install leaves it.
 
-    Nothing is ever removed. A preview applies everything inside the transaction and rolls it back, except a Playbook (whose writers commit): that
-    one is only compared."""
+    Nothing with a row of its own is ever removed (a workflow, an entry type, a field, a Playbook). A guided setup or a view is only data in the
+    stored file, so one this file no longer lists is gone once the file is kept: how a package folds two setups into one. A preview applies
+    everything inside the transaction and rolls it back, except a Playbook (whose writers commit): that one is only compared."""
     from marvin.schemas.platform.blueprints import BlueprintApplyResult as Result
 
     from .apply import _existing, update_blueprint, update_entry_type
