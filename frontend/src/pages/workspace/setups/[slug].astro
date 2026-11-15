@@ -928,7 +928,6 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 <ul>{made.map((e) => <li><span class="muted">{e.key}:</span> <a href={`/workspace/entries/${e.id}`}>{e.title}</a></li>)}</ul>
               </div>
             )}
-            {againHref && <p class="open"><a class="button secondary" href={againHref}>↻ {def.again!.label}</a></p>}
             {def.next?.length ? (
               <div class="made">
                 <p class="label">What to do next</p>
@@ -938,6 +937,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
             </>
           )}
 
+          {againHref && !nextStep(def!, ctx, step.id) && <p class="open"><a class="button secondary" href={againHref}>↻ {def!.again!.label}</a></p>}
           <div class="nav">
             {before ? <a class="button secondary" href={stepHref(slug, ctx, before.id)}>← Previous step</a> : <span />}
             {skipHref && <a class="muted" href={skipHref}>Skip without saving →</a>}
