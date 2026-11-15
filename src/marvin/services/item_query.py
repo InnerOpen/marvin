@@ -21,7 +21,7 @@ check ``unknown_keys`` first):
 - ``unused`` — assets only: true: on no entry yet, attached to none (as ``unattached``) and named by no entry's asset field
   either (an entry saved before its asset fields attached what they name may hold an id it never attached); false: the
   rest. A guided setup's "pictures that have no entry yet".
-- ``ids`` — exactly these items (ids or slugs; a list or comma-separated text), e.g. ``${inputs.pictures}`` from a guided
+- ``ids`` — exactly these items (ids or slugs; a list or comma-separated text), e.g. ``${input.pictures}`` from a guided
   setup's multi-select step. Present but empty matches nothing.
 - ``entry`` — attached to this entry (id or slug), in the entry's own order; ``role`` — assets only: attached in this
   role (``hero``), to that entry or, without ``entry``, to any.
@@ -88,7 +88,7 @@ KEY_NOTES: dict[str, dict[str, str]] = {
         "false: attached to at least one",
         "entry": "attached to this entry (id or slug), in its order",
         "exclude": "leave this one out (id or slug), e.g. ${asset.id}",
-        "ids": "exactly these (ids or slugs, a list or comma-separated text), e.g. ${inputs.pictures}",
+        "ids": "exactly these (ids or slugs, a list or comma-separated text), e.g. ${input.pictures}",
         "created_after": "ISO date/datetime (UTC) or relative: -7d, -12h, -2w, now, today; also created_before",
         "created_before": "a date, as created_after",
         "trashed": "true: only items in the Trash (left out otherwise) — a `restore` target",

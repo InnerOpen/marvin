@@ -80,8 +80,48 @@ export interface SelectionCondition {
   value?: unknown;
 }
 
+/** A picture as a template's preview names it. */
+export interface TemplatePreviewPicture {
+  id: string;
+  name: string;
+  filename: string;
+  url?: string | null;
+}
+
+/** One entry a template would make (`create`) or fill (`fill`), or leaves alone (`skip`, with the reason in `note`). */
+export interface TemplatePreviewRow {
+  action: "create" | "fill" | "skip";
+  entryId?: string | null;
+  title: string;
+  asset?: TemplatePreviewPicture | null;
+  /** What would be set: title, summary, description, status, and the type's fields by key under `fields`. */
+  changes?: { fields?: Record<string, unknown>; [key: string]: unknown } | null;
+  tags?: string[];
+  collections?: string[];
+  note?: string | null;
+  /** What stops it: nothing is made while any row has one. */
+  error?: string | null;
+  /** With a picture preset: the treated picture the entry gets, when it was made before. */
+  treated?: TemplatePreviewPicture | null;
+}
+
+/** What a template's preview step answers (POST /entries/from-template says the same): the rows, and how many of each. */
+export interface TemplatePreview {
+  entryType: string;
+  template: string;
+  total: number;
+  create: number;
+  fill: number;
+  skip: number;
+  /** create + fill: what the step that writes confirms. */
+  todo: number;
+  errors: number;
+  rows: TemplatePreviewRow[];
+}
+
 /** The entries a workflow's first step (a `collect`) would gather if it ran now, in its order. `found` false: it does not start by
- *  gathering entries. `leftOut` counts, for each reason asked, the entries of the same query that match it instead. */
+ *  gathering entries. `leftOut` counts, for each reason asked, the entries of the same query that match it instead. A workflow that
+ *  starts by previewing a template answers that `preview` instead (no `ids`): `count` is its `todo`. */
 export interface WorkflowSelection {
   found: boolean;
   step?: string | null;
@@ -90,6 +130,7 @@ export interface WorkflowSelection {
   total: number;
   limit?: number | null;
   leftOut: number[];
+  preview?: TemplatePreview | null;
 }
 
 export async function getSelection(slug: string, inputs: Record<string, unknown>, leftOut: SelectionCondition[][], authToken?: string): Promise<WorkflowSelection> {

@@ -5,7 +5,7 @@ import { type Ctx, type Step, StepError, type WizardDefinition, assetSpec, entry
 import { changedKeys, editableKeys, listParams, readListState, scopedSpecs, isScopedList, unionRows, SCOPED_PER } from "./wizardScopedList";
 import { fieldTypeMap } from "./schemaFields";
 import { PAGE_SIZES } from "./pagination";
-import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, fromTemplate, entryOfType, findAssets, findEntries, picksOf, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
+import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, fromTemplate, entryOfType, findAssets, findEntries, optionsOf, picksOf, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
   ctx: Ctx;
@@ -344,7 +344,7 @@ export async function runStep(def: WizardDefinition, step: Step, form: FormData,
       return { ctx: rest, stay: false };
     }
     const value = text(form, "value");
-    if (!step.options.some((o: { value: string }) => o.value === value)) throw new Error("Pick one of the choices.");
+    if (!(await optionsOf(step, authToken)).some((o) => o.value === value)) throw new Error("Pick one of the choices.");
     return { ctx: { ...ctx, [step.as]: value }, stay: false };
   }
   if (step.kind === "choose") return choose(def, step, form, ctx, authToken);

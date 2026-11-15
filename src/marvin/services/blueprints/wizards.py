@@ -9,6 +9,9 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
 
 - ``option``: pick one of a few labelled values (``options: [{value, label}]``); sets the context key ``as``. Only there to branch on.
   ``optional`` lets the person skip it: nothing is set, the steps after it are not held back, and the ones that ``when`` an answer stay hidden.
+  With ``templates`` (an entry type's slug) in place of ``options`` the choices are that type's templates, as the workspace has them
+  now (services/entries/templates.py), drawn as cards with each one's name and what it is for; ``as`` is set to the template's slug, for
+  a run step to hand its workflow (``inputs: {template: "${template}"}``).
 - ``choose``: pick an entry of ``entry_type`` (or create one), sets the context key ``as`` to its slug. ``scope`` ({field: "${key}"})
   narrows the list to entries whose field holds an earlier choice; ``create`` ({fields: [...], data: {field: "${key}" | literal}}) lets
   the person make a new one, arriving with ``data`` filled in; ``optional`` lets them skip it. ``create.upload`` ({field, accept?}) makes
@@ -321,14 +324,21 @@ class _Step:
 
 
 def _check_option(s: _Step) -> str | None:
-    options = s.step.get("options")
-    valid = isinstance(options, list) and all(
-        isinstance(o, dict) and isinstance(o.get("value"), str) and o["value"] and isinstance(o.get("label"), str) for o in options
-    )
-    if not valid or len(options) < 2:
-        return f"{s.label} needs at least two options, each with a value and a label"
-    if len({o["value"] for o in options}) != len(options):
-        return f"{s.label} has two options with the same value"
+    of, options = s.step.get("templates"), s.step.get("options")
+    if of is not None:
+        # The choices are an entry type's templates, read when the step is drawn: the package lists none.
+        if options is not None:
+            return f"{s.label}: give options or templates, not both (templates: the choices are an entry type's templates)"
+        if not (isinstance(of, str) and _SLUG.match(of)):
+            return f"{s.label}: templates is the slug of the entry type whose templates are the choices, e.g. artwork"
+    else:
+        valid = isinstance(options, list) and all(
+            isinstance(o, dict) and isinstance(o.get("value"), str) and o["value"] and isinstance(o.get("label"), str) for o in options
+        )
+        if not valid or len(options) < 2:
+            return f"{s.label} needs at least two options, each with a value and a label"
+        if len({o["value"] for o in options}) != len(options):
+            return f"{s.label} has two options with the same value"
     if s.step.get("optional") is not None and not isinstance(s.step["optional"], bool):
         return f"{s.label}: optional is true or false (true lets the person skip the question, and what depends on an answer stays hidden)"
     return s.sets_context()
