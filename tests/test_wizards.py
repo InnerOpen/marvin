@@ -712,6 +712,38 @@ def test_a_choose_step_may_sort_naturally():
     assert "sort is natural" in (payload_problem(payload, "narrate") or "")
 
 
+@pytest.mark.parametrize(
+    "sort",
+    [{"by": "created_at"}, {"by": "number"}, {"by": "order", "direction": "desc"}, {"by": "title", "direction": "asc"}],
+)
+def test_a_pick_a_list_and_a_gallery_may_name_their_own_order(sort):
+    assert payload_problem(_beats_wizard(sort=sort), "beats") is None  # a pick: beats by number
+    listed = _beats_wizard()
+    listed["steps"][2]["sort"] = sort  # a list with a parent: lines by their order
+    assert payload_problem(listed, "beats") is None
+    assert payload_problem(_takes_wizard(sort=sort), "takes") is None  # a gallery
+
+
+@pytest.mark.parametrize(
+    "sort",
+    [
+        "newest",
+        {"by": "Not A Key"},
+        {"by": ""},
+        {"by": "number", "direction": "up"},
+        {"by": "number", "then": "order"},
+        {"direction": "asc"},
+        ["number"],
+    ],
+)
+def test_a_wrong_own_order_says_what_it_may_be(sort):
+    for payload, slug in ((_beats_wizard(sort=sort), "beats"), (_takes_wizard(sort=sort), "takes")):
+        assert "sort is natural" in (payload_problem(payload, slug) or ""), (sort, slug)
+    listed = _beats_wizard()
+    listed["steps"][2]["sort"] = sort
+    assert "sort is natural" in (payload_problem(listed, "beats") or "")
+
+
 def test_a_gallery_card_may_carry_actions_that_set_fields_and_sorts_naturally():
     good = [{"label": "Use this one", "set": {"status": "in_use"}, "when": {"field": "status", "op": "neq", "value": "in_use"}}]
     assert payload_problem(_takes_wizard(card_actions=good, sort="natural"), "takes") is None

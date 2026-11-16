@@ -491,8 +491,8 @@ def _check_choose(s: _Step) -> str | None:
         return problem
     if s.step.get("assets") is not None:  # a multi-select over assets: _check_multiple checked it all
         return None
-    if s.step.get("sort") not in (None, "natural"):
-        return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
+    if problem := _check_sort(s):
+        return problem
     scope, create = s.step.get("scope"), s.step.get("create")
     if scope is not None and (not isinstance(scope, dict) or not all(_is_field(k) for k in scope)):
         return f"{s.label}: scope must map field keys to values"
@@ -582,6 +582,26 @@ def _check_scoped_list(s: _Step) -> str | None:
     return _check_subtitle(s)
 
 
+ENTRY_SORTS = ("title", "created_at", "updated_at")  # the entries query's own columns a step may order by, besides a field
+
+
+def _check_sort(s: _Step) -> str | None:
+    """``sort`` on a pick, a list with a parent or a gallery: ``natural`` (by title, 2 before 10, the default) or ``{by, direction?}``,
+    asked of the entries query: ``created_at`` (the order they were made: a script's scenes as they first appear) or a field key,
+    numbers as numbers (a beat's number, a line's order); ``direction`` asc (the default) or desc."""
+    sort = s.step.get("sort")
+    if sort in (None, "natural"):
+        return None
+    if isinstance(sort, dict) and not (set(sort) - {"by", "direction"}) and sort.get("direction", "asc") in ("asc", "desc"):
+        by = sort.get("by")
+        if isinstance(by, str) and (by in ENTRY_SORTS or _is_field(by)):
+            return None
+    return (
+        f"{s.label}: sort is natural (by title, 2 before 10), or {{by, direction?}}: by {', '.join(ENTRY_SORTS)} or a field key "
+        "(numbers as numbers), direction asc or desc"
+    )
+
+
 def _check_list(s: _Step) -> str | None:
     if problem := _check_only(s):
         return problem
@@ -592,6 +612,8 @@ def _check_list(s: _Step) -> str | None:
         return f"{s.label} needs parent_field, the field that holds the parent's slug"
     if extra := [k for k in SCOPED_LIST_KEYS if s.step.get(k) is not None]:
         return f"{s.label}: {', '.join(extra)} is for a list without a parent; a parent's list is all on one page with its Add row"
+    if problem := _check_sort(s):
+        return problem
     return (
         s.entry_type()
         or s.ctx("parent")
@@ -800,8 +822,8 @@ def _check_highlight(s: _Step, hi: Any) -> str | None:
 def _check_gallery_extras(s: _Step) -> str | None:
     """A gallery's presentation and card options: sort, card_actions, trash, layout, name, highlight, added, working."""
     step = s.step
-    if step.get("sort") not in (None, "natural"):
-        return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
+    if problem := _check_sort(s):
+        return problem
     if (acts := step.get("card_actions")) is not None:
         if not isinstance(acts, list) or not 1 <= len(acts) <= 4:
             return f"{s.label}: card_actions is a list of 1 to 4 buttons shown on each card"

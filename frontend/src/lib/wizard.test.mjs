@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { referenceFilter, approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom, addFormFields, workingOf, workingChanged, WORKING_LINE } from "./wizard.ts";
+import { referenceFilter, ownSort, approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom, addFormFields, workingOf, workingChanged, WORKING_LINE } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -541,6 +541,16 @@ test("a gallery's where keeps only the cards that meet it, on top of its parent;
   });
   assert.deepEqual(listSpec({ ...beds, where: [] }, { story: "tin" }), { entry_type: "sound", fields: { story: "tin" } });
   assert.deepEqual(listSpec({ ...beds, kind: "list" }, { story: "tin" }), { entry_type: "sound", fields: { story: "tin" } });
+});
+
+test("a step's own order is asked of the entries query; natural or none leaves the order to the page", () => {
+  const scenes = { kind: "list", entry_type: "scene", parent_field: "story", parent: "story", sort: { by: "created_at" } };
+  assert.deepEqual(listSpec(scenes, { story: "tin" }), { entry_type: "scene", fields: { story: "tin" }, sort: { by: "created_at", direction: "asc" } });
+  const beats = { kind: "choose", entry_type: "beat", scope: { story: "${story}" }, sort: { by: "number", direction: "desc" } };
+  assert.deepEqual(chooseSpec(beats, { story: "tin" }), { entry_type: "beat", fields: { story: "tin" }, sort: { by: "number", direction: "desc" } });
+  assert.deepEqual(ownSort({ ...beats, sort: "natural" }), {});
+  assert.deepEqual(ownSort({ ...beats, sort: undefined }), {});
+  assert.deepEqual(ownSort({ ...beats, sort: { by: "" } }), {});
 });
 
 test("a gallery card is being made while its status is one the step names, and says the step's words", () => {

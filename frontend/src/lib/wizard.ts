@@ -450,7 +450,15 @@ export function referenceFilter(step: Step, ctx: Ctx): Record<string, unknown> {
 
 /** The entries query behind a `choose` step: entries of its type, narrowed by the earlier choices in `scope` (and `only_with`). */
 export function chooseSpec(step: Step, ctx: Ctx): Record<string, unknown> {
-  return { entry_type: step.entry_type, fields: withoutEmpty(substitute(step.scope, ctx)), ...referenceFilter(step, ctx) };
+  return { entry_type: step.entry_type, fields: withoutEmpty(substitute(step.scope, ctx)), ...referenceFilter(step, ctx), ...ownSort(step) };
+}
+
+/** A step's own order (`sort: {by, direction?}`: `created_at`, the order they were made, or a field, numbers as numbers: a beat's
+ *  number, a line's order), asked of the entries query so a long list is cut after it is ordered. `"natural"` or none: by title. */
+export function ownSort(step: Step): { sort?: { by: string; direction: "asc" | "desc" } } {
+  const sort = step.sort as { by?: unknown; direction?: unknown } | string | undefined;
+  if (!sort || typeof sort !== "object" || typeof sort.by !== "string" || !sort.by) return {};
+  return { sort: { by: sort.by, direction: sort.direction === "desc" ? "desc" : "asc" } };
 }
 
 /** What a created entry arrives holding: the step's `create.data` with the choices filled in. */
@@ -473,8 +481,8 @@ export function suppliedData(step: Step, ctx: Ctx): Record<string, unknown> {
 export function listSpec(step: Step, ctx: Ctx): Record<string, unknown> {
   // A gallery's `where` keeps only the cards that meet it (a story's sounds of kind ambience); a list's is its scoped kind's own.
   const where = step.kind === "gallery" && Array.isArray(step.where) && step.where.length ? { where: substitute(step.where, ctx) } : {};
-  if (!step.parent_field) return { entry_type: step.entry_type, ...where, ...referenceFilter(step, ctx) };
-  return { entry_type: step.entry_type, fields: { [step.parent_field]: ctx[step.parent] }, ...where, ...referenceFilter(step, ctx) };
+  if (!step.parent_field) return { entry_type: step.entry_type, ...where, ...referenceFilter(step, ctx), ...ownSort(step) };
+  return { entry_type: step.entry_type, fields: { [step.parent_field]: ctx[step.parent] }, ...where, ...referenceFilter(step, ctx), ...ownSort(step) };
 }
 
 export interface AttachedAsset {
