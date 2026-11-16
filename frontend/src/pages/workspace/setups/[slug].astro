@@ -32,6 +32,7 @@ import { type Paid, type Sent, paidCardsLine, paidConfirm, paidFields, paidLine,
 import { getRunState, latestRunAbout, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { busyLabel, runKey, runLine, shownRun } from "@/lib/runState";
 import ApprovalBoxes from "@/components/ApprovalBoxes.astro";
+import ApprovalCost from "@/components/ApprovalCost.astro";
 import { fieldsFromForm } from "@/lib/approvalFields";
 import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, optionsOf, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
 import { isScopedList } from "@/lib/wizardScopedList";
@@ -763,6 +764,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       <div class="approval-message">{c.message}</div>
                       {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                       {c.imageUrl && <audio class="approval-audio" controls src={c.imageUrl}></audio>}
+                      <ApprovalCost estimate={c.estimate} />
                       <ApprovalBoxes fields={c.fields} />
                       <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                       <div class="actions">
@@ -931,6 +933,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             <div class="approval-message">{c.message}</div>
                             {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                             {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
+                            <ApprovalCost estimate={c.estimate} />
                             <ApprovalBoxes fields={c.fields} />
                             <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                             <div class="actions">
@@ -1012,6 +1015,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   <div class="approval-message">{c.message}</div>
                   {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                   {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
+                  <ApprovalCost estimate={c.estimate} />
                   <ApprovalBoxes fields={c.fields} />
                   <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                   <div class="actions">

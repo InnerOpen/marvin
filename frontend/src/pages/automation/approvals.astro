@@ -4,6 +4,7 @@ import MessageText from "@/components/MessageText.astro";
 // optional note) and the run goes on from the next step with ${steps.<id>.output.decision}. Editors and above; a step
 // may ask for admins. Backend: routes/automations/automations_controller.py, services/automation/approvals.py.
 import ApprovalBoxes from "@/components/ApprovalBoxes.astro";
+import ApprovalCost from "@/components/ApprovalCost.astro";
 import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
@@ -44,6 +45,7 @@ try {
         {a.imageUrl && (isAudioUrl(a.imageUrl)
           ? <audio class="preview-audio" src={a.imageUrl} controls preload="metadata" />
           : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
+        <ApprovalCost estimate={a.estimate} />
         <ApprovalBoxes fields={a.fields} />
         {a.postPreview && (
           <details class="post-preview" open>

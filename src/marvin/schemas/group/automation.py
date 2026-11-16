@@ -488,6 +488,30 @@ class WorkflowApprovalField(_MarvinModel):
     carried: bool = False  # it starts from the text a Redo with changes left, not from the step's own
 
 
+class ApprovalEstimateItem(_MarvinModel):
+    """One paid step's likely cost, from this workspace's own earlier calls like it (services/integrations/estimate.py)."""
+
+    step: str | None = None  # the step's id
+    text: str  # "About 120 ElevenLabs credits (for 4 seconds, going by the last 6 like it)", or "…: cost unknown (…)"
+    amount: float | None = None
+    unit: str | None = None  # "<provider> credits" | "USD"
+    calls: int | None = None  # how many earlier calls it went by
+    unknown: bool = False
+
+
+class ApprovalEstimateTotal(_MarvinModel):
+    amount: float
+    unit: str
+
+
+class ApprovalEstimate(_MarvinModel):
+    """What the paid steps an approval guards are likely to cost: one line (`text`), each step's, and a `total` when they add up."""
+
+    text: str
+    items: list[ApprovalEstimateItem] = Field(default_factory=list)
+    total: ApprovalEstimateTotal | None = None
+
+
 class WorkflowApprovalRead(_MarvinModel):
     """A workflow run waiting at an Approval step (or the decision on one)."""
 
@@ -516,6 +540,7 @@ class WorkflowApprovalRead(_MarvinModel):
     field_values: dict[str, str] | None = None  # once approved: the boxes' text as approved
     edited_fields: list[str] = Field(default_factory=list)  # once approved: the boxes changed
     redo: str | None = None  # the choice that makes it again: picked with a changed box, the next try starts from it
+    estimate: ApprovalEstimate | None = None  # pending, and it guards a paid step: what that is likely to cost (or "cost unknown")
 
 
 class WorkflowRunWaitingOn(_MarvinModel):
