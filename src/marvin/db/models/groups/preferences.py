@@ -94,6 +94,9 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
     approval_expires_hours: Mapped[int | None] = mapped_column(
         sa.Integer, nullable=True, doc="Default hours an approval waits when its step sets none (null = 72; 1-720)."
     )
+    paid_approvals_per_day: Mapped[int | None] = mapped_column(
+        sa.Integer, nullable=True, doc="Paid approvals that may be approved a day, UTC (null = no limit; 1-1000)."
+    )
     trash_auto_empty_days: Mapped[int | None] = mapped_column(
         sa.Integer,
         nullable=True,

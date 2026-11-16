@@ -65,6 +65,9 @@ class WorkflowApprovalModel(SqlAlchemyBase, BaseMixins):
     # A step with a `redo` choice: {"redo": <the choice>}, and once approved with it and a changed box, "values": {name:
     # text} that the next approval on the same entry with a box of that name starts from (taken once, then removed).
     carry: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    # It guards a paid step (services/integrations/estimate.guards_paid), decided when it parked: what the workspace's daily limit
+    # on paid approvals counts.
+    paid: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default=sa.false())
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

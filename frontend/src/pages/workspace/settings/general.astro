@@ -153,6 +153,13 @@ const success = urlParams.get("success") === "1";
               <span class="hint">How long a workflow's approval waits for a decision when its step doesn't say (1–720, default 72).</span>
             </label>
 
+            <label>
+              <span>Paid approvals a day</span>
+              <input type="number" name="paid_approvals_per_day" min="1" max="1000" placeholder="no limit"
+                value={(preferences as any)?.paidApprovalsPerDay ?? ""} disabled={!canManage} />
+              <span class="hint">At most this many approvals of a paid step (an image, a voice line, a sound) may be approved a day, counted from midnight UTC; past it Approve is refused until the next day, and Deny still works. Blank: no limit.</span>
+            </label>
+
           </div>
 
           {canManage && (
@@ -294,6 +301,7 @@ const success = urlParams.get("success") === "1";
           // Blank goes back to the platform default (null).
           workflow_max_steps: Number(formData.get('workflow_max_steps')) || null,
           approval_expires_hours: Number(formData.get('approval_expires_hours')) || null,
+          paid_approvals_per_day: Number(formData.get('paid_approvals_per_day')) || null,
         };
         await sdk.workspaces.updatePreferences(workspaceId, data);
 

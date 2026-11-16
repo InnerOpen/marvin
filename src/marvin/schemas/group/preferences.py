@@ -72,6 +72,8 @@ class GroupPreferencesCreate(_MarvinModel):
     """Steps a workflow runs before it stops; null = the platform's default (10)."""
     approval_expires_hours: int | None = None
     """Hours an approval waits when its step sets none; null = 72."""
+    paid_approvals_per_day: int | None = None
+    """Approvals of a paid step that may be approved a day (UTC); null = no limit."""
     trash_auto_empty_days: int | None = None
     """Days an entry stays in the Trash before it is deleted forever (0 = never); null inherits the platform default."""
 
@@ -133,6 +135,8 @@ class GroupPreferencesUpdate(_MarvinModel):  # Typically, update schemas allow p
     """Optional: steps a workflow runs before it stops (1-25); null goes back to the platform's default (10)."""
     approval_expires_hours: Annotated[int, Field(ge=1, le=720)] | None = None
     """Optional: hours an approval waits when its step sets none (1-720); null goes back to 72."""
+    paid_approvals_per_day: Annotated[int, Field(ge=1, le=1000)] | None = None
+    """Optional: approvals of a paid step that may be approved a day, UTC (1-1000); null is no limit."""
     trash_auto_empty_days: int | None = None
     """Optional: days an entry stays in the Trash before it is deleted forever (0 = never). An explicit null
     goes back to inheriting the platform default."""

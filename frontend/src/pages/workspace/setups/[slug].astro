@@ -768,7 +768,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       <div class="approval-message">{c.message}</div>
                       {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                       {c.imageUrl && <audio class="approval-audio" controls src={c.imageUrl}></audio>}
-                      <ApprovalCost estimate={c.estimate} />
+                      <ApprovalCost estimate={c.estimate} limit={c.spendLimit} />
                       <ApprovalBoxes fields={c.fields} />
                       <ApprovalPick card={c} cards={pendingCards} />
                       <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
@@ -939,7 +939,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             <div class="approval-message">{c.message}</div>
                             {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                             {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
-                            <ApprovalCost estimate={c.estimate} />
+                            <ApprovalCost estimate={c.estimate} limit={c.spendLimit} />
                             <ApprovalBoxes fields={c.fields} />
                             <ApprovalPick card={c} cards={pendingCards} />
                             <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
@@ -1024,7 +1024,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   <div class="approval-message">{c.message}</div>
                   {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                   {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
-                  <ApprovalCost estimate={c.estimate} />
+                  <ApprovalCost estimate={c.estimate} limit={c.spendLimit} />
                   <ApprovalBoxes fields={c.fields} />
                   <ApprovalPick card={c} cards={pendingCards} />
                   <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>

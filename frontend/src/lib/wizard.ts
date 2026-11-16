@@ -682,6 +682,7 @@ export interface ApprovalCard {
   editedFields?: string[];
   /** Its paid step's likely cost (the server's estimate), or null. */
   estimate?: { text: string; items?: { text: string }[] } | null;
+  spendLimit?: { limit: number; usedToday: number } | null;
 }
 
 /** The approvals that belong to this step: raised by its workflow, about one of the entries it was given. With no entries given, only

@@ -214,9 +214,10 @@ def _rank(user, group_id) -> int:
 
 
 def _approval_read(session, row) -> WorkflowApprovalRead:
+    from marvin.db.models.groups.workflow_approvals import APPROVAL_PENDING
     from marvin.db.models.platform.entries import Entries
     from marvin.db.models.users.users import Users
-    from marvin.services.automation.approvals import edited_names, post_preview
+    from marvin.services.automation.approvals import edited_names, post_preview, spend_limit
     from marvin.services.automation.authz import ROLE_ADMIN
     from marvin.services.integrations.estimate import approval_estimate
 
@@ -250,6 +251,8 @@ def _approval_read(session, row) -> WorkflowApprovalRead:
         edited_fields=edited_names(row),
         redo=(row.carry or {}).get("redo"),
         estimate=approval_estimate(session, row),
+        paid=bool(row.paid),
+        spend_limit=spend_limit(session, row.group_id) if row.paid and row.status == APPROVAL_PENDING else None,
     )
 
 

@@ -1033,6 +1033,14 @@ changed. Give the paid step that text, so what is shown and what is sent can't d
   that can't be taken (already decided, a box refused) says why and the others still go. API:
   `POST /api/automations/approvals/decide-many` with `{"decision": "approve", "items": [{"id": …, "choice": …,
   "fields": {…}}]}` (up to 50), answered per item with its `status` or its `error` and `code`.
+- **A daily limit on paid approvals:** Settings → General → Workflows → **Paid approvals a day** (blank: no limit).
+  An approval that guards a paid step (the same rule as the likely cost) counts once it is approved; from midnight
+  UTC. A paid card says "3 of 20 paid approvals used today" (and how many are left near the end); past the limit
+  Approve is refused (409: "Today's limit of 20 paid approvals is reached…") until the next day, Deny still works, and
+  **Approve all** approves in order until the limit and reports the rest as not taken. It counts approvals, not
+  calls: a batch that makes inside its repeat (record twenty lines) counts once; a batch that only queues entries for
+  other runs to make (Screenplay Studio's *Make the stills*) is not counted, nor is a step a page already approved
+  (`approved_when`). API: `paid` and `spendLimit` (`limit`, `usedToday`, `resetsAt`) on an approval.
 
 ### One run per entry at a time
 

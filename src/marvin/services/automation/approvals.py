@@ -110,11 +110,52 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
         image_url=spec.get("image") or None,
         fields=spec.get("fields") or None,
         carry={"redo": spec["redo"]} if spec.get("redo") else None,
+        paid=_guards_paid(session, group_id, automation, step_index, context),
     )
     session.add(row)
     session.commit()
     _emit(session, row, automation, EventTypes.workflow_approval_requested, user_id=(context.get("event") or {}).get("user_id"))
     return row
+
+
+def _guards_paid(session, group_id, automation, step_index: int, context: dict) -> bool:
+    from marvin.services.integrations import INTEGRATIONS_AVAILABLE
+
+    if not INTEGRATIONS_AVAILABLE:
+        return False
+    from marvin.services.integrations.estimate import guards_paid
+
+    return guards_paid(session, group_id, (getattr(automation, "definition", None) or {}).get("actions") or [], step_index, context)
+
+
+def _today() -> datetime:
+    now = _now()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def spend_limit(session, group_id) -> dict | None:
+    """The workspace's daily limit on paid approvals (Settings → General → Workflows), and how much of it is used: ``{limit,
+    used_today, resets_at}`` — approvals of a paid step approved since midnight UTC. None when there is no limit."""
+    from sqlalchemy import func
+
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+    prefs = session.query(GroupPreferencesModel).filter(GroupPreferencesModel.group_id == group_id).first()
+    limit = getattr(prefs, "paid_approvals_per_day", None)
+    if not limit:
+        return None
+    used = (
+        session.query(func.count(WorkflowApprovalModel.id))
+        .filter(
+            WorkflowApprovalModel.group_id == group_id,
+            WorkflowApprovalModel.paid.is_(True),
+            WorkflowApprovalModel.status == "approved",
+            WorkflowApprovalModel.decided_at >= _today(),
+        )
+        .scalar()
+        or 0
+    )
+    return {"limit": int(limit), "used_today": int(used), "resets_at": (_today() + timedelta(days=1)).isoformat()}
 
 
 def _narrowed(query, group_id, *, automation: str | None = None, entry_ids=None, execution_id=None):
@@ -175,6 +216,14 @@ def decide(
     if decision not in DECISIONS:
         raise ApprovalError("Decide approve or deny.", 422)
     outcome = DECISIONS[decision]
+    if outcome == "approved" and row.paid:
+        cap = spend_limit(session, group_id)
+        if cap and cap["used_today"] >= cap["limit"]:
+            raise ApprovalError(
+                f"Today's limit of {cap['limit']} paid approvals is reached (Settings → General → Workflows). It starts again at midnight UTC; "
+                "deny still works.",
+                409,
+            )
     picked = _picked(row, choice) if outcome == "approved" else None
     changed = edited_values(row.fields, fields) if outcome == "approved" else {}
     if outcome == "approved" and row.entry_id and row.entry_version and _entry_version(session, row.entry_id) != row.entry_version:

@@ -3,15 +3,25 @@
 // like them, or "cost unknown" when there is nothing to go by). One line; each step's own line under it when there are several.
 interface Props {
   estimate?: { text: string; items?: { text: string }[] } | null;
+  /** The workspace's daily limit on paid approvals, when one is set (Settings → General → Workflows). */
+  limit?: { limit: number; usedToday: number } | null;
 }
-const { estimate } = Astro.props;
+const { estimate, limit } = Astro.props;
 const lines = estimate?.items && estimate.items.length > 1 ? estimate.items : [];
+const left = limit ? Math.max(limit.limit - limit.usedToday, 0) : null;
 ---
 
-{estimate && (
+{(estimate || limit) && (
   <div class="approval-cost">
-    <p><strong>Likely cost:</strong> {estimate.text}</p>
+    {estimate && <p><strong>Likely cost:</strong> {estimate.text}</p>}
     {lines.length > 0 && <ul>{lines.map((i) => <li>{i.text}</li>)}</ul>}
+    {limit && (
+      <p class:list={[left === 0 && "approval-cost-stop"]}>
+        {left === 0
+          ? `Today's limit of ${limit.limit} paid approvals is reached: approving waits until midnight UTC (Settings → General). Deny still works.`
+          : `${limit.usedToday} of ${limit.limit} paid approvals used today${left !== null && left <= 2 ? ` (${left} left)` : ""}.`}
+      </p>
+    )}
   </div>
 )}
 
@@ -19,5 +29,6 @@ const lines = estimate?.items && estimate.items.length > 1 ? estimate.items : []
   .approval-cost { font-size: 13px; color: var(--muted); }
   .approval-cost p { margin: 0; }
   .approval-cost strong { color: var(--fg, inherit); font-weight: 600; }
+  .approval-cost-stop { color: var(--danger, #c0392b); font-weight: 600; }
   .approval-cost ul { margin: 4px 0 0; padding-left: 18px; }
 </style>
