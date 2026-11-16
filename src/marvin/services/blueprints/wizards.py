@@ -27,7 +27,8 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   ``collection``, ``q``, ``origin``, ``unattached``, and ``unused``: true for the files no entry uses yet). It cannot ``create``.
 - ``form``: edit some ``fields`` of the entry in context key ``entry``.
 - ``upload``: a file for the entry in context key ``entry``. ``mode: "asset"`` stores it as an asset in ``field``; ``mode: "text"``
-  reads it as text into ``field`` (a script, a beat sheet). ``accept`` lists extensions.
+  reads it as text into ``field`` (a script, a beat sheet). ``accept`` lists extensions. A ``field`` that takes turns with another
+  (``exclusive_with``) is refused, before anything is uploaded, while the other holds something: the page says which to empty.
 - ``list``: the entries of ``entry_type`` whose ``parent_field`` holds context key ``parent``, with the ``columns`` editable in place and
   ``add`` to make another. Without ``parent`` and ``parent_field`` it lists the entries of ``entry_type`` that meet ``where`` (or
   ``or_where``) instead, as cards a page at a time with a search, and edits only its ``columns`` on them (and ``check``); it makes

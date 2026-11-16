@@ -1,0 +1,80 @@
+---
+/**
+ * FieldTurns: a field that takes turns with another (`exclusive_with`: a story's script written in its Fountain box OR attached as its
+ * Fountain file). SchemaForm wraps each such field in one. While the other holds something and this one is empty, this one is shown
+ * closed (its label and one line saying where the value is and how to free this one); emptying the other opens it again, live, as the
+ * person types, chooses or removes. Both filled when the page opened (saved before the rule) shows both, each with a warning, so
+ * nothing is hidden. The rules are in lib/exclusiveFields.ts; the server refuses a save that fills the second.
+ * Without `turns` it is just its slot.
+ */
+import { type FieldState, type PairField, blockedNote, conflictNote } from "@/lib/exclusiveFields";
+
+export interface Props {
+  turns?: { field: PairField; partners: PairField[]; state: FieldState } | null;
+}
+
+const { turns } = Astro.props;
+const byKey = (key: string | null | undefined) => turns?.partners.find((p) => p.key === key);
+const blockedBy = byKey(turns?.state.blockedBy);
+const clash = byKey(turns?.state.conflicts[0]);
+const note = !turns ? "" : blockedBy ? blockedNote(turns.field, blockedBy) : clash ? conflictNote(turns.field, clash) : "";
+const state = blockedBy ? "blocked" : clash ? "conflict" : "";
+---
+
+{turns ? (
+  <div class="sf-turns" data-turns={JSON.stringify({ field: turns.field, partners: turns.partners })} data-state={state}>
+    <slot />
+    <p class="sf-turns-note" data-turns-note aria-live="polite" hidden={!note}>{note}</p>
+  </div>
+) : (
+  <slot />
+)}
+
+<style is:global>
+  /* Global, scoped by .sf-turns: the field inside is another component with its own scoped styles. */
+  .sf-turns { display: grid; gap: 0.375rem; }
+  /* Closed: only the field's label stays, with the line under it. The inputs stay in the form (empty), so a save posts them. */
+  .sf-turns[data-state="blocked"] > :first-child > :not(label) { display: none !important; }
+  .sf-turns[data-state="blocked"] > :first-child > label { color: var(--muted); }
+  .sf-turns-note { margin: 0; font-size: 0.8125rem; line-height: 1.4; color: var(--muted); padding: 0.5rem 0.75rem; border: 1px dashed var(--line); border-radius: 6px; background: var(--panel); }
+  .sf-turns[data-state="conflict"] > .sf-turns-note { color: var(--color-warning, #8a5a00); border: 1px solid var(--color-warning, #c58a00); border-style: solid; background: var(--color-warning-bg, transparent); }
+  .sf-turns-note[hidden] { display: none; }
+</style>
+
+<script>
+  import { type PairField, blockedNote, conflictNote, exclusiveState } from "@/lib/exclusiveFields";
+
+  // One pass per form: every field in a pair, its value read from the form's own input as it is now (the markdown box, the file field's
+  // hidden ids), redrawn on every input or change inside the form.
+  const forms = new Set(Array.from(document.querySelectorAll<HTMLElement>(".sf-turns")).map((w) => w.closest("form") ?? w.parentElement ?? document.body));
+  forms.forEach((root) => {
+    const wrappers = Array.from(root.querySelectorAll<HTMLElement>(".sf-turns"));
+    const specs = wrappers.map((w) => JSON.parse(w.dataset.turns || "{}") as { field: PairField; partners: PairField[] });
+    const fields = [...new Map(specs.flatMap((s) => [s.field, ...s.partners]).map((f) => [f.key, f])).values()];
+    const inputOf = (key: string) => root.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="dataJson.${CSS.escape(key)}"]`);
+    const redraw = () => {
+      const values: Record<string, unknown> = {};
+      for (const f of fields) {
+        const input = inputOf(f.key);
+        if (input) values[f.key] = input.value;
+      }
+      const states = exclusiveState(fields, values);
+      wrappers.forEach((w, i) => {
+        const { field } = specs[i];
+        const st = states[field.key];
+        const held = fields.find((f) => f.key === st?.blockedBy);
+        const clash = fields.find((f) => f.key === st?.conflicts[0]);
+        const state = held ? "blocked" : clash ? "conflict" : "";
+        if (w.dataset.state === state && !(held || clash)) return;
+        w.dataset.state = state;
+        const note = w.querySelector<HTMLElement>("[data-turns-note]")!;
+        const text = held ? blockedNote(field, held) : clash ? conflictNote(field, clash) : "";
+        if (note.textContent !== text) note.textContent = text;
+        note.hidden = !text;
+      });
+    };
+    root.addEventListener("input", redraw);
+    root.addEventListener("change", redraw);
+    redraw();
+  });
+</script>

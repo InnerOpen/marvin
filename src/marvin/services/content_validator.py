@@ -481,3 +481,37 @@ def validate_entry_content(
     """
     validator = ContentValidator()
     validator.validate_content(schema_definition, data_json)
+
+
+def is_filled(value: Any) -> bool:
+    """Whether a field holds something: None, an empty or blank text, and an empty list or object hold nothing."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list | tuple):
+        return any(is_filled(v) for v in value)
+    if isinstance(value, dict):
+        return bool(value)
+    return True
+
+
+def exclusive_conflict(schema_definition: EntryTypeSchemaDefinition, data: dict[str, Any], before: dict[str, Any] | None = None) -> str | None:
+    """The refusal, in words, when this write leaves both fields of an ``exclusive_with`` pair filled and they were not both filled
+    before it (``before``: the entry as stored; None for a new one). None when the write may go ahead. An entry that already holds
+    both (saved before the rule) can still be saved with them as they are: only a write that fills the second is refused."""
+    before = before or {}
+    for a, b in schema_definition.exclusive_pairs():
+        had_a, had_b = is_filled(before.get(a.key)), is_filled(before.get(b.key))
+        if not (is_filled(data.get(a.key)) and is_filled(data.get(b.key))) or (had_a and had_b):
+            continue
+        if not (had_a or had_b):
+            return (
+                f"“{a.label}” ({a.key}) and “{b.label}” ({b.key}) take one or the other, and this would fill both. Clear one of them and save again."
+            )
+        held, new = (a, b) if had_a else (b, a)
+        return (
+            f"“{held.label}” ({held.key}) already holds something, and “{new.label}” ({new.key}) is used instead of it, not with it. "
+            f"Clear “{held.label}” first, then fill “{new.label}”."
+        )
+    return None

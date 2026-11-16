@@ -6,6 +6,7 @@ import { latestRunAbout } from "./api/workflowRuns";
 import { runLine, shownRun } from "./runState";
 import { changedKeys, editableKeys, listParams, readListState, scopedSpecs, isScopedList, unionRows, SCOPED_PER } from "./wizardScopedList";
 import { fieldTypeMap } from "./schemaFields";
+import { type PairField, isFilled, partnersOf, uploadRefusal, writeRefusal } from "./exclusiveFields";
 import { PAGE_SIZES } from "./pagination";
 import { MAX_TEXT_UPLOAD_BYTES, trashEntry, askedKeys, assetById, createOf, entryBySlug, fromTemplate, entryOfType, findAssets, findEntries, optionsOf, picksOf, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
@@ -124,6 +125,12 @@ async function upload(def: WizardDefinition, step: Step, form: FormData, ctx: Ct
   if (held && text(form, "replace") !== "1") {
     throw new StepError(`“${step.field}” on ${entry.title} already has content. Tick “Replace it” to upload over it.`, ["replace"]);
   }
+  // A field that takes turns with another (`exclusive_with`: a script as text or as a file) is refused while the other holds something,
+  // before anything is uploaded: the save would be refused anyway, and the file would be left behind.
+  const fields = ((type?.schemaJson as { fields?: unknown[] } | null)?.fields ?? []) as PairField[];
+  const self = fields.find((f) => f.key === step.field);
+  const other = self && partnersOf(fields, self.key).find((p) => isFilled(entry.dataJson?.[p.key]));
+  if (self && other) throw new StepError(uploadRefusal(self, other, entry.title));
   if (step.mode === "text") {
     if (file.size > MAX_TEXT_UPLOAD_BYTES) throw new Error("That file is too long to read in as text (1 MB at most).");
     await setData(entry, { [step.field]: await file.text() }, authToken);
@@ -369,7 +376,11 @@ export async function runStep(def: WizardDefinition, step: Step, form: FormData,
   if (step.kind === "gallery") return gallery(step, form, ctx, authToken);
   if (step.kind === "form") {
     const { entry, type } = await entryFor(def, step, ctx, authToken);
-    await setData(entry, postedData(form, type, step.fields), authToken);
+    const changes = postedData(form, type, step.fields);
+    // Fields that take turns (`exclusive_with`): said here in the step's words, not as the API's refusal.
+    const refused = writeRefusal(((type?.schemaJson as { fields?: unknown[] } | null)?.fields ?? []) as PairField[], entry.dataJson ?? {}, { ...(entry.dataJson ?? {}), ...changes });
+    if (refused) throw new StepError(refused);
+    await setData(entry, changes, authToken);
   }
   return { ctx, stay: false };
 }

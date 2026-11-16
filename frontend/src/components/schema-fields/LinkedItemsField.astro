@@ -29,6 +29,8 @@ export interface Props {
     role?: string | null;
     /** An asset field may take only some kinds of file, written like a file input's accept (application/pdf, audio/*, .html). */
     accept?: string | null;
+    /** `text`: the chosen file is text (a script), shown read-only under the field with its line numbers, whatever its file type says. */
+    preview?: "text" | null;
   };
   value?: unknown;
   error?: string;
@@ -66,6 +68,8 @@ const offType = (item: LinkedItem) => !!accept && !matchesAccept(accept, item);
 const kind = isAsset ? kindOfAccept(accept) : "any";
 const words = uploadWords(kind, multiple, own ? role : null);
 const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id)).length : 0;
+// A one-file field whose file is text (`preview: "text"`, a script) can be read here: loaded when the reader is first opened.
+const reader = isAsset && !multiple && field.preview === "text";
 ---
 
 <div class="field-group li-field" data-linked-field data-label={field.label} data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-role={role} data-accept={accept || undefined} data-readonly={field.readOnly ? "1" : ""} data-name-from={nameFrom} data-script={script?.length ? JSON.stringify(script) : undefined}>
@@ -86,6 +90,17 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
       </li>
     ))}
   </ul>
+
+  {reader && (
+    <details class="li-reader" data-linked-reader data-id={ids[0] ?? ""} hidden={!ids.length}>
+      <summary>Read the file <span class="li-reader-name" data-linked-reader-name>{picked[0]?.name ?? ""}</span></summary>
+      <p class="li-reader-status" data-linked-reader-status>Opening…</p>
+      <ol class="li-reader-lines" data-linked-reader-lines hidden></ol>
+      <p class="field-help li-reader-note">
+        Read only. To change the file, download it, edit it and upload it again. <a data-linked-reader-open href={ids[0] ? openHref(ids[0]) : "#"} target="_blank" rel="noopener">Open the file</a>
+      </p>
+    </details>
+  )}
 
   {!field.readOnly && (
     <div class="li-actions">
@@ -225,7 +240,111 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
   .li-field .field-help, .li-field .field-error { margin: 0; font-size: 0.75rem; color: var(--muted); }
   .li-role-note code { font-size: 0.7rem; padding: 0 0.25em; border-radius: 3px; background: var(--panel-2); }
   .li-field .field-error { color: var(--color-error); }
+  .li-field .li-reader { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .li-field .li-reader[hidden] { display: none; }
+  .li-field .li-reader > summary { cursor: pointer; padding: 0.5rem 0.75rem; font-size: 0.875rem; font-weight: 600; color: var(--ink); display: flex; gap: 0.5rem; align-items: baseline; list-style: none; }
+  .li-field .li-reader > summary::-webkit-details-marker { display: none; }
+  .li-field .li-reader > summary::before { content: "▸"; color: var(--muted); }
+  .li-field .li-reader[open] > summary::before { content: "▾"; }
+  .li-field .li-reader-name { font-weight: 400; color: var(--muted); font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .li-field .li-reader-status { margin: 0 0.75rem 0.5rem; font-size: 0.8125rem; color: var(--muted); }
+  .li-field .li-reader-status[hidden], .li-field .li-reader-lines[hidden] { display: none; }
+  /* The lines: numbered by the list itself (1 is the file's first line, as the Fountain check counts), long lines wrapped. */
+  .li-field .li-reader-lines {
+    margin: 0 0.75rem 0.5rem; padding: 0.5rem 0.75rem 0.5rem calc(6ch + 1rem); max-height: 32em; overflow: auto; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--bg); color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8125rem; line-height: 1.45; list-style: decimal outside;
+  }
+  .li-field .li-reader-lines li { white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.45em; padding-left: 0.5ch; }
+  .li-field .li-reader-lines li::marker { color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .li-field .li-reader-lines li.li-reader-hit { background: var(--panel-2); outline: 1px solid var(--accent, var(--line)); }
+  .li-field .li-reader-note { margin: 0 0.75rem 0.75rem; }
+  .li-field .li-reader-note a { color: var(--accent); text-decoration: underline; }
 </style>
+
+<script>
+  import { fetchApi as fetchJson, fetchApiBlob } from "@/lib/api/client";
+  import { lineFromHash, readerLines, tooBigToRead } from "@/lib/textReader";
+
+  // A file field's reader (`preview: "text"`): the file is fetched through the API (signed in, whatever storage it is in) the first time
+  // the reader opens, and drawn as text, never as HTML. Choosing another file or removing it starts it over.
+  document.querySelectorAll<HTMLDetailsElement>("[data-linked-reader]").forEach((reader) => {
+    const root = reader.closest<HTMLElement>("[data-linked-field]")!;
+    const input = root.querySelector<HTMLInputElement>("[data-linked-value]")!;
+    const status = reader.querySelector<HTMLElement>("[data-linked-reader-status]")!;
+    const list = reader.querySelector<HTMLOListElement>("[data-linked-reader-lines]")!;
+    const open = reader.querySelector<HTMLAnchorElement>("[data-linked-reader-open]")!;
+    let loaded = "";
+    let wanted: number | null = null;
+    const current = () => input.value.split(",").map((s) => s.trim()).filter(Boolean)[0] ?? "";
+    const say = (text: string) => {
+      status.textContent = text;
+      status.hidden = !text;
+    };
+    const show = () => {
+      if (wanted === null) return;
+      const li = list.children[wanted - 1] as HTMLElement | undefined;
+      list.querySelector(".li-reader-hit")?.classList.remove("li-reader-hit");
+      if (!li) return say(`The file has ${list.children.length} lines: there is no line ${wanted}.`);
+      li.classList.add("li-reader-hit");
+      li.scrollIntoView({ block: "center" });
+    };
+    const load = async (id: string) => {
+      loaded = id;
+      list.hidden = true;
+      list.replaceChildren();
+      say("Opening…");
+      try {
+        const asset = await fetchJson<{ fileSize?: number | null }>(`/api/platform/assets/${encodeURIComponent(id)}`);
+        const tooBig = tooBigToRead(asset.fileSize);
+        if (tooBig) return say(tooBig);
+        const lines = readerLines(await (await fetchApiBlob(`/api/platform/assets/${encodeURIComponent(id)}/content`)).arrayBuffer());
+        if (loaded !== id) return; // another file was chosen meanwhile
+        const items = lines.map((line) => {
+          const li = document.createElement("li");
+          li.textContent = line;
+          return li;
+        });
+        list.replaceChildren(...items);
+        list.hidden = false;
+        say("");
+        show();
+      } catch (e) {
+        loaded = "";
+        say(`The file could not be read here (${e instanceof Error ? e.message : "an error"}). Open the file instead.`);
+      }
+    };
+    const sync = () => {
+      const id = current();
+      reader.hidden = !id;
+      open.href = id ? `/workspace/assets/${id}` : "#";
+      const name = root.querySelector<HTMLElement>(`.li-card[data-id="${CSS.escape(id)}"] .li-open`)?.textContent ?? "";
+      const label = reader.querySelector<HTMLElement>("[data-linked-reader-name]");
+      if (label) label.textContent = name;
+      if (id !== loaded) {
+        loaded = "";
+        list.hidden = true;
+        list.replaceChildren();
+        if (reader.open && id) load(id);
+        else reader.open = false;
+      }
+    };
+    reader.addEventListener("toggle", () => {
+      if (reader.open && current() && loaded !== current()) load(current());
+    });
+    input.addEventListener("change", sync);
+    // `#L17` opens the reader at line 17 (the line a Fountain check finding names); the first reader on the page answers.
+    const goTo = () => {
+      const line = lineFromHash(location.hash);
+      if (line === null || reader !== document.querySelector("[data-linked-reader]:not([hidden])")) return;
+      wanted = line;
+      if (!reader.open) reader.open = true; // the toggle loads it, then shows the line
+      else if (loaded === current() && !list.hidden) show();
+    };
+    window.addEventListener("hashchange", goTo);
+    goTo();
+  });
+</script>
 
 <script>
   import { matchesAccept } from "@/lib/assetAccept";
