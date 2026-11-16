@@ -373,6 +373,9 @@ function blocksOf(lines: string[], lead: boolean): Block[] | null {
     if (lists) return [{ kind: "lists", src, text: segs(lists.text), lists: lists.lists }];
     if (/^Checked .*\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(line) && line.length < 80)
       return [{ kind: "note", src, text: segs(line) }];
+    // A remark on where something came from ("Setting taken from the screenplay: “…”."): said quietly, as written.
+    if (!lead && /^[A-Z][a-z]+(?: [a-z]+){0,3} taken from /.test(line) && line.length < 400)
+      return [{ kind: "note", src, text: segs(line) }];
   }
   if (!lead || !verdictOk(lines[0])) return null;
   // The opening paragraph: its first line says how it went, the lines under it say more, a line of counts is a strip of counts, and

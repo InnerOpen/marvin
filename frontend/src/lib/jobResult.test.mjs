@@ -162,7 +162,7 @@ test("a chapter plan: its stamp, verdict, counts, table, speakers, check, what i
   const r = jobResult(PLAN);
   assert.deepEqual(
     r.blocks.map((b) => b.kind),
-    ["stamp", "verdict", "stats", "table", "pairs", "findings", "lists", "lack", "text"],
+    ["stamp", "verdict", "stats", "table", "pairs", "findings", "lists", "lack", "note"],
   );
   const [stamp, , stats, table, pairs, check, lists, lack, last] = r.blocks;
   assert.deepEqual([stamp.when, stamp.parts], ["2026-11-16 18:12 UTC", ["import, chapters all"]]);
@@ -197,7 +197,7 @@ test("a chapter plan: its stamp, verdict, counts, table, speakers, check, what i
     { label: "2 sounds to fill in", items: ["Pier ambience", "Cellar ambience"] },
   ]);
   assert.ok(lack.text.some((s) => s.code && s.text === "Premise:"));
-  assert.equal(last.text, "Setting taken from the screenplay: “Lamp Room (interior), Night”.");
+  assert.deepEqual(last.text, [{ text: "Setting taken from the screenplay: “Lamp Room (interior), Night”." }]);
 });
 
 test("a preview says so plainly; nothing new is good news", () => {

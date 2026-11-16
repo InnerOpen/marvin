@@ -13,6 +13,7 @@ import type { CueSpec } from "@/lib/cueFields";
 import MarkdownField from "./schema-fields/MarkdownField.astro";
 import NumberField from "./schema-fields/NumberField.astro";
 import RefField from "./schema-fields/RefField.astro";
+import ReportField from "./schema-fields/ReportField.astro";
 import SelectField from "./schema-fields/SelectField.astro";
 import TextareaField from "./schema-fields/TextareaField.astro";
 import TextField from "./schema-fields/TextField.astro";
@@ -46,6 +47,7 @@ const own = { name, id, bare }; // passed on to the types that can be drawn in a
         return <TextField field={field as any} value={value} error={error} {...own} />;
 
       case 'textarea':
+        if (field.display === 'report' && field.readOnly && !bare && String(value ?? '').trim()) return <ReportField field={field as any} value={String(value)} />;
         return <TextareaField field={field as any} value={value} error={error} {...own} />;
 
       case 'markdown':
