@@ -44,6 +44,8 @@ export interface LogEntry {
   tiles: { value: string; label: string }[];
   /** The rest of the line as written: a clear's counts, "3 updated", "trashed: …". */
   notes: string[];
+  /** The line as written. */
+  line: string;
 }
 
 export interface TableRow {
@@ -353,10 +355,25 @@ function addedOf(part: string): { value: string; label: string }[] | null {
 }
 
 /** "1" → chapter 1, "1–3" or "1, 3" → chapters 1–3; null or "all" → all chapters. */
-function chaptersOf(part: string | null): string {
-  const which = (part ?? "").replace(/\s+/g, " ").trim();
-  if (!which || which === "all") return "all chapters";
-  return /^\d+$/.test(which) ? `chapter ${which}` : `chapters ${which}`;
+/** The chapters a run brought in, as the worker writes them (its `part`: `3`, `2-4`, `1,3,9`, with any spacing; `all` or none for
+ *  every chapter, and a total when the line says one: `1,3,9 of 14`): "chapters 1, 3, 9 (3 of 14)", "chapter 1", "all chapters". */
+export function chaptersOf(part: string | null): string {
+  const said = (part ?? "").replace(/\s+/g, " ").trim();
+  const [, which = said, total] = said.match(/^(.*?)(?: of (\d+))?$/) ?? [];
+  if (!which || which.toLowerCase() === "all") return "all chapters";
+  const pieces = which
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const numbers = new Set<number>();
+  for (const piece of pieces) {
+    const m = piece.match(/^(\d+)(?:\s*[-–]\s*(\d+))?$/);
+    if (!m) return `chapters ${which}`; // not a list it knows: as written
+    for (let n = Number(m[1]); n <= Number(m[2] ?? m[1]); n++) numbers.add(n);
+  }
+  const shown = pieces.map((p) => p.replace(/\s*[-–]\s*/, "–")).join(", ");
+  const of = total ? ` (${numbers.size} of ${total})` : "";
+  return `${numbers.size === 1 ? "chapter" : "chapters"} ${shown}${of}`;
 }
 
 export function logEntryOf(line: string): LogEntry {
@@ -375,6 +392,7 @@ export function logEntryOf(line: string): LogEntry {
       title: `Cleared (${CLEAR_MODES[mode] ?? mode})`,
       tiles: [],
       notes: clear.slice(2),
+      line,
     };
   }
   const run = STAMP.test(parts[0]) && parts.length >= 3 ? parts : null;
@@ -390,9 +408,10 @@ export function logEntryOf(line: string): LogEntry {
       title: `${verb} ${chaptersOf(via ? (via[1] ?? null) : null)}`,
       tiles,
       notes,
+      line,
     };
   }
-  return { kind: "text", when: null, title: line, tiles: [], notes: [] };
+  return { kind: "text", when: null, title: line, tiles: [], notes: [], line };
 }
 
 function historyOf(lines: string[], only: boolean): Block | null {

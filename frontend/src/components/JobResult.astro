@@ -18,9 +18,13 @@ interface Props {
   linkText?: string;
   /** Show "The job's own text" here (off where the page holds the text itself, as a form's read-only field does). */
   raw?: boolean;
+  /** A log (a story's sheet log) says only its newest line: a run step's report is what that run did, not the history. */
+  latest?: boolean;
 }
-const { text, label, failed = false, href, linkText, raw: showRaw = true } = Astro.props;
-const { blocks, raw, formatted } = jobResult(text, { failed });
+const { text, label, failed = false, href, linkText, raw: showRaw = true, latest: latestOnly = false } = Astro.props;
+const { blocks, raw: all, formatted } = jobResult(text, { failed });
+// A log said by its newest line only keeps to that line in the text one click away too.
+const raw = latestOnly && blocks.length === 1 && blocks[0].kind === "history" ? blocks[0].latest.line : all;
 const ROWS_SHOWN = 6;
 const CAST_SHOWN = 4;
 const TAGS = { bad: "Fix", warn: "Look", good: "Info", plain: "Info" } as const;
@@ -121,7 +125,7 @@ const TAGS = { bad: "Fix", warn: "Look", good: "Info", plain: "Info" } as const;
                 ))}
               </dl>
             )}
-            {b.earlier.length > 0 && (
+            {!latestOnly && b.earlier.length > 0 && (
               <details class="jr-fold">
                 <summary>
                   Earlier <span class="jr-count">{b.earlier.length}</span>

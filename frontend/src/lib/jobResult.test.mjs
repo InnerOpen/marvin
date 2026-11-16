@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { jobResult, listsOf, segs, statsOf, toneOf } from "./jobResult.ts";
+import { chaptersOf, jobResult, listsOf, segs, statsOf, toneOf } from "./jobResult.ts";
+
+/** A log entry without the line it was read from. */
+const bare = ({ line, ...entry }) => entry;
 
 // Texts in the shapes the Studio worker writes (render/storyrender: validate.report, fountain.report, the import's split_plan and
 // sheet_log), with made-up names.
@@ -216,7 +219,7 @@ test("a sheet log: the newest run first, with what it added as tiles, and the re
   assert.equal(r.blocks.length, 1);
   const [log] = r.blocks;
   assert.equal(log.kind, "history");
-  assert.deepEqual(log.latest, {
+  assert.deepEqual(bare(log.latest), {
     kind: "import",
     when: "2026-11-16 18:12 UTC",
     title: "Refreshed chapter 2",
@@ -242,7 +245,7 @@ test("a sheet log with a clear in it: the import just run is the result, never t
     ["history"],
   );
   const [log] = r.blocks;
-  assert.deepEqual(log.latest, {
+  assert.deepEqual(bare(log.latest), {
     kind: "import",
     when: "2026-11-16 21:45 UTC",
     title: "Brought in chapter 1",
@@ -253,7 +256,7 @@ test("a sheet log with a clear in it: the import just run is the result, never t
     ],
     notes: [],
   });
-  assert.deepEqual(log.earlier, [
+  assert.deepEqual(log.earlier.map(bare), [
     {
       kind: "clear",
       when: null,
@@ -274,6 +277,38 @@ test("a sheet log with a clear in it: the import just run is the result, never t
     },
   ]);
   assert.ok(!r.blocks.some((b) => b.kind === "stats"));
+  assert.equal(
+    log.latest.line,
+    "2026-11-16 21:45 UTC · add · from the Fountain (chapters  1) · +53 beats, +53 lines, +1 chapters",
+  );
+});
+
+test("an import of some chapters says which, and only its own numbers", () => {
+  const text =
+    "2026-11-16 18:12 UTC · add · from the Fountain · +599 beats, +768 lines, +14 chapters\nclear · permanent · 768 speech lines, 599 beats\n2026-11-16 22:05 UTC · add · from the Fountain (chapters  1,3,9) · +150 beats, +170 lines, +3 chapters";
+  const [log] = jobResult(text).blocks;
+  assert.deepEqual(bare(log.latest), {
+    kind: "import",
+    when: "2026-11-16 22:05 UTC",
+    title: "Brought in chapters 1, 3, 9",
+    tiles: [
+      { value: "150", label: "beats" },
+      { value: "170", label: "lines" },
+      { value: "3", label: "chapters" },
+    ],
+    notes: [],
+  });
+});
+
+test("which chapters a run brought in, in words", () => {
+  assert.equal(chaptersOf(null), "all chapters");
+  assert.equal(chaptersOf(" all "), "all chapters");
+  assert.equal(chaptersOf(" 1"), "chapter 1");
+  assert.equal(chaptersOf("1,3,9"), "chapters 1, 3, 9");
+  assert.equal(chaptersOf("1, 3 ,9 of 14"), "chapters 1, 3, 9 (3 of 14)");
+  assert.equal(chaptersOf("2-4"), "chapters 2–4");
+  assert.equal(chaptersOf("1,5-6 of 14"), "chapters 1, 5–6 (3 of 14)");
+  assert.equal(chaptersOf("the middle ones"), "chapters the middle ones");
 });
 
 test("a sheet log line it does not know is kept as written; a clear can be the newest", () => {
