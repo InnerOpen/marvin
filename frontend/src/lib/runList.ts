@@ -38,22 +38,6 @@ export function inOrder<T extends { id: string }>(rows: T[], ids: string[]): T[]
   return ids.flatMap((id) => byId.get(id) ?? []);
 }
 
-/** The start of a long text (its first paragraph, cut at a word within `max`), and whether there is more to unfold. */
-export function shortText(text: string, max = 400): { lead: string; more: boolean } {
-  const all = text.trim();
-  const para = all.split(/\n\s*\n/)[0].trim();
-  if (para.length <= max) return { lead: para, more: para.length < all.length };
-  const cut = para.slice(0, max);
-  return { lead: `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 1)).trimEnd()}…`, more: true };
-}
-
-/** What a worker job said (its log), cut short for the step: its first paragraph when it is done, its last when it failed (the reason). */
-export function jobLead(log: string, failed: boolean): { lead: string; more: boolean } {
-  const parts = log.trim().split(/\n\s*\n/);
-  const short = shortText(failed ? parts[parts.length - 1] : log);
-  return { lead: short.lead, more: short.more || (failed && parts.length > 1) };
-}
-
 // ── A workflow that starts by previewing a template: what it would make ──────────────────────────────────────────────
 
 /** A template's preview, as the selection answers it (lib/api/workflowRuns.ts: TemplatePreview), loosely typed so this stays pure. */
