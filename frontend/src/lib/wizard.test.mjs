@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom } from "./wizard.ts";
+import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -228,6 +228,24 @@ test("a highlight marks the card whose field has the wanted value", () => {
   assert.equal(highlightOf(step, { status: "in_use" }), "In use");
   assert.equal(highlightOf(step, { status: "recorded" }), null);
   assert.equal(highlightOf({}, { status: "in_use" }), null);
+});
+
+test("a highlight by reference marks the cards another type points at, and only when its scope is chosen", () => {
+  const step = { highlight: { referenced_by: { entry_type: "cast-member", field: "actor", scope: { story: "${story}" } }, label: "Cast as", label_field: "role" } };
+  assert.deepEqual(referencingSpec(step, { story: "tin-soldier" }), { entry_type: "cast-member", fields: { story: "tin-soldier" } });
+  assert.equal(referencingSpec(step, {}), null); // no story chosen: nobody is marked, not everyone cast anywhere
+  assert.equal(referencingSpec({ highlight: { field: "status", value: "x", label: "X" } }, {}), null);
+  const marks = referenceMarks(step, [
+    { dataJson: { actor: "ada", role: "Granny" } },
+    { dataJson: { actor: "ada", role: "Old Granny" } },
+    { dataJson: { actor: "ada", role: "Granny" } },
+    { dataJson: { actor: "bo", role: "" } },
+    { dataJson: { actor: "", role: "Wolf" } },
+  ]);
+  assert.equal(marks.get("ada"), "Cast as Granny, Old Granny");
+  assert.equal(marks.get("bo"), "Cast as");
+  assert.equal(marks.size, 2);
+  assert.equal(highlightOf(step, { status: "in_use" }), null); // the field-value highlight never fires for one by reference
 });
 
 test("measured seconds are a real positive length, rounded to the millisecond", () => {

@@ -123,8 +123,42 @@ export function subtitleOf(subtitle: unknown, data: Record<string, unknown> | nu
 
 /** The label a gallery's `highlight` puts on a card whose field has the wanted value (the take in use), or null. */
 export function highlightOf(step: Step, data: Record<string, unknown> | null | undefined): string | null {
-  const h = step.highlight as { field: string; value: string; label: string } | undefined;
-  return h && data?.[h.field] === h.value ? h.label : null;
+  const h = step.highlight as { field?: string; value?: string; label: string } | undefined;
+  return h?.field && data?.[h.field] === h.value ? h.label : null;
+}
+
+export interface ReferencedBy {
+  entry_type: string;
+  field: string;
+  scope?: Record<string, string>;
+}
+
+/** The entries query that finds who points at a gallery's cards, for a `highlight` by reference (an actor cast in this story: the story's
+ *  cast members whose `actor` holds its slug). Null when the step has none, or when a scope value came out empty: a story that was not
+ *  chosen must not mark everyone cast in any story. */
+export function referencingSpec(step: Step, ctx: Ctx): Record<string, unknown> | null {
+  const by = (step.highlight as { referenced_by?: ReferencedBy } | undefined)?.referenced_by;
+  if (!by) return null;
+  const scope = substitute(by.scope ?? {}, ctx);
+  if (Object.values(scope).some((v) => v === "" || v == null)) return null;
+  return { entry_type: by.entry_type, fields: scope };
+}
+
+/** The mark on each card that an entry of the query above points at: card slug → the highlight's label, followed by the pointing
+ *  entries' `label_field` values when it names one ("Cast as" + "Granny, Old Granny": one actor may play a role at several ages). */
+export function referenceMarks(step: Step, referencing: { dataJson?: Record<string, unknown> | null }[]): Map<string, string> {
+  const h = step.highlight as { referenced_by?: ReferencedBy; label: string; label_field?: string } | undefined;
+  const found = new Map<string, string[]>();
+  if (!h?.referenced_by) return new Map();
+  for (const r of referencing) {
+    const slug = String(r.dataJson?.[h.referenced_by.field] ?? "").trim();
+    if (!slug) continue;
+    const said = h.label_field ? String(r.dataJson?.[h.label_field] ?? "").trim() : "";
+    const list = found.get(slug) ?? [];
+    if (said && !list.includes(said)) list.push(said);
+    found.set(slug, list);
+  }
+  return new Map([...found].map(([slug, said]) => [slug, said.length ? `${h.label} ${said.join(", ")}` : h.label]));
 }
 
 /** The seconds a browser measured for an upload, when they are a real positive number (a field a form posts is text). */

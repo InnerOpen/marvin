@@ -23,7 +23,7 @@ import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type OptionChoice, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, opensMore, optionStepOf, passes, previousStep, readCtx, suppliedData,
   MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets, pictureFieldOf, skipTo, withoutFrom,
-  StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref,
+  StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, referenceMarks, referencingSpec, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { jobLead, leftOutLine, listLine, nothingLine, previewCards, previewLine, previewProblem, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
@@ -179,6 +179,7 @@ let currentPicture: string | null = null; // an upload step's picture as it is n
 let createFirst = false; // the choose step's make-a-new-one form comes before the list
 let uploadHeld = false; // the upload step's field already holds something (a value, or a file attached under its role)
 let addFields: any[] = [];
+let refMarks = new Map<string, string>(); // gallery card slug → its highlight by reference
 let genStep: Step | null = null; // a gallery's generate action, as the run step it is
 let addValues: Record<string, string> = {}; // the add form's starting values (`add.prefill`)
 let approveNames: Record<string, string> = {}; // a gallery's `approve` workflows, by slug, with their names
@@ -289,6 +290,9 @@ if (authToken && def && step) {
     galleryFields = (type as any)?.schemaJson?.fields ?? [];
     cards = (await findEntries(listSpec(step, ctx), authToken)).entries;
     if (step.sort === "natural") cards = naturalByTitle(cards);
+    // A highlight by reference (an actor cast in this story): one query for the entries that point at the cards, not one per card.
+    const referencing = referencingSpec(step, ctx);
+    if (referencing && cards.length) refMarks = referenceMarks(step, (await findEntries(referencing, authToken)).entries);
     pictureRole = fieldRole(type, step.picture);
     addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
     refs = await refsFor(addFields);
@@ -755,7 +759,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                         picture={pic}
                         sound={sound}
                         subtitle={subtitleOf(step.subtitle, r.dataJson, 80)}
-                        marked={highlightOf(step, r.dataJson)}
+                        marked={refMarks.get(r.slug) ?? highlightOf(step, r.dataJson)}
                         pills={[...badges.map((b) => String(r.dataJson?.[b])), ...(lengthField && r.dataJson?.[lengthField] && (badges.length > 0 || highlightOf(step, r.dataJson)) ? [`${Number(r.dataJson[lengthField]).toFixed(1)} s`] : [])]}
                       />
                       <div class="gbar">
