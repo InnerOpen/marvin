@@ -740,6 +740,31 @@ def test_a_lookup_gains_the_order_the_package_now_names_and_keeps_one_the_worksp
     assert next(i for i in again.items if i.kind == "entry_type").status == "current"
 
 
+def test_an_update_that_only_names_a_lists_order_is_an_update_not_current(db_session, workspace):
+    # Screenplay Studio v188 changes nothing in its types but the order of their lists: the preview and the update must see it.
+    older = _manifest()
+    older["blueprints"][0]["payload"]["schema_json"]["children"] = [{"title": "Lines", "entry_type": "line", "field": "beat"}]
+    _installed(db_session, workspace, older)
+    newer = _manifest(version="3")
+    newer["blueprints"][0]["payload"]["schema_json"]["children"] = [
+        {"title": "Lines", "entry_type": "line", "field": "beat", "sort": {"by": "order"}}
+    ]
+
+    def beat_item(result):
+        return next(i for i in result.items if i.kind == "entry_type")
+
+    preview = service.update(db_session, workspace.id, service.parse_manifest(newer), preview_only=True, actor_id=workspace.user_id)
+    assert beat_item(preview).status == "update"
+    db_session.rollback()
+    updated = service.update(db_session, workspace.id, service.parse_manifest(newer), actor_id=workspace.user_id)
+    db_session.commit()
+    assert beat_item(updated).status == "updated" and "list Lines: sort" in beat_item(updated).detail
+    db_session.expire_all()
+    beat = db_session.query(EntryTypes).filter_by(group_id=workspace.id, slug="beat").one()
+    assert beat.schema_json["children"][0]["sort"] == {"by": "order"}
+    assert beat_item(service.update(db_session, workspace.id, service.parse_manifest(newer), actor_id=workspace.user_id)).status == "current"
+
+
 @pytest.mark.parametrize("sort", [{"by": "Not A Key"}, {"by": "number", "direction": "up"}, "newest"])
 def test_a_lookup_with_an_order_a_page_cannot_ask_for_is_refused(db_session, workspace, sort):
     bad = _manifest()
