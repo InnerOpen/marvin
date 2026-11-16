@@ -22,7 +22,7 @@ const at = back && from?.definition?.steps ? backStep(from.definition as WizardD
     <aside class="came-from" aria-label="Where you came from">
       <span>
         You came from <strong>{from.name}</strong>{at ? `, step ${at.number} (“${at.title}”)` : ""}.
-      </span>
+      </span>{" "}
       <a href={back.href}>← Back to it</a>
     </aside>
   )
