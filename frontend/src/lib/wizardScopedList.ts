@@ -6,7 +6,7 @@
  * once per flag, and filters, searches and pages those answers.
  */
 
-import { type Ctx, type Step, FACET_PARAM, FILTER_PARAM, SEARCH_PARAM, substitute } from "./wizard.ts";
+import { type Ctx, type Step, FACET_PARAM, FILTER_PARAM, referenceFilter, SEARCH_PARAM, substitute } from "./wizard.ts";
 
 export interface Cond {
   field: string;
@@ -35,7 +35,8 @@ export function isScopedList(step: Step | null | undefined): boolean {
 
 /** The entries queries behind a scoped list, with the choices filled in: its `where`, then its `or_where` (whose entries are listed too). */
 export function scopedSpecs(step: Step, ctx: Ctx): Record<string, unknown>[] {
-  const base = (where: Cond[] | undefined) => (where?.length ? { entry_type: step.entry_type, where: substitute(where, ctx) } : { entry_type: step.entry_type });
+  const only = referenceFilter(step, ctx); // only_with / only_without
+  const base = (where: Cond[] | undefined) => (where?.length ? { entry_type: step.entry_type, where: substitute(where, ctx), ...only } : { entry_type: step.entry_type, ...only });
   return [base(step.where), ...(step.or_where?.length ? [base(step.or_where)] : [])];
 }
 

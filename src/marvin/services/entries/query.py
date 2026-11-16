@@ -18,6 +18,8 @@ A spec is a plain dict (all keys optional, unknown keys ignored):
 - ``has_images`` / ``has_assets`` / ``has_resources``.
 - ``entries`` — exactly these entries (ids or slugs; one or a list): the entry a field names (``${entry.data.project}``).
 - ``asset`` / ``resource`` — linked to this asset / resource (id or slug): the entries that use a picture or a supplier.
+- ``referenced_by`` / ``not_referenced_by`` — ``{entry_type, field, fields?}``: an entry of that type (out of the Trash, narrowed by
+  ``fields``) holds this one's slug in its ``field`` (a ref field), or none does: the beats with lines, the actors cast in a story.
 - ``fields`` / ``data`` — exact match on the entry type's own fields ``{key: value}``; ``metadata`` the same on
   metadata. Typed-in text matches checkbox/number values. An empty value matches nothing.
 - ``where`` — ``[{"field": key, "op": op, "value": v}]``; ``field`` is a field key, or ``metadata.<key>``.
@@ -48,7 +50,7 @@ SCAN_CAP = 5000
 
 SPEC_KEYS = (
     *("entry_type", "entry_types", "status", "statuses", "text", "query", "tags", "collection", "collections"),
-    *("has_images", "has_assets", "has_resources", "entries", "asset", "resource"),
+    *("has_images", "has_assets", "has_resources", "entries", "asset", "resource", "referenced_by", "not_referenced_by"),
     *("fields", "data", "metadata", "where", "sort", "group_by"),
     *(f"{name}_{edge}" for name in ("created", "updated", "published") for edge in ("after", "before")),
 )
@@ -77,6 +79,8 @@ SPEC_KEY_NOTES: dict[str, str] = {
     "entries": "exactly these (ids or slugs, a list or comma-separated text), e.g. ${entry.data.project}",
     "asset": "uses this asset (id or slug)",
     "resource": "has this resource linked (id or slug)",
+    "referenced_by": "{entry_type, field, fields?}: an entry of that type (narrowed by fields) holds this one's slug in its field",
+    "not_referenced_by": "the opposite of referenced_by: no such entry holds this one's slug",
     "fields": "exact match on the entry type's own fields, {field_key: value}",
     "data": "same as `fields`",
     "metadata": "exact match on metadata_json keys, {key: value}",
@@ -270,7 +274,7 @@ def build(session, group_id, spec: dict | None, *, exclude_types: tuple[str, ...
 
 
 def _linked(session, group_id, q, spec: dict):
-    """entries / asset / resource: what an entry is linked to. A key present with nothing in it (a template that
+    """entries / asset / resource / referenced_by: what an entry is linked to. A key present with nothing in it (a template that
     resolved to nothing) or naming something that isn't there matches nothing, with a note — never everything."""
     from marvin.db.models.platform.assets import Assets
     from marvin.db.models.platform.entries import Entries
@@ -294,6 +298,45 @@ def _linked(session, group_id, q, spec: dict):
         if found is None:
             return q, f"no {key} {ref!r} in this workspace"
         q = q.filter(Entries.id.in_(session.query(link.entry_id).filter(getattr(link, fk) == found[0])))
+    for key, present in (("referenced_by", True), ("not_referenced_by", False)):
+        if key in spec:
+            pointing, note = _referencing(session, group_id, spec[key], key, session.get_bind().dialect.name)
+            if note:
+                return q, note
+            q = q.filter(Entries.slug.in_(pointing) if present else Entries.slug.notin_(pointing))
+    return q, None
+
+
+def _referencing(session, group_id, by, key: str, dialect: str):
+    """referenced_by / not_referenced_by: the slugs held in `field` by the entries of `entry_type` (out of the Trash, narrowed by `fields`),
+    as a subquery, so a list of beats keeps those with lines in one query. Empty values never widen it (a note instead), and a pointing
+    entry with nothing in its field is left out: NULL in a NOT IN would make it match nothing."""
+    from sqlalchemy.orm import aliased
+
+    from marvin.db.models.platform.entries import Entries
+    from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.services.automation.selector import json_field_equals
+
+    if not isinstance(by, dict) or not str(by.get("entry_type") or "").strip() or not str(by.get("field") or "").strip():
+        return None, f"{key} is {{entry_type, field, fields?}}: the entries whose field holds this one's slug"
+    fields = by.get("fields") or {}
+    if not isinstance(fields, dict):
+        return None, f"{key}.fields is {{field_key: value}}"
+    kind = str(by["entry_type"]).strip().lower()
+    spellings = {kind, kind.replace("_", "-"), kind.replace("-", "_")}
+    other = aliased(Entries)
+    held = other.data_json[str(by["field"]).strip()].as_string()
+    q = session.query(held).filter(
+        other.group_id == group_id,
+        other.status != "trashed",
+        other.entry_type_id.in_(session.query(EntryTypes.id).filter(EntryTypes.group_id == group_id, EntryTypes.slug.in_(spellings))),
+        held.isnot(None),
+        held != "",
+    )
+    for field_key, value in fields.items():
+        if value is None or value == "":
+            return None, f"{key}.fields.{field_key} has no value"
+        q = q.filter(json_field_equals(other.data_json, str(field_key), value, dialect))
     return q, None
 
 

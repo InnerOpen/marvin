@@ -56,6 +56,9 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   counted and compared (``gt gte eq lte lt``) to a number; ``step`` names the step that makes it, linked when it fails. All passing means
   the wizard is done.
 
+A pick, a list or a gallery may keep only the entries another type points at, or none does (``only_with`` / ``only_without``:
+``{entry_type, field, scope?}``, a beat that has lines; ``_check_only``).
+
 Any step that can come up with nothing to show (a pick, a list, a gallery, a run) says why and where to go: ``empty`` is its line
 (a plain default otherwise) and ``empty_next`` the place it points to, an earlier step or a path in the app (``_check_empty``). A run
 step whose ``requires`` is not met names the earlier step that fills the field (a form that shows it, an upload into it, a run whose
@@ -456,8 +459,31 @@ def _check_multiple(s: _Step) -> str | None:
     return s.sets_context() or s.refs_one(assets, "assets")
 
 
+def _check_only(s: _Step) -> str | None:
+    """``only_with`` / ``only_without`` on a pick, a list or a gallery: ``{entry_type, field, scope?}`` keeps only the entries that an
+    entry of ``entry_type`` points at (its ``field`` holds their slug: a beat that has lines), or only those none does. ``scope``
+    ({field: "${key}"}, as a pick's) narrows the pointing entries to earlier choices. The entries query does it in one go
+    (services/entries/query.py, referenced_by)."""
+    for key in ("only_with", "only_without"):
+        by = s.step.get(key)
+        if by is None:
+            continue
+        if s.step.get("assets") is not None:
+            return f"{s.label}: {key} is for entries; a step over assets lists files"
+        if not (isinstance(by, dict) and isinstance(by.get("entry_type"), str) and _SLUG.match(by["entry_type"]) and _is_field(by.get("field"))):
+            return f"{s.label}: {key} is {{entry_type, field, scope?}}: the entries whose field holds the slug of the ones kept"
+        if extra := sorted(set(by) - {"entry_type", "field", "scope"}):
+            return f"{s.label}: {key} takes entry_type, field and scope, not {', '.join(extra)}"
+        scope = by.get("scope")
+        if scope is not None and (not isinstance(scope, dict) or not all(_is_field(k) and isinstance(v, str) for k, v in scope.items())):
+            return f"{s.label}: {key}.scope maps field keys to values, as a pick's scope"
+        if problem := s.refs_one(scope, f"{key}.scope"):
+            return problem
+    return None
+
+
 def _check_choose(s: _Step) -> str | None:
-    if problem := _check_multiple(s):
+    if problem := _check_multiple(s) or _check_only(s):
         return problem
     if s.step.get("assets") is not None:  # a multi-select over assets: _check_multiple checked it all
         return None
@@ -553,6 +579,8 @@ def _check_scoped_list(s: _Step) -> str | None:
 
 
 def _check_list(s: _Step) -> str | None:
+    if problem := _check_only(s):
+        return problem
     parented = [k for k in ("parent", "parent_field") if s.step.get(k) is not None]
     if not parented:  # the entries of a type, narrowed by `where`, rather than those that belong to a parent
         return s.entry_type() or _keys(s.step.get("columns"), f"{s.label}: columns") or _check_scoped_list(s)
@@ -820,7 +848,7 @@ def _check_gallery(s: _Step) -> str | None:
         return problem
     if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
         return problem
-    if problem := _check_gallery_extras(s):
+    if problem := _check_gallery_extras(s) or _check_only(s):
         return problem
     if step.get("add") is not None and (
         (problem := _check_create(s, step["add"])) and (problem := problem.replace("create", "add")) or (problem := _check_add_extras(s, step["add"]))

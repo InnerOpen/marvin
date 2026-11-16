@@ -410,9 +410,21 @@ export function withoutEmpty(obj: Record<string, unknown> | undefined): Record<s
   return Object.fromEntries(Object.entries(obj ?? {}).filter(([, v]) => v !== "" && v != null));
 }
 
-/** The entries query behind a `choose` step: entries of its type, narrowed by the earlier choices in `scope`. */
+/** A step's `only_with` / `only_without` ({entry_type, field, scope?}) as the entries query's `referenced_by` / `not_referenced_by`:
+ *  only the entries that an entry of that type points at in its field (a beat that has lines), or that none does. The query does it in
+ *  one go, so a long list is not read a card at a time. A scope value that came out empty narrows nothing, as in a pick's `scope`. */
+export function referenceFilter(step: Step, ctx: Ctx): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, as] of [["only_with", "referenced_by"], ["only_without", "not_referenced_by"]] as const) {
+    const by = step[key] as { entry_type: string; field: string; scope?: Record<string, string> } | undefined;
+    if (by) out[as] = { entry_type: by.entry_type, field: by.field, fields: withoutEmpty(substitute(by.scope, ctx)) };
+  }
+  return out;
+}
+
+/** The entries query behind a `choose` step: entries of its type, narrowed by the earlier choices in `scope` (and `only_with`). */
 export function chooseSpec(step: Step, ctx: Ctx): Record<string, unknown> {
-  return { entry_type: step.entry_type, fields: withoutEmpty(substitute(step.scope, ctx)) };
+  return { entry_type: step.entry_type, fields: withoutEmpty(substitute(step.scope, ctx)), ...referenceFilter(step, ctx) };
 }
 
 /** What a created entry arrives holding: the step's `create.data` with the choices filled in. */
@@ -433,8 +445,8 @@ export function suppliedData(step: Step, ctx: Ctx): Record<string, unknown> {
 
 /** The entries query behind a `list` or `gallery` step: those whose `parent_field` holds the parent's slug (a gallery may be unscoped). */
 export function listSpec(step: Step, ctx: Ctx): Record<string, unknown> {
-  if (!step.parent_field) return { entry_type: step.entry_type };
-  return { entry_type: step.entry_type, fields: { [step.parent_field]: ctx[step.parent] } };
+  if (!step.parent_field) return { entry_type: step.entry_type, ...referenceFilter(step, ctx) };
+  return { entry_type: step.entry_type, fields: { [step.parent_field]: ctx[step.parent] }, ...referenceFilter(step, ctx) };
 }
 
 export interface AttachedAsset {

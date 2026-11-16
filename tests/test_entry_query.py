@@ -170,6 +170,47 @@ def test_find_entries_returns_groups_and_metadata(db_session, shop):
     assert out["groups"] == {"available": 5, "sold": 1} and out["count"] == 6 and out["returned"] == 2
 
 
+def _notes_about(db_session, gid, pointing: list[tuple[str, dict]]):
+    """Notes (another type) whose `work` field holds a work's slug: what referenced_by looks for."""
+    from marvin.db.models.platform import Entries, EntryTypes
+
+    note = EntryTypes(session=db_session, group_id=gid, name="Note", slug="note", schema_json={})
+    db_session.add(note)
+    db_session.flush()
+    for i, (status, data) in enumerate(pointing):
+        slug = f"n{i}-{gid.hex[:8]}"
+        db_session.add(Entries(session=db_session, group_id=gid, entry_type_id=note.id, title=f"n{i}", slug=slug, status=status, data_json=data))
+    db_session.commit()
+
+
+def test_referenced_by_keeps_the_entries_another_type_points_at(db_session, shop):
+    marker = shop.hex[:8]
+    _notes_about(
+        db_session,
+        shop,
+        [
+            ("draft", {"work": f"w0-{marker}", "kind": "praise"}),
+            ("draft", {"work": f"w0-{marker}", "kind": "doubt"}),  # two notes on one work: still one row
+            ("draft", {"work": f"w1-{marker}", "kind": "doubt"}),
+            ("trashed", {"work": f"w2-{marker}", "kind": "praise"}),  # the Trash points at nothing
+            ("draft", {"work": "", "kind": "praise"}),  # nothing in the field: never a NULL that empties NOT IN
+            ("draft", {"kind": "praise"}),
+        ],
+    )
+    by = {"entry_type": "note", "field": "work"}
+    assert sorted(_titles(run(db_session, shop, {"entry_type": "work", "referenced_by": by}))) == ["Between Lives", "Blue Hour"]
+    praised = run(db_session, shop, {"entry_type": "work", "referenced_by": {**by, "fields": {"kind": "praise"}}})
+    assert _titles(praised) == ["Blue Hour"] and praised.total == 1
+    without = run(db_session, shop, {"entry_type": "work", "not_referenced_by": by, "statuses": ["published"]})
+    assert sorted(_titles(without)) == ["Axis", "Gone", "Unpriced"]
+
+
+def test_a_referenced_by_that_is_not_one_selects_nothing(db_session, shop):
+    for bad in ({"entry_type": "note"}, "note", {"entry_type": "note", "field": "work", "fields": {"kind": ""}}):
+        result = run(db_session, shop, {"entry_type": "work", "not_referenced_by": bad})
+        assert result.rows == [] and "not_referenced_by" in (result.note or "")
+
+
 def test_spec_keys_are_exactly_what_the_query_reads():
     """SPEC_KEYS (and SPEC_KEY_NOTES, what the workflow authoring guide shows for each) are what a match or a
     drafted workflow's target is checked against, so they must name every key `build`/`run` read — and nothing
@@ -184,4 +225,5 @@ def test_spec_keys_are_exactly_what_the_query_reads():
     read |= set(re.findall(r'\("([a-z]+)", (?:Assets|Resources), ', source))
     read |= {f"{name}_{side}" for name in re.findall(r'\("([a-z]+)", Entries\.\w+_at\)', source) for side in ("after", "before")}
     read |= set(re.findall(r'\("([a-z]+)", Entries\.(?:metadata|data)_json\)', source))
+    read |= set(re.findall(r'\("([a-z_]+)", (?:True|False)\)', source))
     assert read == set(query.SPEC_KEYS) == set(query.SPEC_KEY_NOTES)

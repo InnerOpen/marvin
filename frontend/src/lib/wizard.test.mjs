@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom, addFormFields } from "./wizard.ts";
+import { referenceFilter, approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom, addFormFields } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -512,4 +512,22 @@ test("an add form keeps the type's order and groups unless the step lists its fi
   // A field the type does not have is passed over; a field already supplied (not asked) is not drawn.
   assert.deepEqual(keys(addFormFields(type, ["direction", "nope", "text"], ["direction", "text"])), ["direction", "text"]);
   assert.deepEqual(keys(addFormFields(type, undefined, ["caption"])), ["caption@How it is said"]);
+});
+
+test("only_with and only_without ask the entries query for what another type points at, or does not", () => {
+  const step = { kind: "choose", entry_type: "beat", scope: { story: "${story}" }, only_with: { entry_type: "speech-line", field: "beat" } };
+  assert.deepEqual(chooseSpec(step, { story: "tin" }), {
+    entry_type: "beat",
+    fields: { story: "tin" },
+    referenced_by: { entry_type: "speech-line", field: "beat", fields: {} },
+  });
+  const gallery = { kind: "gallery", entry_type: "actor", parent_field: "world", parent: "world", only_without: { entry_type: "cast-member", field: "actor", scope: { story: "${story}" } } };
+  assert.deepEqual(listSpec(gallery, { world: "w", story: "tin" }), {
+    entry_type: "actor",
+    fields: { world: "w" },
+    not_referenced_by: { entry_type: "cast-member", field: "actor", fields: { story: "tin" } },
+  });
+  // A choice that was skipped narrows nothing, as in scope; a step without them asks for nothing more.
+  assert.deepEqual(referenceFilter(gallery, { world: "w" }), { not_referenced_by: { entry_type: "cast-member", field: "actor", fields: {} } });
+  assert.deepEqual(referenceFilter({ kind: "list" }, {}), {});
 });
