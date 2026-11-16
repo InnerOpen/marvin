@@ -1491,6 +1491,10 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
             run_action=run_action,
             recorder=recorder,
             step_index=index,
+            # A person's answer starts the loop guard's hop count again: each round of a loop through it waits on someone (a Redo
+            # that a requeue workflow starts again is two workflows deep, and the second Redo was past the guard). An approval
+            # nobody answered (expired) goes on at the depth it was asked at.
+            fresh_chain=bool(row.decided_by) and row.status in ("approved", "denied", "stale"),
         )
 
 
@@ -1598,7 +1602,19 @@ def resumed_context(session, row, index: int, output: dict) -> dict:
 
 
 def _resume_turn(
-    session, row, automation, step: dict, output: dict, *, approved: bool, user_id, logger, run_action, recorder, step_index: int | None = None
+    session,
+    row,
+    automation,
+    step: dict,
+    output: dict,
+    *,
+    approved: bool,
+    user_id,
+    logger,
+    run_action,
+    recorder,
+    step_index: int | None = None,
+    fresh_chain: bool = False,
 ) -> str:
     """Go on from the step after a parked one (an approval or a wait), once it holds the entry's turn: the step's
     `output` joins the earlier steps', and the steps after it run in a new run. `step_index`: where the parked step
@@ -1613,6 +1629,8 @@ def _resume_turn(
 
     snap = row.snapshot or {}
     context = resumed_context(session, row, index, output)
+    if fresh_chain:
+        context["depth"] = 0
     event = context["event"]
     steps = context.pop("_steps")
     context["_approved"] = approved

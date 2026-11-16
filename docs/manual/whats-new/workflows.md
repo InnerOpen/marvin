@@ -933,6 +933,11 @@ They **Approve** or **Deny**, optionally with a note, and the run goes on from t
   buttons: the tap opens Approvals so the person looks first. Each approver's buttons work once, for 15 minutes, as
   them and at their role now; afterwards the run is decided in Approvals.
 - **Expired:** if nobody decides within `expires_in_hours`, the run goes on with `expired` (checked hourly).
+- **A person's answer starts a new chain.** Marvin stops a chain of workflows started by one another after three hops, so a
+  loop cannot run away. The run that goes on after a person decides counts its hops from zero again: a Keep / Redo
+  question whose Redo hands the entry to another workflow that starts it again can be answered Redo as many times as
+  someone likes (before, the second Redo of the same sound did nothing). Each round still waits on a person. An
+  approval nobody answered (`expired`) goes on as deep as it was asked.
 - **A picture's decision stays with it:** an approval step that shows a picture (`image`) writes its outcome onto that
   asset's metadata as `approval` — `decision` (`approved`, `denied`, `expired`, `stale`), who (`decided_by`,
   `decided_by_name`), `decided_at`, the `note`, and `approval_id` — when the picture is one of the workspace's assets.
