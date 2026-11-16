@@ -16,8 +16,10 @@ interface Props {
   /** Where the text can be changed, and the link's words. */
   href?: string;
   linkText?: string;
+  /** Show "The job's own text" here (off where the page holds the text itself, as a form's read-only field does). */
+  raw?: boolean;
 }
-const { text, label, failed = false, href, linkText } = Astro.props;
+const { text, label, failed = false, href, linkText, raw: showRaw = true } = Astro.props;
 const { blocks, raw, formatted } = jobResult(text, { failed });
 const ROWS_SHOWN = 6;
 const CAST_SHOWN = 4;
@@ -217,7 +219,7 @@ const TAGS = { bad: "Fix", warn: "Look", good: "Info", plain: "Info" } as const;
     })
   }
   {
-    formatted && (
+    showRaw && formatted && (
       <details class="jr-raw">
         <summary>The job's own text</summary>
         <pre>{raw}</pre>

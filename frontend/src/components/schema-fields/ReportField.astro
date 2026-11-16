@@ -1,0 +1,34 @@
+---
+/**
+ * A read-only text field that holds what a job wrote (a field declaring `display: "report"`, like a story's Fountain check or chapter plan):
+ * drawn as the guided steps draw a job's result (JobResult), with the text as written one click away, in the field's own read-only
+ * textarea, so the form sends it back unchanged as before.
+ */
+import JobResult from "../JobResult.astro";
+
+export interface Props {
+  field: { key: string; label: string; helpText?: string; rows?: number };
+  value: string;
+}
+
+const { field, value } = Astro.props;
+const inputId = `field-${field.key}`;
+---
+
+<div class="field-group report-field">
+  <JobResult label={field.label} text={value} raw={false} />
+  <details class="report-raw">
+    <summary>The job's own text</summary>
+    <textarea id={inputId} name={`dataJson.${field.key}`} readonly rows={field.rows || 8} class="field-textarea" aria-label={`${field.label}, as written`}>{value}</textarea>
+  </details>
+  {field.helpText && <p class="field-help">{field.helpText}</p>}
+</div>
+
+<style>
+  .report-field { display: grid; gap: 0.5rem; }
+  .report-field :global(.jr) { margin: 0; }
+  .report-raw > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+  .report-raw[open] > summary { margin-bottom: 8px; }
+  .report-raw textarea { box-sizing: border-box; width: 100%; padding: 0.75rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--ink); font: inherit; font-size: 0.875rem; line-height: 1.6; resize: vertical; }
+  .field-help { margin: 0; font-size: 0.75rem; color: var(--muted); }
+</style>

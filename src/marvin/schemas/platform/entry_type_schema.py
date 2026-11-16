@@ -72,6 +72,11 @@ class TextareaFieldSchema(BaseFieldSchema):
         default=None,
         description="What the text is, so the field can show it: `fountain` (a screenplay) adds a Preview tab that draws it as one.",
     )
+    display: Literal["report"] | None = Field(
+        default=None,
+        description="How a read-only field shows its text: `report` (what a job wrote, like a check or a plan) draws it as the guided steps "
+        "show a job's result, with the text as written one click away.",
+    )
 
 
 class MarkdownFieldSchema(BaseFieldSchema):
