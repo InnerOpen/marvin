@@ -27,10 +27,12 @@ A spec is a plain dict (all keys optional, unknown keys ignored):
   (`"$1,170"` → 1170), so they work on fields stored as text.
 - ``created_after``/``created_before``, ``updated_after``/``updated_before``, ``published_after``/``published_before``
   — ISO dates or datetimes (UTC), or relative to now: ``-7d``, ``-12h``, ``-2w``, ``now``, ``today``.
-- ``sort`` — ``{"by": "title"|"created_at"|"updated_at"|"published_at"|"position"|<field key>, "direction": "asc"|"desc", "then"?: <field key>}``;
+- ``sort`` — ``{"by": "title"|"created_at"|"updated_at"|"published_at"|"position"|<field key>, "direction": "asc"|"desc",
+  "then"?: <field key>|"created_at"|...}``;
   a field sorts numerically when its values are number-like, else as text read naturally (numbers inside it as numbers:
   "beat-1001" before "beat-10001"); empty values sort last. ``then`` orders the entries alike in ``by`` by a second field (a
-  story's lines: ``{"by": "beat", "then": "order"}``). ``position`` is the
+  story's lines: ``{"by": "beat", "then": "order"}``) or by one of its own columns (a story's takes: ``{"by": "line", "then":
+  "created_at"}``, line by line in the order recorded). ``position`` is the
   order of the one ``collection`` the spec names, as the site shows it (its order, then newest published).
 - ``group_by`` — a field key, or ``publish_status`` / ``entry_type``: counts per value over the whole match.
 
@@ -94,8 +96,8 @@ SPEC_KEY_NOTES: dict[str, str] = {
     "published_after": "a date, as created_after; also published_before",
     "published_before": "a date, as created_after",
     "sort": (
-        f"{{by: {' | '.join(COLUMN_SORTS)} | position | <field key>, direction: asc | desc, then?: <field key>}}; "
-        "position: the collection's order; then: a second field for ties"
+        f"{{by: {' | '.join(COLUMN_SORTS)} | position | <field key>, direction: asc | desc, then?: <field key> | created_at}}; "
+        "position: the collection's order; then: a second field (or column) for ties"
     ),
     "group_by": "a field key, publish_status or entry_type: counts per value",
 }
@@ -451,6 +453,14 @@ def _sort_by_field(entries: list, by: str, descending: bool) -> list:
     return with_value + without
 
 
+def _sort_by_column(entries: list, by: str, descending: bool) -> list:
+    """Entries by one of their own columns (title, created_at, ...), those without a value last. Stable, as ``_sort_by_field``."""
+    attr = "update_at" if by == "updated_at" else by
+    filled = [e for e in entries if getattr(e, attr) is not None]
+    filled.sort(key=lambda e: getattr(e, attr) if attr != "title" else (e.title or "").lower(), reverse=descending)
+    return filled + [e for e in entries if getattr(e, attr) is None]
+
+
 def run(session, group_id, spec: dict | None, *, limit: int | None = None, offset: int = 0, exclude_types: tuple[str, ...] = ()) -> EntryQueryResult:
     """Resolve a spec to rows (after offset/limit) plus the true total, groups and any note."""
     from marvin.db.models.platform.entries import Entries
@@ -514,13 +524,12 @@ def run(session, group_id, spec: dict | None, *, limit: int | None = None, offse
             matched.sort(key=lambda e: (e.published_at or oldest).replace(tzinfo=None), reverse=True)
             matched.sort(key=lambda e: positions.get(e.id, 0), reverse=descending)
         elif sort_by in COLUMN_SORTS:
-            attr = "update_at" if sort_by == "updated_at" else sort_by
-            filled = [e for e in matched if getattr(e, attr) is not None]
-            filled.sort(key=lambda e: getattr(e, attr) if attr != "title" else (e.title or "").lower(), reverse=descending)
-            matched = filled + [e for e in matched if getattr(e, attr) is None]
+            matched = _sort_by_column(matched, sort_by, descending)
         else:
             then = str((sort or {}).get("then") or "").strip()
-            if then and then not in COLUMN_SORTS and then != POSITION:  # a second field: alike in the first, by this (a beat's lines by order)
+            if then in COLUMN_SORTS:  # alike in the first field, in the order they were made (a line's takes)
+                matched = _sort_by_column(matched, then, descending)
+            elif then and then != POSITION:  # a second field: alike in the first, by this (a beat's lines by order)
                 matched = _sort_by_field(matched, then, descending)
             matched = _sort_by_field(matched, sort_by, descending)  # empty values last either way
 

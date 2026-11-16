@@ -720,6 +720,7 @@ def test_a_choose_step_may_sort_naturally():
         {"by": "order", "direction": "desc"},
         {"by": "title", "direction": "asc"},
         {"by": "beat", "then": "order"},
+        {"by": "line", "then": "created_at", "direction": "asc"},
     ],
 )
 def test_a_pick_a_list_and_a_gallery_may_name_their_own_order(sort):
@@ -740,6 +741,8 @@ def test_a_pick_a_list_and_a_gallery_may_name_their_own_order(sort):
         {"by": "created_at", "then": "order"},
         {"by": "beat", "then": "title"},
         {"by": "beat", "then": "Not A Key"},
+        {"by": "title", "then": "created_at"},
+        {"by": "created_at", "then": "updated_at"},
         {"direction": "asc"},
         ["number"],
     ],

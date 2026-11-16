@@ -455,8 +455,20 @@ export function chooseSpec(step: Step, ctx: Ctx): Record<string, unknown> {
 
 /** A step's own order (`sort: {by, direction?, then?}`: `created_at`, the order they were made, or a field, numbers as numbers: a
  *  beat's number; `then` a second field: a story's lines by beat, then order), asked of the entries query so a long list is cut after it is ordered. `"natural"` or none: by title. */
-export function ownSort(step: Step): { sort?: { by: string; direction: "asc" | "desc"; then?: string } } {
-  const sort = step.sort as { by?: unknown; direction?: unknown; then?: unknown } | string | undefined;
+export function ownSort(step: Step): { sort?: QuerySort } {
+  return sortOf(step.sort);
+}
+
+export interface QuerySort {
+  by: string;
+  direction: "asc" | "desc";
+  then?: string;
+}
+
+/** A named order (`{by, direction?, then?}`) as the entries query takes it, or nothing for `"natural"`, none or a malformed one (by
+ *  title). A guided step's `sort` and a related list's (`children` of a schema, related.ts) are the same thing, read here. */
+export function sortOf(raw: unknown): { sort?: QuerySort } {
+  const sort = raw as { by?: unknown; direction?: unknown; then?: unknown } | string | null | undefined;
   if (!sort || typeof sort !== "object" || typeof sort.by !== "string" || !sort.by) return {};
   const then = typeof sort.then === "string" && sort.then ? { then: sort.then } : {}; // a second field: a beat's lines by order
   return { sort: { by: sort.by, direction: sort.direction === "desc" ? "desc" : "asc", ...then } };

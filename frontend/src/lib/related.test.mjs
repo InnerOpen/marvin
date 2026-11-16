@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { childrenOf, firstShown, FETCHED, MAX_RELATED, SHOWN } from "./related.ts";
+import { childrenOf, FETCHED, firstShown, MAX_RELATED, relatedQuery, SHOWN } from "./related.ts";
 
 test("children: the well-formed lookups of a schema, in order, at most ten", () => {
   const schema = {
@@ -35,4 +35,40 @@ test("shown: the list starts where the entries start as people count them, not a
   assert.equal(shown[9].title, "Beat 10: words");
   assert.ok(FETCHED > SHOWN, "it asks for more than it shows, so it can choose");
   assert.deepEqual(firstShown([{ title: "B" }, { title: "A" }], 5).map((r) => r.title), ["A", "B"]);
+});
+
+// biome-ignore lint/suspicious/noThenProperty: the entries query's second sort key is named then
+const byBeatThenOrder = { by: "beat", then: "order", direction: "desc" };
+
+test("a lookup may name its own order, read as a guided step's: a malformed one is by title", () => {
+  const schema = {
+    children: [
+      { title: "Chapters", entry_type: "chapter", field: "story", sort: { by: "number" } },
+      { title: "Lines", entry_type: "speech-line", field: "story", sort: byBeatThenOrder },
+      { title: "Takes", entry_type: "take", field: "story", sort: "natural" },
+      { title: "Sounds", entry_type: "sound", field: "story", sort: { direction: "asc" } },
+    ],
+  };
+  assert.deepEqual(childrenOf(schema), [
+    { title: "Chapters", entry_type: "chapter", field: "story", sort: { by: "number", direction: "asc" } },
+    { title: "Lines", entry_type: "speech-line", field: "story", sort: { ...byBeatThenOrder } },
+    { title: "Takes", entry_type: "take", field: "story" },
+    { title: "Sounds", entry_type: "sound", field: "story" },
+  ]);
+});
+
+test("a lookup with its own order asks the server to order every match and takes the first rows as they come", () => {
+  const [chapters, takes] = childrenOf({
+    children: [
+      { title: "Chapters", entry_type: "chapter", field: "story", sort: { by: "number" } },
+      { title: "Takes", entry_type: "take", field: "line" },
+    ],
+  });
+  // Ordered by the server before the cut, so only the rows shown are fetched and the page keeps the order: Opening (1) first.
+  assert.deepEqual(relatedQuery(chapters, "tin"), { spec: { entry_type: "chapter", fields: { story: "tin" }, sort: { by: "number", direction: "asc" } }, limit: SHOWN });
+  const rows = [{ title: "Opening" }, { title: "Int. Attic" }, { title: "Ext. Road" }];
+  assert.deepEqual(firstShown(rows, SHOWN, chapters.sort).map((r) => r.title), ["Opening", "Int. Attic", "Ext. Road"]);
+  // Without one: as before, more than shown, by title.
+  assert.deepEqual(relatedQuery(takes, "tin-line-1001-1"), { spec: { entry_type: "take", fields: { line: "tin-line-1001-1" } }, limit: FETCHED });
+  assert.deepEqual(firstShown(rows, SHOWN, takes.sort).map((r) => r.title), ["Ext. Road", "Int. Attic", "Opening"]);
 });
