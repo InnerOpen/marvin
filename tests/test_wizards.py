@@ -680,6 +680,26 @@ def test_a_wizard_only_shows_approvals_of_workflows_its_own_package_brings():
         service.parse_manifest(manifest)
 
 
+def test_a_gallery_may_keep_only_the_cards_that_meet_a_where():
+    kind = {"field": "kind", "op": "eq", "value": "ambience"}
+    assert payload_problem(_takes_wizard(where=[kind]), "takes") is None
+    assert payload_problem(_takes_wizard(where=[kind, {"field": "line", "op": "eq", "value": "${line}"}]), "takes") is None
+
+
+@pytest.mark.parametrize(
+    ("where", "words"),
+    [
+        ([], "where is a list of 1 to 6 conditions"),
+        ({"field": "kind"}, "where is a list of 1 to 6 conditions"),
+        ([{"field": "Not A Key", "op": "eq", "value": "x"}], "on a field key"),
+        ([{"field": "kind", "op": "like", "value": "x"}], "op is one of"),
+        ([{"field": "kind", "op": "eq", "value": "${nope}"}], "nope"),
+    ],
+)
+def test_a_wrong_gallery_where_says_what_is_wrong(where, words):
+    assert words in (payload_problem(_takes_wizard(where=where), "takes") or "")
+
+
 def test_a_gallery_may_offer_to_trash_what_it_lists():
     assert payload_problem(_takes_wizard(trash=True), "takes") is None
 
@@ -690,6 +710,46 @@ def test_a_choose_step_may_sort_naturally():
     assert payload_problem(payload, "narrate") is None
     payload["steps"][1]["sort"] = "newest"
     assert "sort is natural" in (payload_problem(payload, "narrate") or "")
+
+
+@pytest.mark.parametrize(
+    "sort",
+    [
+        {"by": "created_at"},
+        {"by": "number"},
+        {"by": "order", "direction": "desc"},
+        {"by": "title", "direction": "asc"},
+        {"by": "beat", "then": "order"},
+    ],
+)
+def test_a_pick_a_list_and_a_gallery_may_name_their_own_order(sort):
+    assert payload_problem(_beats_wizard(sort=sort), "beats") is None  # a pick: beats by number
+    listed = _beats_wizard()
+    listed["steps"][2]["sort"] = sort  # a list with a parent: lines by their order
+    assert payload_problem(listed, "beats") is None
+    assert payload_problem(_takes_wizard(sort=sort), "takes") is None  # a gallery
+
+
+@pytest.mark.parametrize(
+    "sort",
+    [
+        "newest",
+        {"by": "Not A Key"},
+        {"by": ""},
+        {"by": "number", "direction": "up"},
+        {"by": "created_at", "then": "order"},
+        {"by": "beat", "then": "title"},
+        {"by": "beat", "then": "Not A Key"},
+        {"direction": "asc"},
+        ["number"],
+    ],
+)
+def test_a_wrong_own_order_says_what_it_may_be(sort):
+    for payload, slug in ((_beats_wizard(sort=sort), "beats"), (_takes_wizard(sort=sort), "takes")):
+        assert "sort is natural" in (payload_problem(payload, slug) or ""), (sort, slug)
+    listed = _beats_wizard()
+    listed["steps"][2]["sort"] = sort
+    assert "sort is natural" in (payload_problem(listed, "beats") or "")
 
 
 def test_a_gallery_card_may_carry_actions_that_set_fields_and_sorts_naturally():

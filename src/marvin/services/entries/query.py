@@ -27,8 +27,10 @@ A spec is a plain dict (all keys optional, unknown keys ignored):
   (`"$1,170"` → 1170), so they work on fields stored as text.
 - ``created_after``/``created_before``, ``updated_after``/``updated_before``, ``published_after``/``published_before``
   — ISO dates or datetimes (UTC), or relative to now: ``-7d``, ``-12h``, ``-2w``, ``now``, ``today``.
-- ``sort`` — ``{"by": "title"|"created_at"|"updated_at"|"published_at"|"position"|<field key>, "direction": "asc"|"desc"}``;
-  a field sorts numerically when its values are number-like, else as text; empty values sort last. ``position`` is the
+- ``sort`` — ``{"by": "title"|"created_at"|"updated_at"|"published_at"|"position"|<field key>, "direction": "asc"|"desc", "then"?: <field key>}``;
+  a field sorts numerically when its values are number-like, else as text read naturally (numbers inside it as numbers:
+  "beat-1001" before "beat-10001"); empty values sort last. ``then`` orders the entries alike in ``by`` by a second field (a
+  story's lines: ``{"by": "beat", "then": "order"}``). ``position`` is the
   order of the one ``collection`` the spec names, as the site shows it (its order, then newest published).
 - ``group_by`` — a field key, or ``publish_status`` / ``entry_type``: counts per value over the whole match.
 
@@ -91,7 +93,10 @@ SPEC_KEY_NOTES: dict[str, str] = {
     "updated_before": "a date, as created_after",
     "published_after": "a date, as created_after; also published_before",
     "published_before": "a date, as created_after",
-    "sort": f"{{by: {' | '.join(COLUMN_SORTS)} | position | <field key>, direction: asc | desc}}; position: the collection's order",
+    "sort": (
+        f"{{by: {' | '.join(COLUMN_SORTS)} | position | <field key>, direction: asc | desc, then?: <field key>}}; "
+        "position: the collection's order; then: a second field for ties"
+    ),
     "group_by": "a field key, publish_status or entry_type: counts per value",
 }
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
@@ -414,13 +419,36 @@ def _equal(actual, expected) -> bool:
     return actual == _like(actual, expected)
 
 
+_DIGITS = re.compile(r"(\d+)")
+_LEADING_NUMBER = re.compile(r"^\s*[$€£]?\s*[-+]?\d")  # "45", "$1,170", "8 x 10"; not "tin-beat-1001", whose "-1001" is no number
+
+
+def _sorts_as_number(value) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) or bool(_LEADING_NUMBER.match(str(value)))
+
+
 def _sort_key(entry, by: str, numeric: bool):
+    """A field's value to sort by: a number when every value is number-like, else text as people read it, numbers inside it as
+    numbers ("beat-1001" before "beat-10001"; a beat's lines by their beat's slug, then their order)."""
     value = _field_value(entry, by)
     empty = value is None or value == ""
     if numeric:
         n = number_like(value)
         return (n is None, n or 0.0)
-    return (empty, str(value).lower() if not empty else "")
+    if empty:
+        return (True, ())
+    return (False, tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in _DIGITS.split(str(value).lower()) if part))
+
+
+def _sort_by_field(entries: list, by: str, descending: bool) -> list:
+    """Entries by one field (numbers as numbers, text naturally), those without a value last either way. Stable: entries alike keep
+    the order they came in, so a second key is sorted first."""
+    present = [v for v in (_field_value(e, by) for e in entries) if v is not None and v != ""]
+    numeric = bool(present) and all(_sorts_as_number(v) for v in present)
+    with_value = [e for e in entries if _field_value(e, by) not in (None, "")]
+    without = [e for e in entries if _field_value(e, by) in (None, "")]
+    with_value.sort(key=lambda e: _sort_key(e, by, numeric), reverse=descending)
+    return with_value + without
 
 
 def run(session, group_id, spec: dict | None, *, limit: int | None = None, offset: int = 0, exclude_types: tuple[str, ...] = ()) -> EntryQueryResult:
@@ -491,13 +519,10 @@ def run(session, group_id, spec: dict | None, *, limit: int | None = None, offse
             filled.sort(key=lambda e: getattr(e, attr) if attr != "title" else (e.title or "").lower(), reverse=descending)
             matched = filled + [e for e in matched if getattr(e, attr) is None]
         else:
-            values = [_field_value(e, sort_by) for e in matched]
-            present = [v for v in values if v is not None and v != ""]
-            numeric = bool(present) and all(number_like(v) is not None for v in present)
-            with_value = [e for e in matched if _field_value(e, sort_by) not in (None, "")]
-            without = [e for e in matched if _field_value(e, sort_by) in (None, "")]
-            with_value.sort(key=lambda e: _sort_key(e, sort_by, numeric), reverse=descending)
-            matched = with_value + without  # empty values last either way
+            then = str((sort or {}).get("then") or "").strip()
+            if then and then not in COLUMN_SORTS and then != POSITION:  # a second field: alike in the first, by this (a beat's lines by order)
+                matched = _sort_by_field(matched, then, descending)
+            matched = _sort_by_field(matched, sort_by, descending)  # empty values last either way
 
     total = len(matched)
     start = max(0, offset)

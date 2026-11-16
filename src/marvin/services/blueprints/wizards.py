@@ -33,7 +33,8 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   ``or_where``) instead, as cards a page at a time with a search, and edits only its ``columns`` on them (and ``check``); it makes
   nothing. ``flags``, ``check``, ``facet``, ``fill``, ``picture`` and ``subtitle`` are in ``_check_scoped_list``.
 - ``gallery``: the entries of ``entry_type`` as picture cards (a troupe of actors, a story's cast), scoped like a list (``parent_field`` holds
-  context key ``parent``; both or neither). ``picture`` is the asset field shown, ``audio`` an asset field played from the card, ``subtitle``
+  context key ``parent``; both or neither), and ``where`` (plain conditions, as a scoped list's) keeps only the cards that meet it: a
+  story's sounds of kind ambience. ``picture`` is the asset field shown, ``audio`` an asset field played from the card, ``subtitle``
   a field under the name, ``badges`` fields shown as pills. Actions, each optional: ``add`` ({fields, data?}: a form), ``upload`` ({field,
   accept?, template?}: a file becomes a new entry, named for the file; ``accept`` is the file input's accept, ``image/*`` unless it says,
   e.g., ``audio/*``; ``template``, one of the type's templates, makes the entry with it, picture preset and all), ``generate`` ({workflow,
@@ -490,8 +491,8 @@ def _check_choose(s: _Step) -> str | None:
         return problem
     if s.step.get("assets") is not None:  # a multi-select over assets: _check_multiple checked it all
         return None
-    if s.step.get("sort") not in (None, "natural"):
-        return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
+    if problem := _check_sort(s):
+        return problem
     scope, create = s.step.get("scope"), s.step.get("create")
     if scope is not None and (not isinstance(scope, dict) or not all(_is_field(k) for k in scope)):
         return f"{s.label}: scope must map field keys to values"
@@ -581,6 +582,29 @@ def _check_scoped_list(s: _Step) -> str | None:
     return _check_subtitle(s)
 
 
+ENTRY_SORTS = ("title", "created_at", "updated_at")  # the entries query's own columns a step may order by, besides a field
+
+
+def _check_sort(s: _Step) -> str | None:
+    """``sort`` on a pick, a list with a parent or a gallery: ``natural`` (by title, 2 before 10, the default) or ``{by, direction?,
+    then?}``, asked of the entries query: ``created_at`` (the order they were made: a script's scenes as they first appear) or a field
+    key, numbers as numbers (a beat's number, a line's order); ``direction`` asc (the default) or desc; ``then``, with a field ``by``,
+    a second field for those alike in the first (a story's lines: by beat, then order)."""
+    sort = s.step.get("sort")
+    if sort in (None, "natural"):
+        return None
+    if isinstance(sort, dict) and not (set(sort) - {"by", "direction", "then"}) and sort.get("direction", "asc") in ("asc", "desc"):
+        by, then = sort.get("by"), sort.get("then")
+        if then is None and isinstance(by, str) and (by in ENTRY_SORTS or _is_field(by)):
+            return None
+        if _is_field(by) and by not in ENTRY_SORTS and _is_field(then) and then not in ENTRY_SORTS:  # a story's lines: by beat, then order
+            return None
+    return (
+        f"{s.label}: sort is natural (by title, 2 before 10), or {{by, direction?, then?}}: by {', '.join(ENTRY_SORTS)} or a field key "
+        "(numbers as numbers, text as people read it), direction asc or desc, then a second field key for those alike in the first"
+    )
+
+
 def _check_list(s: _Step) -> str | None:
     if problem := _check_only(s):
         return problem
@@ -591,6 +615,8 @@ def _check_list(s: _Step) -> str | None:
         return f"{s.label} needs parent_field, the field that holds the parent's slug"
     if extra := [k for k in SCOPED_LIST_KEYS if s.step.get(k) is not None]:
         return f"{s.label}: {', '.join(extra)} is for a list without a parent; a parent's list is all on one page with its Add row"
+    if problem := _check_sort(s):
+        return problem
     return (
         s.entry_type()
         or s.ctx("parent")
@@ -799,8 +825,8 @@ def _check_highlight(s: _Step, hi: Any) -> str | None:
 def _check_gallery_extras(s: _Step) -> str | None:
     """A gallery's presentation and card options: sort, card_actions, trash, layout, name, highlight, added, working."""
     step = s.step
-    if step.get("sort") not in (None, "natural"):
-        return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
+    if problem := _check_sort(s):
+        return problem
     if (acts := step.get("card_actions")) is not None:
         if not isinstance(acts, list) or not 1 <= len(acts) <= 4:
             return f"{s.label}: card_actions is a list of 1 to 4 buttons shown on each card"
@@ -872,6 +898,8 @@ def _check_gallery(s: _Step) -> str | None:
     if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
         return problem
     if problem := _check_gallery_extras(s) or _check_only(s):
+        return problem
+    if step.get("where") is not None and (problem := _check_conditions(s, step["where"], "where", refs=True)):
         return problem
     if step.get("add") is not None and (
         (problem := _check_create(s, step["add"])) and (problem := problem.replace("create", "add")) or (problem := _check_add_extras(s, step["add"]))
