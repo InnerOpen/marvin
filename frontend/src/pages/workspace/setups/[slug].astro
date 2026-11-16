@@ -29,8 +29,8 @@ import { jobLead, leftOutLine, listLine, nothingLine, previewCards, previewLine,
 import { runStep } from "@/lib/wizardActions";
 import { emptyLine, emptyLinks, lackingOf, narrowedBy } from "@/lib/wizardEmpty";
 import { type Paid, type Sent, paidCardsLine, paidConfirm, paidFields, paidLine, paidOf, paidSent } from "@/lib/wizardPaid";
-import { getRunState, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
-import { runKey, runLine } from "@/lib/runState";
+import { getRunState, latestRunAbout, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
+import { busyLabel, runKey, runLine, shownRun } from "@/lib/runState";
 import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, optionsOf, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
 import { isScopedList } from "@/lib/wizardScopedList";
 import { lastPage, rangeText, readPage } from "@/lib/pagination";
@@ -144,6 +144,13 @@ let runNow: WorkflowRunState | null = null; // where the run in the address stan
 const runOf = async (workflow: string | string[]): Promise<WorkflowRunState | null> => {
   const found = runId && authToken ? await getRunState(runId, authToken).catch(() => null) : null;
   return found && [workflow].flat().includes(found.automationSlug) ? found : null;
+};
+/** The latest run of a workflow about the first entry a step hands it: a reload, another tab or a return to the step still sees a run that
+ *  is going (shownRun), and the button says "again" once one has run. */
+let latestRun: WorkflowRunState | null = null;
+const latestAbout = async (workflow: string, keys: string[]): Promise<WorkflowRunState | null> => {
+  const entry = keys.map((k) => entries[k]).find(Boolean);
+  return entry && authToken ? await latestRunAbout(workflow, entry.id, authToken).catch(() => null) : null;
 };
 const askedBy = (run: WorkflowRunState | null): string[] => (run?.waitingOn ?? []).map((w) => w.approvalId);
 let pendingCards: ApprovalCard[] = [];
@@ -337,7 +344,8 @@ if (authToken && def && step) {
       flow = await workflowState(genStep.workflow, authToken);
       const about = inputKeys(genStep).map((k) => entries[k]).filter((e): e is Row => !!e).map((e) => e.id);
       watchIds = about;
-      runNow = await runOf(genStep.workflow);
+      latestRun = await latestAbout(genStep.workflow, inputKeys(genStep));
+      runNow = shownRun(await runOf(genStep.workflow), latestRun);
       const all = await approvalCards(genStep.workflow, authToken);
       pendingCards = approvalsOf(all.pending, genStep.workflow, about, askedBy(runNow));
       decidedCards = approvalsOf(all.decided, genStep.workflow, about).slice(0, MAX_DECIDED_SHOWN);
@@ -354,7 +362,8 @@ if (authToken && def && step) {
         lacking = lackingOf(def, ctx, step, slug, { label, entry: needed });
       }
     }
-    runNow = await runOf(step.workflow);
+    latestRun = await latestAbout(step.workflow, inputKeys(step));
+    runNow = shownRun(await runOf(step.workflow), latestRun);
     runPaid = paidOf(step.paid);
     runSent = await sentBy(runPaid);
     const reasons = (step.left_out ?? []) as { label: string; where: SelectionCondition[] }[];
@@ -934,11 +943,11 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             {runNow.job && <a href={`/workspace/entries/${runNow.job.entryId}`}>Open the job</a>}
                           </p>
                         )}
-                        <form method="post" class="form">
+                        <form method="post" class="form" data-once>
                           <input type="hidden" name="action" value="generate" />
                           {step.generate.prompt && <label class="col"><span>{step.generate.prompt.label}</span><textarea class="input" rows="3" name="prompt" required /></label>}
                           {runPaid && <WizardPaid line={paidLine(runPaid, step.generate.prompt ? "what you type here" : "your request")} sent={runSent} />}
-                          <div class="actions"><button class="button" type="submit" disabled={!flow.canRun}>{step.generate.button ?? "Generate"}</button></div>
+                          <div class="actions"><button class="button" type="submit" disabled={!flow.canRun || running}>{running && runNow ? <span>{busyLabel(runNow)}{runNow.startedAt && <Fragment> (started <time data-local datetime={runNow.startedAt}>{String(runNow.startedAt).slice(11, 16)} UTC</time>)</Fragment>}</span> : (step.generate.button ?? "Generate")}</button></div>
                         </form>
                       </div>
                     </details>
@@ -1031,12 +1040,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               )}
 
               {/* The run's button is a form of its own, under its paid notice when it has one: never among another form's buttons. */}
-              <form method="post" class="form">
+              <form method="post" class="form" data-once>
                 {runPaid && !nothingToDo && <WizardPaid line={paidLine(runPaid)} sent={runSent} />}
                 <div class="actions">
                   {!nothingToDo && (
-                    <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking || (!!previewed && (running || !!previewed.problem))}>
-                      {picked ? runButton(step.button, picked.selection.count) : pendingCards.length > 0 || decidedCards.length > 0 || runNow ? `${runButton(step.button, null)} again` : runButton(step.button, null)}
+                    <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking || running || (!!previewed && !!previewed.problem)}>
+                      {running && runNow ? <span>{busyLabel(runNow)}{runNow.startedAt && <Fragment> (started <time data-local datetime={runNow.startedAt}>{String(runNow.startedAt).slice(11, 16)} UTC</time>)</Fragment>}</span> : picked ? runButton(step.button, picked.selection.count) : pendingCards.length > 0 || decidedCards.length > 0 || runNow || latestRun ? `${runButton(step.button, null)} again` : runButton(step.button, null)}
                     </button>
                   )}
                   {continues && <a class:list={["button", !(nothingToDo && !running) && runSays && runSays.tone !== "ok" && "secondary"]} href={stepHref(slug, ctx, after!.id)}>Continue →</a>}
@@ -1278,7 +1287,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
     });
   });
   import { listApprovals } from "@/lib/api/workflowApprovals";
-  import { approvalsOf, workingChanged } from "@/lib/wizard";
+  import { RUN_PARAM, approvalsOf, workingChanged } from "@/lib/wizard";
   import { fetchApi } from "@/lib/api/client";
   import { getRunState } from "@/lib/api/workflowRuns";
   import { runKey, runLine } from "@/lib/runState";
@@ -1344,7 +1353,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
       if (Date.now() - began > RUN_WATCH_MS) return;
       try {
         const now = await getRunState(live.dataset.run ?? "");
-        if (!now || runKey(now) !== live.dataset.key) return location.reload();
+        if (!now || runKey(now) !== live.dataset.key) {
+          // Drawn again with the run in the address, so one found by its entry (a reload, another tab) still shows how it ended.
+          const next = new URL(location.href);
+          next.searchParams.set(RUN_PARAM, live.dataset.run ?? "");
+          return location.replace(next);
+        }
         if (words) words.textContent = runLine(now).text;
       } catch {
         /* a failed poll just tries again */
@@ -1352,6 +1366,22 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
       window.setTimeout(follow, RUN_POLL_MS);
     };
     window.setTimeout(follow, RUN_POLL_MS);
+  }
+  // A button that starts something is pressed once: a second click while the page posts would start a second run (a second job, a second
+  // sound). Checked after the page's own submit handlers (a confirm said no, a length still being measured): only a post that goes is held.
+  document.querySelectorAll<HTMLFormElement>("form[data-once], form.gact, form.approval, #add-form").forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      if (e.defaultPrevented) return;
+      // After the post has taken the pressed button's name and value: a button disabled first would not be sent.
+      window.setTimeout(() => {
+        for (const el of Array.from(form.elements)) if (el instanceof HTMLButtonElement && el.type === "submit") el.disabled = true;
+      });
+    });
+  });
+  // When a run started, in the reader's own clock (the server only knows UTC).
+  for (const el of Array.from(document.querySelectorAll<HTMLTimeElement>("time[data-local]"))) {
+    const at = new Date(el.dateTime);
+    if (!Number.isNaN(at.getTime())) el.textContent = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 </script>
 

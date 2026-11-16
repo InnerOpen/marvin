@@ -53,6 +53,8 @@ from marvin.schemas.group.automation import (
 from marvin.services.automation.approvals import MAX_ENTRY_FILTER
 from marvin.services.automation.workflows import WorkflowError, create_workflow, delete_workflow, update_workflow
 
+MAX_RUNS_ABOUT = 5  # GET /runs: the latest runs of a workflow about one entry
+
 router = APIRouter(prefix="/automations", route_class=MarvinCrudRoute)
 
 
@@ -444,6 +446,26 @@ class AutomationsController(BaseUserController):
         listed = approvals.decided if state == "decided" else approvals.pending
         rows = listed(self.session, self.group_id, role, automation=automation, entry_ids=entry_id, execution_id=execution_id)
         return [_approval_read(self.session, row) for row in rows]
+
+    @router.get("/runs", response_model=list[WorkflowRunState], summary="The latest runs of a workflow about an entry")
+    def list_runs_about(
+        self,
+        automation: str,
+        entry_id: UUID4,
+        limit: int = Query(1, ge=1, le=MAX_RUNS_ABOUT),
+    ) -> list[WorkflowRunState]:
+        """The latest runs of the workflow `automation` (its slug) that acted on the entry `entry_id`, newest first, each
+        as `GET /runs/{execution_id}` says it: a page that did not start a run (a reload, another tab) finds out whether
+        one is still going (starting, running, waiting or working) before it offers to start another. Only first runs (one
+        that went on after an approval is followed from it); a run with no step recorded yet is not listed. EDITOR and
+        above."""
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import require_workspace_role
+        from marvin.services.automation.run_state import runs_about
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        found = runs_about(self.session, self.group_id, automation, entry_id, role=_rank(self.user, self.group_id), limit=limit)
+        return [WorkflowRunState.model_validate(r) for r in found]
 
     @router.get("/runs/{execution_id}", response_model=WorkflowRunState, summary="Where a workflow run stands")
     def get_run_state(self, execution_id: UUID4) -> WorkflowRunState:

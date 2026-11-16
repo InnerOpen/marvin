@@ -46,3 +46,15 @@ export function runLine(run: WorkflowRunState): RunLine {
 export function runKey(run: WorkflowRunState): string {
   return [run.state, ...run.waitingOn.map((w) => w.approvalId)].join("|");
 }
+
+/** The run a run step shows: the one in the address (this page started it, or answered its question), else the latest run of its workflow
+ *  about the step's entry while that one is still going, so a reload, another tab or a return to the step never offers to start a second.
+ *  A finished run that is not in the address is not shown: it may be another step's (Preview and Make share one workflow). */
+export function shownRun(inAddress: WorkflowRunState | null, latest: WorkflowRunState | null): WorkflowRunState | null {
+  return inAddress ?? (latest && !runLine(latest).over ? latest : null);
+}
+
+/** The run button's words while its run is still going, with when it started (the page puts the time in the reader's own clock). */
+export function busyLabel(run: WorkflowRunState): string {
+  return run.state === "waiting" ? "Waiting for your answer…" : "Working…";
+}

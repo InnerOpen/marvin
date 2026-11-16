@@ -237,3 +237,45 @@ def test_a_step_output_too_large_to_keep_still_names_its_entry():
     kept = _truncate({"entry_id": "e-1", "merged": {"body": "x" * 9000}})
 
     assert kept["_truncated"] is True and kept["entry_id"] == "e-1"
+
+
+# ── the latest runs about an entry (a page that did not start the run) ─────────────────────────────────────────────
+
+
+def _about(automation: str, entry_id, **params) -> list[dict]:
+    res = TestClient(app).get(RUNS, params={"automation": automation, "entry_id": str(entry_id), **params})
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_the_latest_run_about_an_entry_is_found_by_its_workflow_and_entry(ws):  # noqa: F811
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+
+    first, entry = _ran(ws, [TOUCH])
+    other = _campaign(ws)
+    _fire(ws, "entry_published", _entry_doc(other), entity=other.id, entity_type="entry")
+    _fire(ws, "entry_published", _entry_doc(entry), entity=entry.id, entity_type="entry")
+    query = ws.session.query(AutomationExecutionModel).filter_by(group_id=ws.gid, automation_slug="note-it")
+    runs = query.order_by(AutomationExecutionModel.started_at).all()
+    _sign_in(ws.gid, WorkspaceRole.EDITOR)
+
+    (latest,) = _about("note-it", entry.id)
+    assert latest["executionId"] == str(runs[-1].id) and latest["state"] == "done"
+    assert [r["executionId"] for r in _about("note-it", entry.id, limit=5)] == [str(runs[-1].id), str(first.id)]
+    assert _about("note-it", _campaign(ws).id) == [] and _about("someone-else", entry.id) == []
+
+
+def test_a_run_waiting_on_a_person_is_listed_once_as_waiting(ws):  # noqa: F811
+    run = _parked(ws)
+    entry_id = run.actions[0].target_entity_id
+
+    (found,) = _about("sign-off", entry_id, limit=5)
+
+    assert found["executionId"] == str(run.id) and found["state"] == "waiting"
+
+
+def test_an_author_may_not_list_runs_about_an_entry(ws):  # noqa: F811
+    run, entry = _ran(ws, [TOUCH])
+    _sign_in(ws.gid, WorkspaceRole.AUTHOR)
+
+    assert TestClient(app).get(RUNS, params={"automation": "note-it", "entry_id": str(entry.id)}).status_code == 403
