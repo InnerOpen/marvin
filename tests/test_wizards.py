@@ -714,7 +714,13 @@ def test_a_choose_step_may_sort_naturally():
 
 @pytest.mark.parametrize(
     "sort",
-    [{"by": "created_at"}, {"by": "number"}, {"by": "order", "direction": "desc"}, {"by": "title", "direction": "asc"}],
+    [
+        {"by": "created_at"},
+        {"by": "number"},
+        {"by": "order", "direction": "desc"},
+        {"by": "title", "direction": "asc"},
+        {"by": "beat", "then": "order"},
+    ],
 )
 def test_a_pick_a_list_and_a_gallery_may_name_their_own_order(sort):
     assert payload_problem(_beats_wizard(sort=sort), "beats") is None  # a pick: beats by number
@@ -731,7 +737,9 @@ def test_a_pick_a_list_and_a_gallery_may_name_their_own_order(sort):
         {"by": "Not A Key"},
         {"by": ""},
         {"by": "number", "direction": "up"},
-        {"by": "number", "then": "order"},
+        {"by": "created_at", "then": "order"},
+        {"by": "beat", "then": "title"},
+        {"by": "beat", "then": "Not A Key"},
         {"direction": "asc"},
         ["number"],
     ],

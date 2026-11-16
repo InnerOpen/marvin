@@ -227,3 +227,26 @@ def test_spec_keys_are_exactly_what_the_query_reads():
     read |= set(re.findall(r'\("([a-z]+)", Entries\.(?:metadata|data)_json\)', source))
     read |= set(re.findall(r'\("([a-z_]+)", (?:True|False)\)', source))
     assert read == set(query.SPEC_KEYS) == set(query.SPEC_KEY_NOTES)
+
+
+def test_a_text_field_sorts_as_people_read_it_and_then_breaks_ties(db_session, shop):
+    # A story's lines: by their beat's slug (numbers inside as numbers: beat-1001 before beat-10001, not as text), then by their order.
+    from marvin.db.models.platform import Entries, EntryTypes
+
+    line = EntryTypes(session=db_session, group_id=shop, name="Line", slug="line", schema_json={})
+    db_session.add(line)
+    db_session.flush()
+    rows = [("c", "tin-beat-10001", 1), ("b", "tin-beat-1001", 2), ("a", "tin-beat-1001", 1), ("d", "tin-beat-10001", 10), ("e", "tin-beat-10001", 2)]
+    for title, beat, order in rows:
+        data = {"beat": beat, "order": order}
+        db_session.add(
+            Entries(session=db_session, group_id=shop, entry_type_id=line.id, title=title, slug=f"l-{title}-{shop.hex[:6]}", data_json=data)
+        )
+    db_session.add(Entries(session=db_session, group_id=shop, entry_type_id=line.id, title="z", slug=f"l-z-{shop.hex[:6]}", data_json={"order": 1}))
+    db_session.commit()
+
+    by_beat = run(db_session, shop, {"entry_type": "line", "sort": {"by": "beat", "then": "order"}})
+    assert _titles(by_beat) == ["a", "b", "c", "e", "d", "z"]  # 10 after 2; a line with no beat last
+    assert _titles(run(db_session, shop, {"entry_type": "line", "sort": {"by": "beat"}}))[:2] in (["a", "b"], ["b", "a"])
+    backwards = run(db_session, shop, {"entry_type": "line", "sort": {"by": "beat", "then": "order", "direction": "desc"}})
+    assert _titles(backwards) == ["d", "e", "c", "b", "a", "z"]

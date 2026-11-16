@@ -548,6 +548,8 @@ test("a step's own order is asked of the entries query; natural or none leaves t
   assert.deepEqual(listSpec(scenes, { story: "tin" }), { entry_type: "scene", fields: { story: "tin" }, sort: { by: "created_at", direction: "asc" } });
   const beats = { kind: "choose", entry_type: "beat", scope: { story: "${story}" }, sort: { by: "number", direction: "desc" } };
   assert.deepEqual(chooseSpec(beats, { story: "tin" }), { entry_type: "beat", fields: { story: "tin" }, sort: { by: "number", direction: "desc" } });
+  const lines = { kind: "choose", entry_type: "speech-line", scope: { story: "${story}" }, sort: { by: "beat", then: "order" } };
+  assert.deepEqual(chooseSpec(lines, { story: "tin" }).sort, { by: "beat", direction: "asc", then: "order" });
   assert.deepEqual(ownSort({ ...beats, sort: "natural" }), {});
   assert.deepEqual(ownSort({ ...beats, sort: undefined }), {});
   assert.deepEqual(ownSort({ ...beats, sort: { by: "" } }), {});

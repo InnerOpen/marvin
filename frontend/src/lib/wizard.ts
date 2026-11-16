@@ -453,12 +453,13 @@ export function chooseSpec(step: Step, ctx: Ctx): Record<string, unknown> {
   return { entry_type: step.entry_type, fields: withoutEmpty(substitute(step.scope, ctx)), ...referenceFilter(step, ctx), ...ownSort(step) };
 }
 
-/** A step's own order (`sort: {by, direction?}`: `created_at`, the order they were made, or a field, numbers as numbers: a beat's
- *  number, a line's order), asked of the entries query so a long list is cut after it is ordered. `"natural"` or none: by title. */
-export function ownSort(step: Step): { sort?: { by: string; direction: "asc" | "desc" } } {
-  const sort = step.sort as { by?: unknown; direction?: unknown } | string | undefined;
+/** A step's own order (`sort: {by, direction?, then?}`: `created_at`, the order they were made, or a field, numbers as numbers: a
+ *  beat's number; `then` a second field: a story's lines by beat, then order), asked of the entries query so a long list is cut after it is ordered. `"natural"` or none: by title. */
+export function ownSort(step: Step): { sort?: { by: string; direction: "asc" | "desc"; then?: string } } {
+  const sort = step.sort as { by?: unknown; direction?: unknown; then?: unknown } | string | undefined;
   if (!sort || typeof sort !== "object" || typeof sort.by !== "string" || !sort.by) return {};
-  return { sort: { by: sort.by, direction: sort.direction === "desc" ? "desc" : "asc" } };
+  const then = typeof sort.then === "string" && sort.then ? { then: sort.then } : {}; // a second field: a beat's lines by order
+  return { sort: { by: sort.by, direction: sort.direction === "desc" ? "desc" : "asc", ...then } };
 }
 
 /** What a created entry arrives holding: the step's `create.data` with the choices filled in. */
