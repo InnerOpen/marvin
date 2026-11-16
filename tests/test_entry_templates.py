@@ -5,6 +5,7 @@ The workspace here is committed for real (execute commits per chunk, and the HTT
 each test makes its own and purges it afterwards, as tests/test_bulk_delete.py does.
 """
 
+import threading
 import time
 import uuid
 from types import SimpleNamespace
@@ -381,9 +382,13 @@ class TestBulk:
         ids = ws.pictures(n)
         engine = ws.session.get_bind()
         seen: list = []
+        mine = threading.get_ident()
 
         def count(conn, cursor, statement, *args):
-            seen.append(statement)
+            # Only this thread's statements: the engine is shared, so a background writer (the event bus, a worker) running
+            # while the entries are made would add one to a run and make two equal runs differ by one (seen once in CI, 24 vs 25).
+            if threading.get_ident() == mine:
+                seen.append(statement)
 
         sa.event.listen(engine, "before_cursor_execute", count)
         try:
