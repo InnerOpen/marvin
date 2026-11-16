@@ -641,6 +641,37 @@ def test_approve_is_a_short_list_of_workflow_slugs(approve):
     assert "approve is a list" in (payload_problem(payload, "takes") or "")
 
 
+def test_a_run_step_may_name_the_choice_that_runs_it_again():
+    payload = copy.deepcopy(WIZARD)
+    payload["steps"][4]["redo"] = "Redo"
+    assert payload_problem(payload, "narrate") is None
+
+
+@pytest.mark.parametrize("redo", ["", " ", 3, "x" * 41])
+def test_a_wrong_redo_says_what_it_is(redo):
+    assert "redo is the label" in (_bad(lambda p: p["steps"][4].update(redo=redo)) or "")
+
+
+def test_a_gallerys_generate_has_no_redo_of_its_own():
+    assert "redo is the label" in (_bad(lambda p: p["steps"][7]["generate"].update(redo="Redo")) or "")
+
+
+def test_a_gallery_may_name_the_statuses_that_mean_a_card_is_being_made():
+    payload = _add_wizard()
+    payload["steps"][1]["working"] = {"queued": "Starting: it asks you here first…", "redo": "Making it again in two minutes…"}
+    assert payload_problem(payload, "takes") is None
+
+
+@pytest.mark.parametrize(
+    "working",
+    [{}, ["queued"], {"Not A Status": "x"}, {"queued": " "}, {"queued": 3}, {"queued": "x" * 161}, {f"s{n}": "x" for n in range(7)}],
+)
+def test_a_wrong_working_says_what_it_is(working):
+    payload = _add_wizard()
+    payload["steps"][1]["working"] = working
+    assert "working maps up to 6 status values" in (payload_problem(payload, "takes") or "")
+
+
 def test_a_wizard_only_shows_approvals_of_workflows_its_own_package_brings():
     manifest = _with_wizard()
     wizard = next(b for b in manifest["blueprints"] if b["kind"] == "wizard")

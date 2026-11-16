@@ -1,7 +1,7 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
 import { acceptKind, assetIsKind, isKind } from "./acceptKind";
-import { type Ctx, type Step, StepError, type WizardDefinition, assetSpec, entryTypeOf, joinList, listOf, mergePicks, picksAssets, picksProblem, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
+import { type Ctx, type Step, StepError, type WizardDefinition, assetSpec, entryTypeOf, joinList, listOf, mergePicks, picksAssets, picksProblem, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater, workingOf } from "./wizard";
 import { changedKeys, editableKeys, listParams, readListState, scopedSpecs, isScopedList, unionRows, SCOPED_PER } from "./wizardScopedList";
 import { fieldTypeMap } from "./schemaFields";
 import { PAGE_SIZES } from "./pagination";
@@ -296,7 +296,8 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
       attached[chosen.file.field] = held;
     }
     await setData(entry, { ...attached, ...chosen.set }, authToken);
-    return { ctx, stay: true, notice: "changed" };
+    // A button that sets the card being made (Make this one: queued) says nothing up top: the card itself says where it stands.
+    return workingOf(step, { ...entry.dataJson, ...chosen.set }) ? { ctx, stay: true } : { ctx, stay: true, notice: "changed" };
   }
   if (action === "trash") {
     // Only what this gallery lists can be trashed from it: the id is checked against its own entries, never taken on trust.

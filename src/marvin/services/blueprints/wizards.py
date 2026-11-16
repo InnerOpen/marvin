@@ -90,6 +90,8 @@ _ACCEPT_PART = r"(?:[a-z]+/(?:\*|[a-z0-9.+-]+)|\.[a-z0-9]{1,10})"
 _ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IGNORECASE)
 MAX_SHOWN = 8
 MAX_PREFILL = 12
+MAX_WORKING = 6  # status values a gallery watches as being made (queued, redo)
+MAX_WORKING_LINE = 160  # a card's line while it is being made
 MAX_APPROVE = 6  # workflows whose approvals a gallery shows: a sound's two ways to be made, by its button and by its event, and music's
 MAX_SCRIPT = 3  # fields of the add form the recorder shows to read from
 RESERVED_KEYS = ("step", "notice", "run", "page", "per", "q", "filter", "facet")  # address parameters the page uses for itself: never a context key
@@ -623,6 +625,9 @@ def _check_run(s: _Step, *, listed: bool = True) -> str | None:
         if listed:
             return f"{s.label}: button may only use ${{count}}, how many it lists"
         return f"{s.label}: button is plain text (no ${{count}}: it lists nothing)"
+    redo = s.step.get("redo")
+    if redo is not None and not (listed and isinstance(redo, str) and redo.strip() and len(redo) <= MAX_CHOICE_LABEL):
+        return f"{s.label}: redo is the label of the workflow's own choice (Redo) that runs the step again, at most {MAX_CHOICE_LABEL} characters"
     requires = s.step.get("requires")
     if requires is not None:
         if not isinstance(requires, dict) or not _is_field(requires.get("field")):
@@ -632,6 +637,7 @@ def _check_run(s: _Step, *, listed: bool = True) -> str | None:
     return s.refs_known(inputs, "inputs") or _check_paid(s, s.step.get("paid"), "paid", chosen=True) or (_check_run_list(s) if listed else None)
 
 
+MAX_CHOICE_LABEL = 40  # a run step's `redo`: an approval choice's label, as the workflow writes it
 MAX_LEFT_OUT = 4
 MAX_RUN_BADGES = 2
 MAX_PAID_FIELDS = 6
@@ -791,7 +797,7 @@ def _check_highlight(s: _Step, hi: Any) -> str | None:
 
 
 def _check_gallery_extras(s: _Step) -> str | None:
-    """A gallery's presentation and card options: sort, card_actions, trash, layout, name, highlight, added."""
+    """A gallery's presentation and card options: sort, card_actions, trash, layout, name, highlight, added, working."""
     step = s.step
     if step.get("sort") not in (None, "natural"):
         return f"{s.label}: sort is natural (by title, 2 before 10) or left out"
@@ -832,6 +838,22 @@ def _check_gallery_extras(s: _Step) -> str | None:
         return problem
     if step.get("added") is not None and not (isinstance(step["added"], str) and step["added"].strip()):
         return f"{s.label}: added is the line shown after one is added or uploaded"
+    return _check_working(s, step.get("working"))
+
+
+def _check_working(s: _Step, working) -> str | None:
+    """A gallery's `working`: the card status values that mean something is being made for it, each with the line the card shows meanwhile."""
+    if working is None:
+        return None
+    if not (
+        isinstance(working, dict)
+        and 1 <= len(working) <= MAX_WORKING
+        and all(isinstance(k, str) and _SLUG.match(k) and isinstance(v, str) and v.strip() and len(v) <= MAX_WORKING_LINE for k, v in working.items())
+    ):
+        return (
+            f"{s.label}: working maps up to {MAX_WORKING} status values (queued, redo) to the line a card shows while it is being made "
+            f"(at most {MAX_WORKING_LINE} characters)"
+        )
     return None
 
 

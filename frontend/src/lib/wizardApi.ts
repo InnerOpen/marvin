@@ -203,12 +203,24 @@ export async function approvalCards(workflow: string, authToken: string): Promis
   return { pending, decided };
 }
 
-/** Decide a waiting approval as the signed-in person (the server checks their role against the step's). */
-export async function decideApproval(id: string, decision: "approve" | "deny", choice: string | null, note: string | null, authToken: string): Promise<void> {
+/** Decide a waiting approval as the signed-in person (the server checks their role against the step's). Returns the run that asked, which
+ *  goes on from here, and its workflow (null when the server does not say). */
+export async function decideApproval(
+  id: string,
+  decision: "approve" | "deny",
+  choice: string | null,
+  note: string | null,
+  authToken: string,
+): Promise<{ run: string | null; workflow: string | null }> {
   const body: Record<string, unknown> = { decision };
   if (choice) body.choice = choice;
   if (note) body.note = note;
-  await fetchApi(`/api/automations/approvals/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(body) }, authToken);
+  const decided = await fetchApi<{ executionId?: string | null; automationSlug?: string | null }>(
+    `/api/automations/approvals/${encodeURIComponent(id)}/decide`,
+    { method: "POST", body: JSON.stringify(body) },
+    authToken,
+  );
+  return { run: decided?.executionId ?? null, workflow: decided?.automationSlug ?? null };
 }
 
 /** What a run step's workflow would act on if it ran now (its first step's `collect`, run by the server with these inputs), with the

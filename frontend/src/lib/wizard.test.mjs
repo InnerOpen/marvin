@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { referenceFilter, approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom, addFormFields } from "./wizard.ts";
+import { referenceFilter, approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom, addFormFields, workingOf, workingChanged, WORKING_LINE } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -530,4 +530,24 @@ test("only_with and only_without ask the entries query for what another type poi
   // A choice that was skipped narrows nothing, as in scope; a step without them asks for nothing more.
   assert.deepEqual(referenceFilter(gallery, { world: "w" }), { not_referenced_by: { entry_type: "cast-member", field: "actor", fields: {} } });
   assert.deepEqual(referenceFilter({ kind: "list" }, {}), {});
+});
+
+test("a gallery card is being made while its status is one the step names, and says the step's words", () => {
+  const step = { id: "found", kind: "gallery", title: "Sounds", approve: ["take-sound"], working: { queued: "Starting…", redo: "Making it again in two minutes…" } };
+  assert.equal(workingOf(step, { status: "redo" }), "Making it again in two minutes…");
+  assert.equal(workingOf(step, { status: "recorded" }), null);
+  assert.equal(workingOf(step, {}), null);
+});
+
+test("a gallery that shows approvals and names no working statuses watches queued, as it did", () => {
+  assert.equal(workingOf({ id: "t", kind: "gallery", title: "Takes", approve: ["make-take"] }, { status: "queued" }), WORKING_LINE);
+  assert.equal(workingOf({ id: "t", kind: "gallery", title: "Takes" }, { status: "queued" }), null);
+  assert.equal(workingOf({ id: "t", kind: "gallery", title: "T", working: { constructor: "x" } }, { status: "toString" }), null);
+});
+
+test("the page is drawn again when a card it drew as being made has moved on or is gone", () => {
+  const drawn = { a: "queued", b: "redo" };
+  assert.equal(workingChanged(drawn, [{ id: "a", dataJson: { status: "queued" } }, { id: "b", dataJson: { status: "redo" } }]), false);
+  assert.equal(workingChanged(drawn, [{ id: "a", dataJson: { status: "recorded" } }, { id: "b", dataJson: { status: "redo" } }]), true);
+  assert.equal(workingChanged(drawn, [{ id: "a", dataJson: { status: "queued" } }]), true);
 });
