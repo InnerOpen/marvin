@@ -476,6 +476,18 @@ class ApprovalPostPreview(_MarvinModel):
     results: list[CaptionCheckResult] = Field(default_factory=list)
 
 
+class WorkflowApprovalField(_MarvinModel):
+    """A box the approver may change before approving (an approval step's `fields`), with the text it was asked with."""
+
+    name: str
+    label: str
+    type: str = "textarea"  # text | textarea
+    value: str = ""  # the text as asked: what the steps after it use unless it is changed
+    max_length: int
+    required: bool = True
+    carried: bool = False  # it starts from the text a Redo with changes left, not from the step's own
+
+
 class WorkflowApprovalRead(_MarvinModel):
     """A workflow run waiting at an Approval step (or the decision on one)."""
 
@@ -500,6 +512,10 @@ class WorkflowApprovalRead(_MarvinModel):
     choice: str | None = None  # the one picked, once approved
     image_url: str | None = None  # a picture shown with the question
     post_preview: ApprovalPostPreview | None = None  # pending, and the next step posts: what it will post, checked per network
+    fields: list[WorkflowApprovalField] | None = None  # boxes to change before approving (a prompt), as asked
+    field_values: dict[str, str] | None = None  # once approved: the boxes' text as approved
+    edited_fields: list[str] = Field(default_factory=list)  # once approved: the boxes changed
+    redo: str | None = None  # the choice that makes it again: picked with a changed box, the next try starts from it
 
 
 class WorkflowRunWaitingOn(_MarvinModel):
@@ -592,3 +608,6 @@ class WorkflowApprovalDecision(_MarvinModel):
     decision: Literal["approve", "deny"]
     note: str | None = None
     choice: str | int | None = None  # an approval with choices: the label (or its index) to approve with
+    fields: dict[str, str] | None = Field(default=None, max_length=8)
+    """An approval with boxes (`fields` on the card): {name: text} to approve with; a box left out, or unchanged, keeps
+    the text it was asked with. Ignored on a deny."""

@@ -4,6 +4,8 @@
  * the context is the set of choices so far, so a wizard keeps nothing of its own and can be left and picked up again.
  */
 
+import type { ApprovalField } from "./approvalFields";
+
 export type Ctx = Record<string, string>;
 
 export interface When {
@@ -662,6 +664,11 @@ export interface ApprovalCard {
   createdAt?: string | null;
   decidedAt?: string | null;
   decidedByName?: string | null;
+  /** Boxes to change before approving (the prompt a paid step sends), as asked (lib/approvalFields.ts). */
+  fields?: ApprovalField[] | null;
+  /** The choice that makes it again: picked with a changed box, the next try starts from the change. */
+  redo?: string | null;
+  editedFields?: string[];
 }
 
 /** The approvals that belong to this step: raised by its workflow, about one of the entries it was given. With no entries given, only

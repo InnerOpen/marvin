@@ -26,6 +26,8 @@ test("a derivative and a generated image have a lineage; an original has none", 
       workflowId: null,
       entryId: null,
       prompt: null,
+      approvedBy: null,
+      promptEdited: false,
     },
   );
   assert.deepEqual(
@@ -47,8 +49,17 @@ test("a derivative and a generated image have a lineage; an original has none", 
       workflowId: "4fbdc1cf-749d-461c-9ada-6576e116b9c4",
       entryId: "5d63bcdb-a0c7-4114-a723-eac545832148",
       prompt: "A harbour",
+      approvedBy: null,
+      promptEdited: false,
     },
   );
+  const sound = lineageOf({
+    generated_by: "elevenlabs.sound_effect",
+    text: "Knife on a board",
+    approved_by_name: "Jared",
+    prompt_edited: true,
+  });
+  assert.deepEqual([sound.prompt, sound.approvedBy, sound.promptEdited], ["Knife on a board", "Jared", true]); // a sound's prompt is its text
   assert.equal(lineageOf({ credit: "Ada" }), null);
   assert.equal(lineageOf(null), null);
 });
@@ -78,7 +89,14 @@ test("metaLink: the entry a picture was made for and the workflow that made it o
 
 test("decisionOf: what an approval said about the picture, or null when never asked", () => {
   assert.deepEqual(
-    decisionOf({ approval: { decision: "denied", decided_by_name: "Jared", decided_at: "2026-10-14T18:00:00+00:00", note: "too dark" } }),
+    decisionOf({
+      approval: {
+        decision: "denied",
+        decided_by_name: "Jared",
+        decided_at: "2026-10-14T18:00:00+00:00",
+        note: "too dark",
+      },
+    }),
     { decision: "denied", label: "Denied", by: "Jared", at: "2026-10-14T18:00:00+00:00", note: "too dark" },
   );
   assert.equal(decisionOf({ approval: { decision: "approved", note: "" } }).note, null);

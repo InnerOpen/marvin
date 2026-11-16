@@ -39,6 +39,7 @@ if (lineage && authToken) {
     {lineage.workflow && (
       <> · by the workflow <a href={lineage.workflowId ? workflowHref(lineage.workflowId) : "/automation/workflows"}>{lineage.workflow}</a></>
     )}
+    {lineage.approvedBy && <> · approved by {lineage.approvedBy}{lineage.promptEdited && ", who changed the prompt"}</>}
     {lineage.prompt && <span class="asset-lineage-prompt">Prompt: “{lineage.prompt}”</span>}
   </p>
 )}

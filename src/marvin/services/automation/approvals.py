@@ -11,10 +11,17 @@ expired — and ``engine.resume_after_approval`` runs the steps after it in a ne
 ``${steps.<id>.output.decision}``. Approving an entry that has changed since it was asked settles it ``stale`` instead:
 what the person approved isn't what would be acted on. A run resumed ``approved`` may call integration actions that
 require approval (actions/integration.py); nothing else may.
+
+**Boxes to change.** A step's `fields` are asked with their text (``starting_fields``: the step's `value`, or what a
+Redo with changes carried to this entry). Approving may change them (``decide(fields=…)``, checked by ``edited_values``:
+a person's text is data, never a Secret reference or a template); the run reads ``fields.<name>`` (``field_output``).
+Approved with the step's `redo` choice, the changed boxes are kept on the row (``carry``) for the next approval on the
+same entry with a box of that name, which takes them once.
 """
 
 from __future__ import annotations
 
+import re
 import threading
 from datetime import UTC, datetime, timedelta
 
@@ -31,6 +38,11 @@ MAX_DECIDED_LIST = 50
 MAX_MESSAGE = 600  # characters of the question a card, a list row and a push show
 MAX_DETAIL = 20_000  # characters kept folded away under it (a whole image or voice prompt)
 MAX_ENTRY_FILTER = 50  # entries one list request may name (the route refuses more)
+MAX_FIELD_TEXT = 20_000  # characters of one box (schemas/group/automation_definition.MAX_FIELD_TEXT)
+CARRY_LOOKBACK = 20  # the latest approvals of an entry searched for a Redo's carried text
+# What a changed box may not bring in that its text did not have: a Secret reference (an integration argument whose
+# whole value is {{NAME}} is replaced by that Secret) or a template (never resolved again, but never meant either).
+_INJECTED = re.compile(r"\{\{\s*[A-Za-z0-9_]+\s*\}\}|\$\{")
 
 
 class ApprovalError(Exception):
@@ -96,6 +108,8 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
         expires_at=_now() + timedelta(hours=int(spec.get("expires_in_hours") or approval_default_hours(session, group_id))),
         choices=spec.get("choices") or None,
         image_url=spec.get("image") or None,
+        fields=spec.get("fields") or None,
+        carry={"redo": spec["redo"]} if spec.get("redo") else None,
     )
     session.add(row)
     session.commit()
@@ -139,13 +153,16 @@ def decide(
     role: int,
     note: str | None = None,
     choice=None,
+    fields: dict | None = None,
     logger=None,
     background: bool = False,
 ) -> WorkflowApprovalModel:
     """A person approves or denies; the run goes on. An approval with choices is approved with one of them (`choice`:
-    its label, or its index). Raises ApprovalError (404 unknown, 403 not theirs to decide, 409 already decided or
-    expired, 422 no such choice). With `background` the decision is recorded and returned at once and the run goes on
-    behind it (a request handler passes it: the steps after an approval can take a minute, an image say)."""
+    its label, or its index); one with boxes may be approved with them changed (`fields`: {name: text}, see
+    `edited_values`; a deny ignores them). Raises ApprovalError (404 unknown, 403 not theirs to decide, 409 already
+    decided or expired, 422 no such choice or a box that can't be taken). With `background` the decision is recorded
+    and returned at once and the run goes on behind it (a request handler passes it: the steps after an approval can
+    take a minute, an image say)."""
     row = session.get(WorkflowApprovalModel, approval_id)
     if row is None or str(row.group_id) != str(group_id):
         raise ApprovalError("No such approval.", 404)
@@ -159,9 +176,145 @@ def decide(
         raise ApprovalError("Decide approve or deny.", 422)
     outcome = DECISIONS[decision]
     picked = _picked(row, choice) if outcome == "approved" else None
+    changed = edited_values(row.fields, fields) if outcome == "approved" else {}
     if outcome == "approved" and row.entry_id and row.entry_version and _entry_version(session, row.entry_id) != row.entry_version:
         outcome = "stale"  # the entry changed after it was asked: nothing approved is applied to other content
-    return settle(session, row, outcome, user_id=user_id, note=note, choice=picked, logger=logger, background=background)
+    return settle(session, row, outcome, user_id=user_id, note=note, choice=picked, changed=changed, logger=logger, background=background)
+
+
+def _as_text(value) -> str:
+    """A box's text as a template resolved it: nothing is empty, a list or an object is its JSON (as embedding it in a
+    longer template would give), anything else its string. Never stripped: the box holds what the step would send."""
+    import json
+
+    if value is None:
+        return ""
+    if isinstance(value, dict | list):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
+def starting_fields(session, group_id, entry_id, raw, context: dict, *, take: bool) -> list[dict]:
+    """An approval step's boxes as they are asked: each `value` resolved, or — when a Redo with changes carried a text
+    of that name to this entry — that text instead. `take` (a real run) removes what it used, so it is used once."""
+    from .actions.base import AutomationActionError
+    from .matcher import interpolate
+
+    specs = [f.model_dump() if hasattr(f, "model_dump") else dict(f) for f in raw or [] if f]
+    if not specs:
+        return []
+    carried = _carried(session, group_id, entry_id, {str(f.get("name")) for f in specs}, take=take)
+    fields = []
+    for spec in specs:
+        name = str(spec.get("name") or "")
+        value = carried[name] if name in carried else _as_text(interpolate(spec.get("value") or "", context))
+        if len(value) > MAX_FIELD_TEXT:
+            raise AutomationActionError(f"the approval's field “{name}” is {len(value):,} characters: at most {MAX_FIELD_TEXT:,} can be shown")
+        fields.append(
+            {
+                "name": name,
+                "label": str(spec.get("label") or name.replace("_", " ").capitalize()),
+                "type": spec.get("type") or "textarea",
+                "value": value,
+                "max_length": int(spec.get("max_length") or MAX_FIELD_TEXT),
+                "required": spec.get("required", True) is not False,
+                **({"carried": True} if name in carried else {}),
+            }
+        )
+    return fields
+
+
+def _carried(session, group_id, entry_id, names: set[str], *, take: bool) -> dict:
+    """The texts a Redo with changes left for these box names on this entry: from its latest approvals, newest first.
+    `take` removes them from where they were left (committed), so the next try is the only one to start from them."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    if not entry_id or not names:
+        return {}
+    rows = (
+        session.query(WorkflowApprovalModel)
+        .filter(WorkflowApprovalModel.group_id == group_id, WorkflowApprovalModel.entry_id == entry_id, WorkflowApprovalModel.status == "approved")
+        .order_by(WorkflowApprovalModel.decided_at.desc().nullslast())
+        .limit(CARRY_LOOKBACK)
+        .all()
+    )
+    found: dict = {}
+    for row in rows:
+        left = dict((row.carry or {}).get("values") or {})
+        hits = {k: v for k, v in left.items() if k in names and k not in found and isinstance(v, str)}
+        if not hits:
+            continue
+        found.update(hits)
+        if take:
+            rest = {k: v for k, v in left.items() if k not in hits}
+            row.carry = {**(row.carry or {}), "values": rest} if rest else {k: v for k, v in (row.carry or {}).items() if k != "values"}
+            flag_modified(row, "carry")
+    if take and found:
+        session.commit()
+    return found
+
+
+def auto_approved(fields: list[dict], choices: list[str] | None) -> dict:
+    """The output of an approval whose `approved_when` holds: approved without asking (nobody decided), its boxes as
+    they are. Not a person's approval: it lets nothing run that needs one (the run is not marked approved)."""
+    out: dict = {"decision": "approved", "approved": True, "auto": True, "decided_by": None, "decided_by_name": None, "note": None}
+    if choices:
+        out.update({"choice": None, "choice_index": None})
+    if fields:
+        out.update({"fields": {f["name"]: f["value"] for f in fields}, "edited": []})
+    return out
+
+
+def _normal(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def edited_values(fields: list[dict] | None, given: dict | None) -> dict:
+    """The boxes a person changed, checked: {name: text} for each whose text differs from what it was asked with. Line
+    ends are taken as \\n, and a text that only lost the one leading line break a browser's text box drops is the same
+    text. Raises ApprovalError (422): an unknown box, a non-text, too long, blank when required, or a change that brings
+    in a Secret reference ({{NAME}}) or a template (${…}) the asked text did not have."""
+    if not given:
+        return {}
+    if not isinstance(given, dict):
+        raise ApprovalError("fields must be an object of {name: text}.", 422)
+    asked = {f["name"]: f for f in fields or []}
+    changed: dict = {}
+    for name, raw in given.items():
+        field = asked.get(name)
+        if field is None:
+            raise ApprovalError(f"This approval has no field “{name}”." if asked else "This approval has no fields to change.", 422)
+        if not isinstance(raw, str):
+            raise ApprovalError(f"“{field['label']}” must be text.", 422)
+        before, text = field.get("value") or "", _normal(raw)
+        if text == before or "\n" + text == before or text == _normal(before):
+            continue
+        if len(text) > int(field.get("max_length") or MAX_FIELD_TEXT):
+            raise ApprovalError(f"“{field['label']}” is {len(text):,} characters: at most {int(field.get('max_length') or MAX_FIELD_TEXT):,}.", 422)
+        if field.get("required", True) and not text.strip():
+            raise ApprovalError(f"“{field['label']}” can't be empty.", 422)
+        brought = {m.group(0) for m in _INJECTED.finditer(text)} - {m.group(0) for m in _INJECTED.finditer(before)}
+        if brought:
+            raise ApprovalError(f"“{field['label']}” can't take {sorted(brought)[0]}: a changed text is sent as written, never filled in.", 422)
+        changed[name] = text
+    return changed
+
+
+def field_output(row: WorkflowApprovalModel) -> dict:
+    """What the steps after a settled approval with boxes read: `fields` {name: text} — as approved, else as asked (a
+    deny, an expiry, a stale approval) — and `edited` (the names changed)."""
+    if not row.fields:
+        return {}
+    asked = {f["name"]: f.get("value", "") for f in row.fields}
+    approved = row.field_values if row.status == "approved" and isinstance(row.field_values, dict) else {}
+    return {"fields": {**asked, **{k: v for k, v in approved.items() if k in asked}}, "edited": edited_names(row)}
+
+
+def edited_names(row: WorkflowApprovalModel) -> list[str]:
+    """The boxes a person changed on approving (none unless approved)."""
+    if not row.fields or row.status != "approved" or not isinstance(row.field_values, dict):
+        return []
+    return [f["name"] for f in row.fields if f["name"] in row.field_values and row.field_values[f["name"]] != f.get("value", "")]
 
 
 def _picked(row: WorkflowApprovalModel, choice) -> str | None:
@@ -186,17 +339,23 @@ def settle(
     user_id=None,
     note: str | None = None,
     choice: str | None = None,
+    changed: dict | None = None,
     logger=None,
     background: bool = False,
 ) -> WorkflowApprovalModel:
     """Record the outcome — claimed first, so two deciders can't both resume it — and resume the run (on a thread of
-    its own when `background`, so the caller isn't held while the steps after the approval run)."""
+    its own when `background`, so the caller isn't held while the steps after the approval run). `changed`: the boxes
+    an approval was approved with changed ({name: text}); kept only when it was approved."""
     from sqlalchemy import update
 
+    values: dict = {"status": outcome, "decided_by": user_id, "decided_at": _now(), "note": (note or "").strip() or None, "choice": choice}
+    if row.fields and outcome == "approved":
+        values["field_values"] = {**{f["name"]: f.get("value", "") for f in row.fields}, **(changed or {})}
+        redo = (row.carry or {}).get("redo")
+        if redo and choice == redo and changed:  # a Redo with changes: the next try starts from them
+            values["carry"] = {"redo": redo, "values": dict(changed)}
     claimed = session.execute(
-        update(WorkflowApprovalModel)
-        .where(WorkflowApprovalModel.id == row.id, WorkflowApprovalModel.status == APPROVAL_PENDING)
-        .values(status=outcome, decided_by=user_id, decided_at=_now(), note=(note or "").strip() or None, choice=choice)
+        update(WorkflowApprovalModel).where(WorkflowApprovalModel.id == row.id, WorkflowApprovalModel.status == APPROVAL_PENDING).values(**values)
     ).rowcount
     session.commit()
     if not claimed:
@@ -348,6 +507,7 @@ def _emit(session, row: WorkflowApprovalModel, automation, event_type, *, user_i
             expires_at=row.expires_at.isoformat(),
             note=row.note,
             image_url=row.image_url,
+            edited_fields=edited_names(row) or None,
         )
         verb = "is waiting for approval" if event_type == EventTypes.workflow_approval_requested else f"approval: {row.status}"
         EventBusService(bg_tasks=None).dispatch(

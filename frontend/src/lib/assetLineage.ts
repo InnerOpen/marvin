@@ -12,7 +12,11 @@ export interface Lineage {
   workflowId: string | null;
   /** The entry the picture was made for (`made_for_entry`). */
   entryId: string | null;
+  /** What it was made from: an image's `prompt`, a sound's or a voice line's `text`. */
   prompt: string | null;
+  /** Who approved the run that made it (an approval step before the paid step), and whether they changed the prompt. */
+  approvedBy: string | null;
+  promptEdited: boolean;
 }
 
 const ARG_WORDS: Record<string, (v: string) => string> = {
@@ -73,7 +77,9 @@ export function lineageOf(metadata: unknown): Lineage | null {
     workflow: text("workflow_slug"),
     workflowId: id("workflow_id"),
     entryId: id("made_for_entry"),
-    prompt: text("prompt"),
+    prompt: text("prompt") ?? text("text"),
+    approvedBy: text("approved_by_name"),
+    promptEdited: m.prompt_edited === true,
   };
 }
 

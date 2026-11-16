@@ -211,10 +211,12 @@ export async function decideApproval(
   choice: string | null,
   note: string | null,
   authToken: string,
+  fields: Record<string, string> = {},
 ): Promise<{ run: string | null; workflow: string | null }> {
   const body: Record<string, unknown> = { decision };
   if (choice) body.choice = choice;
   if (note) body.note = note;
+  if (decision === "approve" && Object.keys(fields).length) body.fields = fields; // its boxes: the server keeps an unchanged one as asked
   const decided = await fetchApi<{ executionId?: string | null; automationSlug?: string | null }>(
     `/api/automations/approvals/${encodeURIComponent(id)}/decide`,
     { method: "POST", body: JSON.stringify(body) },

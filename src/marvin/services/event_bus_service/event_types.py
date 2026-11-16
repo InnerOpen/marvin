@@ -1625,6 +1625,8 @@ class EventWorkflowApprovalData(EventDocumentDataBase):
     entry_id: UUID4 | None = None
     expires_at: str | None = None
     note: str | None = None
+    edited_fields: list[str] | None = None
+    """The boxes (`fields`) the approver changed: their names only — the texts stay on the approval."""
 
 
 class EventWorkflowAlertData(EventDocumentDataBase):

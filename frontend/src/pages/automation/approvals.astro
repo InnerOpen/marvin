@@ -3,6 +3,7 @@ import MessageText from "@/components/MessageText.astro";
 // Automation → Approvals: workflow runs waiting at an Approval step that you may decide. Approve or Deny (with an
 // optional note) and the run goes on from the next step with ${steps.<id>.output.decision}. Editors and above; a step
 // may ask for admins. Backend: routes/automations/automations_controller.py, services/automation/approvals.py.
+import ApprovalBoxes from "@/components/ApprovalBoxes.astro";
 import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
@@ -43,6 +44,7 @@ try {
         {a.imageUrl && (isAudioUrl(a.imageUrl)
           ? <audio class="preview-audio" src={a.imageUrl} controls preload="metadata" />
           : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
+        <ApprovalBoxes fields={a.fields} />
         {a.postPreview && (
           <details class="post-preview" open>
             <summary>What it will post, network by network</summary>
@@ -61,7 +63,7 @@ try {
           {a.choices?.length ? (
             <>
               {a.choices.map((label) => (
-                <button type="button" class="button js-decide" data-decision="approve" data-choice={label}>{label}</button>
+                <button type="button" class="button js-decide" data-decision="approve" data-choice={label} data-redo={a.redo === label ? label : undefined}>{label}</button>
               ))}
               <button type="button" class="button secondary js-decide" data-decision="deny">None of these</button>
             </>
@@ -106,6 +108,9 @@ try {
               {a.note && <p class="note-text">{a.note}</p>}
               <dl class="facts">
                 <dt>Decision</dt><dd>{decisionLabel(a.status, a.choice)}</dd>
+                {(a.fields ?? []).map((f) => (a.editedFields ?? []).includes(f.name) ? (
+                  <><dt>{f.label} (changed)</dt><dd><p class="box-text">{a.fieldValues?.[f.name]}</p><details class="ask-detail"><summary>As it was asked</summary><p class="box-text">{f.value}</p></details></dd></>
+                ) : null)}
                 <dt>Decided</dt><dd>{deciderLabel(a.decidedByName)} · <LocalTime iso={a.decidedAt} fallback="" /></dd>
                 <dt>Asked</dt><dd><LocalTime iso={a.createdAt} fallback="" /></dd>
                 <dt>Workflow</dt><dd>{a.automationName ?? "A workflow"}</dd>
@@ -138,13 +143,17 @@ try {
       result.hidden = false;
       try {
         const note = card.querySelector<HTMLInputElement>(".note")!.value.trim();
-        const out = await decideApproval(card.dataset.id!, btn.dataset.decision as "approve" | "deny", note, btn.dataset.choice ?? null);
+        // Only the boxes changed: one left alone goes on as it was asked.
+        const boxes = Array.from(card.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>("[data-approval-field]"));
+        const fields = Object.fromEntries(boxes.filter((b) => b.value !== b.defaultValue).map((b) => [b.dataset.approvalField!, b.value]));
+        const out = await decideApproval(card.dataset.id!, btn.dataset.decision as "approve" | "deny", note, btn.dataset.choice ?? null, fields);
         result.textContent =
           out.status === "stale"
             ? "The entry changed after this was asked, so it went on as stale — nothing approved was applied."
             : out.choice
               ? `Approved: ${out.choice} — the workflow went on.`
               : `${out.status === "approved" ? "Approved" : "Denied"} — the workflow went on.`;
+        if (out.editedFields?.length) result.textContent += " It used your changed text.";
         card.querySelector(".decide")!.remove();
       } catch (e: any) {
         result.textContent = e?.message ?? String(e);
@@ -181,6 +190,7 @@ try {
   .meta { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
   .badge { margin-left: 6px; font-size: 11px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; }
   .decide { display: flex; flex-wrap: wrap; gap: 8px; }
+  .box-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; max-height: 240px; overflow: auto; }
   .decide .note { flex: 1 1 220px; }
   .result { margin: 8px 0 0; font-size: 13px; }
   /* Recently decided: slim full-width rows, the same shape as the Events page's chips. */

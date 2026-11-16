@@ -314,19 +314,32 @@ class EmitEventAction(_StepBase):
 
 
 MAX_CHOICES = 8
+MAX_APPROVAL_FIELDS = 4
+MAX_FIELD_TEXT = 20_000  # characters of one box (a whole image prompt fits)
+FIELD_NAME = r"^[a-z][a-z0-9_]{0,39}$"
+
+
+class ApprovalField(_DefnBase):
+    """A box the approver may change before approving: `value` (a template) is the text it starts with, as the steps
+    after it would use it. Approving gives ${steps.<id>.output.fields.<name>}: the text as approved, else as asked."""
+
+    name: str = Field(pattern=FIELD_NAME)
+    label: str | None = Field(default=None, max_length=80)
+    type: Literal["text", "textarea"] = "textarea"
+    value: str = ""
+    max_length: int = Field(default=MAX_FIELD_TEXT, ge=1, le=MAX_FIELD_TEXT)  # how long a changed text may be
+    required: bool = True  # a changed text may not be blank
 
 
 class ApprovalAction(_StepBase):
     """Waits for a person to approve or deny. The run parks here, `approvers` (members at that workspace role or above)
-    are asked `message` (`detail`: the long part, folded under it), and the run goes on from the next step once one
-    decides — or when it expires — with ${steps.<id>.output.decision}: approved | denied | expired | stale (the entry
-    changed after it was asked). An
-    integration action that requires approval may follow it (it runs only when approved). `choices` (2–8 labels,
-    templates allowed, or a template to a list, e.g. ${steps.ideas.output.titles}) asks them to pick one: approving
-    sets ${steps.<id>.output.choice} (the label) and .choice_index (from 0); denying picks none. `image` shows a picture
-    with the question — a template to a picture URL, e.g. a step's generated asset (${steps.cover.output.images.0.asset.url})
-    or ${entry.image} — so the approver sees what they decide on. An audio URL (a recorded take, ${steps.say.output.asset.url})
-    gets a player instead, so a voice line can be heard before it is kept."""
+    are asked `message` (`detail`: the long part, folded under it), and the run goes on once one decides, or it expires,
+    with ${steps.<id>.output.decision}: approved | denied | expired | stale (the entry changed since). An integration
+    action that requires approval may follow it (it runs only when approved). `choices` (2–8 labels, or a template to a
+    list) asks them to pick one: .choice (the label) and .choice_index (from 0); denying picks none. `image`: a picture
+    (or a recorded take, played) shown with the question, a template to an asset URL (${steps.cover.output.images.0.asset.url},
+    ${entry.image}). `fields`: boxes changeable before approving (.fields.<name>, .edited); `redo`: the choice whose
+    changes start the next try; `approved_when`: go on unasked."""
 
     kind: Literal["approval"]
     message: str  # what the approvers are asked (templates allowed)
@@ -336,6 +349,9 @@ class ApprovalAction(_StepBase):
     choices: list[str] | str | None = None  # 2–8 labels, or one template to a list
     # A picture (or a sound, played) shown with the question: a template to an asset URL (${steps.cover.output.images.0.asset.url}, ${entry.image}).
     image: str | None = None
+    fields: list[ApprovalField] | None = Field(default=None, max_length=MAX_APPROVAL_FIELDS)
+    redo: str | None = None  # the choice that makes it again (a Redo): its changed boxes go to the next approval
+    approved_when: list[Condition] | Condition | None = None
     id: str | None = None
 
     @field_validator("choices")
@@ -344,6 +360,22 @@ class ApprovalAction(_StepBase):
         if isinstance(value, list) and not 2 <= len(value) <= MAX_CHOICES:
             raise ValueError(f"choices needs 2 to {MAX_CHOICES} to pick from (or a template to a list)")
         return value
+
+    @field_validator("fields")
+    @classmethod
+    def _names_once(cls, value):
+        names = [f.name for f in value or []]
+        if len(names) != len(set(names)):
+            raise ValueError("each of an approval's fields needs its own name")
+        return value
+
+    @model_validator(mode="after")
+    def _redo_is_a_choice(self):
+        if self.redo is not None and isinstance(self.choices, list) and self.redo not in self.choices:
+            raise ValueError(f"redo must be one of the choices ({', '.join(self.choices)}), not “{self.redo}”")
+        if self.redo is not None and not self.fields:
+            raise ValueError("redo carries changed fields to the next try: give the step `fields`")
+        return self
 
 
 MAX_AGENT_PLAYBOOKS = 3

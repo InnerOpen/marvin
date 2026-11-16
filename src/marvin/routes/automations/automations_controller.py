@@ -214,7 +214,7 @@ def _rank(user, group_id) -> int:
 def _approval_read(session, row) -> WorkflowApprovalRead:
     from marvin.db.models.platform.entries import Entries
     from marvin.db.models.users.users import Users
-    from marvin.services.automation.approvals import post_preview
+    from marvin.services.automation.approvals import edited_names, post_preview
     from marvin.services.automation.authz import ROLE_ADMIN
 
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
@@ -242,6 +242,10 @@ def _approval_read(session, row) -> WorkflowApprovalRead:
         choice=row.choice,
         image_url=row.image_url,
         post_preview=post_preview(session, row),
+        fields=row.fields or None,
+        field_values=row.field_values if row.status == "approved" and row.fields else None,
+        edited_fields=edited_names(row),
+        redo=(row.carry or {}).get("redo"),
     )
 
 
@@ -530,7 +534,9 @@ class AutomationsController(BaseUserController):
     def decide_approval(self, approval_id: UUID4, data: WorkflowApprovalDecision) -> WorkflowApprovalRead:
         """Approve or deny; the run goes on from the next step with `${steps.<id>.output.decision}` (approved, denied — or
         stale when the entry changed after it was asked). One with `choices` is approved with one of them (`choice`:
-        the label or its index; 422 without). 403 below the step's role; 404 unknown; 409 already decided or expired."""
+        the label or its index; 422 without). One with `fields` may be approved with them changed (`fields`: {name:
+        text}; 422 an unknown box, too long, blank, or bringing in a {{NAME}} or ${…}). 403 below the step's role; 404
+        unknown; 409 already decided or expired."""
         from marvin.db.models.users.roles import WorkspaceRole
         from marvin.routes._base.checks import require_workspace_role
         from marvin.services.automation import approvals
@@ -547,6 +553,7 @@ class AutomationsController(BaseUserController):
                 role=role,
                 note=data.note,
                 choice=data.choice,
+                fields=data.fields,
                 background=True,
             )
         except approvals.ApprovalError as e:

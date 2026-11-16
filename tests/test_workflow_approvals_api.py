@@ -309,6 +309,29 @@ def test_a_card_carries_the_detail_beside_its_message(ws):  # noqa: F811
     assert (card["message"], card["detail"]) == ("Feature “Spring sale”?", "The whole prompt, every line of it.")
 
 
+def test_a_cards_boxes_travel_through_the_api_and_the_decided_card_shows_what_changed(ws, monkeypatch):  # noqa: F811
+    from marvin.db.models.groups.workflow_approvals import WorkflowApprovalModel
+
+    _resume_inline(ws, monkeypatch)
+    _waiting_run(ws)
+    box = {"name": "prompt", "label": "Prompt", "type": "textarea", "value": "A knife on a board.", "max_length": 100, "required": True}
+    ws.session.query(WorkflowApprovalModel).filter_by(group_id=ws.gid).update({"fields": [box], "carry": {"redo": "Redo"}})
+    ws.session.commit()
+    _sign_in_as_real_editor(ws)
+    client = TestClient(app)
+
+    (card,) = client.get(APPROVALS).json()
+    assert card["fields"] == [{**{k: v for k, v in box.items() if k != "max_length"}, "maxLength": 100, "carried": False}]
+    assert (card["fieldValues"], card["editedFields"], card["redo"]) == (None, [], "Redo")
+    refused = client.post(f"{APPROVALS}/{card['id']}/decide", json={"decision": "approve", "fields": {"tone": "x"}})
+    assert refused.status_code == 422 and "no field “tone”" in refused.json()["detail"]
+
+    decided = client.post(f"{APPROVALS}/{card['id']}/decide", json={"decision": "approve", "fields": {"prompt": "A cleaver."}}).json()
+
+    assert (decided["status"], decided["fieldValues"], decided["editedFields"]) == ("approved", {"prompt": "A cleaver."}, ["prompt"])
+    assert decided["fields"][0]["value"] == "A knife on a board."  # the text as asked stays beside it
+
+
 # ── one workflow's state, for a page that offers to run it ──
 
 STATE = "/api/automations/state"
