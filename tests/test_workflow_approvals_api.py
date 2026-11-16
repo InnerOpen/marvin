@@ -332,6 +332,24 @@ def test_a_cards_boxes_travel_through_the_api_and_the_decided_card_shows_what_ch
     assert decided["fields"][0]["value"] == "A knife on a board."  # the text as asked stays beside it
 
 
+def test_several_are_answered_at_once_and_each_says_how_it_went(ws, monkeypatch):  # noqa: F811
+    _resume_inline(ws, monkeypatch)
+    _waiting_run(ws)
+    _sign_in_as_real_editor(ws)
+    client = TestClient(app)
+    (card,) = client.get(APPROVALS).json()
+    stranger = str(uuid.uuid4())
+
+    done = client.post(f"{APPROVALS}/decide-many", json={"decision": "approve", "items": [{"id": card["id"]}, {"id": stranger}]})
+
+    assert done.status_code == 200
+    assert done.json() == [
+        {"id": card["id"], "status": "approved", "error": None, "code": None},
+        {"id": stranger, "status": None, "error": "No such approval.", "code": 404},
+    ]
+    assert client.post(f"{APPROVALS}/decide-many", json={"decision": "approve", "items": []}).status_code == 422
+
+
 # ── one workflow's state, for a page that offers to run it ──
 
 STATE = "/api/automations/state"

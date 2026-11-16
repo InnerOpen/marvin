@@ -3,8 +3,10 @@ import MessageText from "@/components/MessageText.astro";
 // Automation → Approvals: workflow runs waiting at an Approval step that you may decide. Approve or Deny (with an
 // optional note) and the run goes on from the next step with ${steps.<id>.output.decision}. Editors and above; a step
 // may ask for admins. Backend: routes/automations/automations_controller.py, services/automation/approvals.py.
+import ApprovalBatch from "@/components/ApprovalBatch.astro";
 import ApprovalBoxes from "@/components/ApprovalBoxes.astro";
 import ApprovalCost from "@/components/ApprovalCost.astro";
+import ApprovalPick from "@/components/ApprovalPick.astro";
 import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
@@ -37,9 +39,10 @@ try {
   </div>
   {error && <div class="alert error">Could not load approvals: {error}</div>}
   {!error && approvals.length === 0 && <p class="empty-state">Nothing is waiting for you.</p>}
+  <ApprovalBatch cards={approvals} />
   <div class="approvals">
     {approvals.map((a) => (
-      <article class="approval" data-id={a.id}>
+      <article class="approval" data-id={a.id} data-approval-card={a.id}>
         <p class="ask"><MessageText message={a.message} /></p>
         {a.detail && <details class="ask-detail"><summary>Show the details</summary><p><MessageText message={a.detail} /></p></details>}
         {a.imageUrl && (isAudioUrl(a.imageUrl)
@@ -61,6 +64,7 @@ try {
           {a.approvers === "admin" && <span class="badge">admins</span>}
         </p>
         <div class="decide">
+          <ApprovalPick card={a} cards={approvals} />
           <input class="input note" placeholder="Note (optional)" maxlength="500" />
           {a.choices?.length ? (
             <>

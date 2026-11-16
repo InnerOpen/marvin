@@ -1,0 +1,20 @@
+---
+// A card's "In all" tick: whether "Approve all N" (ApprovalBatch.astro) answers it too. Drawn only on a card of a workflow with two
+// or more waiting (the same rule as the batch bar), ticked to start with.
+import { type BatchCard, batchGroups } from "@/lib/approvalBatch";
+
+interface Props {
+  card: BatchCard;
+  cards: BatchCard[];
+}
+const { card, cards } = Astro.props;
+const inBatch = batchGroups(cards).some((g) => g.ids.includes(card.id));
+---
+
+{inBatch && (
+  <label class="approval-pick"><input type="checkbox" checked data-approval-pick={card.automationSlug} value={card.id} /> In “all”</label>
+)}
+
+<style>
+  .approval-pick { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+</style>

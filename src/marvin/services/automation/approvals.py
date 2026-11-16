@@ -155,14 +155,14 @@ def decide(
     choice=None,
     fields: dict | None = None,
     logger=None,
-    background: bool = False,
+    background: bool | None = False,
 ) -> WorkflowApprovalModel:
     """A person approves or denies; the run goes on. An approval with choices is approved with one of them (`choice`:
     its label, or its index); one with boxes may be approved with them changed (`fields`: {name: text}, see
     `edited_values`; a deny ignores them). Raises ApprovalError (404 unknown, 403 not theirs to decide, 409 already
     decided or expired, 422 no such choice or a box that can't be taken). With `background` the decision is recorded
     and returned at once and the run goes on behind it (a request handler passes it: the steps after an approval can
-    take a minute, an image say)."""
+    take a minute, an image say); `background=None` only records it, for a caller that resumes it itself (decide_many)."""
     row = session.get(WorkflowApprovalModel, approval_id)
     if row is None or str(row.group_id) != str(group_id):
         raise ApprovalError("No such approval.", 404)
@@ -180,6 +180,52 @@ def decide(
     if outcome == "approved" and row.entry_id and row.entry_version and _entry_version(session, row.entry_id) != row.entry_version:
         outcome = "stale"  # the entry changed after it was asked: nothing approved is applied to other content
     return settle(session, row, outcome, user_id=user_id, note=note, choice=picked, changed=changed, logger=logger, background=background)
+
+
+MAX_DECIDE_MANY = 50  # approvals one "Approve all" may answer
+
+
+def decide_many(session, group_id, items: list[dict], decision: str, *, user_id, role: int, note: str | None = None, logger=None) -> list[dict]:
+    """Answer several waiting approvals at once ("Approve all 20"): each `{id, choice?, fields?}` is decided as `decide` would,
+    with its own boxes, and the runs go on one after another on a thread of their own (twenty paid calls are made in turn, not
+    all at once). One that can't be taken (already decided, a box refused) says why and the rest still go: ``[{id, status} |
+    {id, error, code}]``, in the order given. Raises ApprovalError (422) for more than MAX_DECIDE_MANY or none."""
+    if not items:
+        raise ApprovalError("Name the approvals to decide.", 422)
+    if len(items) > MAX_DECIDE_MANY:
+        raise ApprovalError(f"At most {MAX_DECIDE_MANY} approvals at once.", 422)
+    results: list[dict] = []
+    settled: list = []
+    for item in items:
+        try:
+            row = decide(
+                session,
+                group_id,
+                item["id"],
+                decision,
+                user_id=user_id,
+                role=role,
+                note=note,
+                choice=item.get("choice"),
+                fields=item.get("fields"),
+                logger=logger,
+                background=None,
+            )
+        except ApprovalError as e:
+            session.rollback()
+            results.append({"id": str(item["id"]), "error": str(e), "code": e.status})
+            continue
+        settled.append(row.id)
+        results.append({"id": str(row.id), "status": row.status})
+    if settled:
+        threading.Thread(target=_resume_many, args=(settled, user_id), name=f"approvals-{len(settled)}", daemon=True).start()
+    return results
+
+
+def _resume_many(approval_ids: list, user_id) -> None:
+    """Go on with each settled approval's run in turn (see _resume_job): one failing never stops the others."""
+    for approval_id in approval_ids:
+        _resume_job(approval_id, user_id)
 
 
 def _as_text(value) -> str:
@@ -341,7 +387,7 @@ def settle(
     choice: str | None = None,
     changed: dict | None = None,
     logger=None,
-    background: bool = False,
+    background: bool | None = False,
 ) -> WorkflowApprovalModel:
     """Record the outcome — claimed first, so two deciders can't both resume it — and resume the run (on a thread of
     its own when `background`, so the caller isn't held while the steps after the approval run). `changed`: the boxes
@@ -363,6 +409,8 @@ def settle(
         raise ApprovalError(f"It was already decided: {row.status}.")
     session.refresh(row)
     _stamp_picture(session, row, logger=logger)
+    if background is None:  # the caller goes on with the run itself (decide_many: one after another)
+        return row
     if background:
         threading.Thread(target=_resume_job, args=(row.id, user_id), name=f"approval-{str(row.id)[:8]}", daemon=True).start()
         return row

@@ -59,6 +59,16 @@ export async function listApprovals(authToken?: string, state: "pending" | "deci
   return fetchApi<WorkflowApproval[]>(approvalsPath(state, only), {}, authToken);
 }
 
+/** Several waiting approvals answered at once ("Approve all 20"): each with its own choice and changed boxes. Each answer says how it
+ *  went: its `status`, or the `error` that kept it back while the others still went. The runs go on one after another. */
+export async function decideMany(
+  items: { id: string; choice?: string; fields?: Record<string, string> }[],
+  decision: "approve" | "deny",
+  note?: string,
+): Promise<{ id: string; status?: string | null; error?: string | null; code?: number | null }[]> {
+  return fetchApi(`/api/automations/approvals/decide-many`, { method: "POST", body: JSON.stringify({ decision, note: note || null, items }) });
+}
+
 export async function decideApproval(
   id: string,
   decision: "approve" | "deny",

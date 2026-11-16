@@ -1,0 +1,96 @@
+---
+// "Approve all N": the waiting cards of one workflow answered at once (lib/approvalBatch.ts), each with its own choice and its own
+// changed boxes, through POST /api/automations/approvals/decide-many. A card is left out by unticking its "In all" box
+// (ApprovalPick.astro); the buttons and the likely cost in all follow what is ticked. The page is drawn again once it is answered.
+import { type BatchCard, batchGroups, batchLabel, combinedEstimate } from "@/lib/approvalBatch";
+
+interface Props {
+  cards: BatchCard[];
+  /** The workflow's name to show, by slug, when the cards don't carry it. */
+  names?: Record<string, string>;
+}
+const { cards, names = {} } = Astro.props;
+const groups = batchGroups(cards);
+---
+
+{groups.map((g) => {
+  const mine = cards.filter((c) => g.ids.includes(c.id)).map((c) => ({ id: c.id, estimate: c.estimate ?? null }));
+  const words = g.choices.length ? g.choices : ["Approve"];
+  const cost = combinedEstimate(mine);
+  return (
+    <div class="approval-batch" data-approval-batch={g.slug} data-cards={JSON.stringify(mine)}>
+      <p class="approval-batch-line">
+        <strong>{g.ids.length} waiting</strong> from {names[g.slug] ?? g.name}. Each keeps its own prompt; untick a card's “In all” to leave it out.
+        {cost && <span class="approval-batch-cost" data-batch-cost> Likely cost: {cost}.</span>}
+      </p>
+      <div class="approval-batch-actions">
+        {words.map((w, n) => (
+          <button type="button" class:list={["button", n > 0 && "secondary"]} data-batch-decision="approve" data-batch-choice={g.choices.length ? w : undefined} data-batch-word={w}>
+            {batchLabel(w, g.ids.length, g.ids.length)}
+          </button>
+        ))}
+        <button type="button" class="button secondary" data-batch-decision="deny" data-batch-word="Deny">{batchLabel("Deny", g.ids.length, g.ids.length)}</button>
+      </div>
+      <p class="approval-batch-result" role="status" hidden></p>
+    </div>
+  );
+})}
+
+<script>
+  import { decideMany } from "@/lib/api/workflowApprovals";
+  import { type BatchCard, batchItems, batchLabel, combinedEstimate } from "@/lib/approvalBatch";
+
+  document.querySelectorAll<HTMLElement>("[data-approval-batch]").forEach((bar) => {
+    const slug = bar.dataset.approvalBatch ?? "";
+    const cards: BatchCard[] = JSON.parse(bar.dataset.cards || "[]");
+    const ticks = () => Array.from(document.querySelectorAll<HTMLInputElement>("[data-approval-pick]")).filter((i) => i.dataset.approvalPick === slug);
+    const picked = () => ticks().filter((i) => i.checked).map((i) => i.value);
+    const buttons = Array.from(bar.querySelectorAll<HTMLButtonElement>("button[data-batch-decision]"));
+    const cost = bar.querySelector<HTMLElement>("[data-batch-cost]");
+    const result = bar.querySelector<HTMLElement>(".approval-batch-result")!;
+    const sync = () => {
+      const ids = picked();
+      buttons.forEach((b) => {
+        b.textContent = batchLabel(b.dataset.batchWord ?? "", ids.length, cards.length);
+        b.disabled = ids.length === 0;
+      });
+      const line = combinedEstimate(cards.filter((c) => ids.includes(c.id)));
+      if (cost) cost.textContent = line ? ` Likely cost: ${line}.` : "";
+    };
+    // A card's boxes as its person changed them (a box left alone goes on as asked).
+    const changed = (id: string): Record<string, string> => {
+      const card = document.querySelector(`[data-approval-card="${CSS.escape(id)}"]`);
+      const boxes = Array.from(card?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("[data-approval-field]") ?? []);
+      return Object.fromEntries(boxes.filter((b) => b.value !== b.defaultValue).map((b) => [b.dataset.approvalField!, b.value]));
+    };
+    ticks().forEach((t) => t.addEventListener("change", sync));
+    buttons.forEach((b) =>
+      b.addEventListener("click", async () => {
+        const ids = picked();
+        if (!ids.length) return;
+        const decision = b.dataset.batchDecision === "deny" ? "deny" : "approve";
+        buttons.forEach((x) => (x.disabled = true));
+        result.hidden = false;
+        result.textContent = `${decision === "deny" ? "Denying" : "Answering"} ${ids.length}… the workflows go on one after another.`;
+        try {
+          const done = await decideMany(batchItems(ids, decision === "approve" ? (b.dataset.batchChoice ?? null) : null, decision === "approve" ? changed : () => ({})), decision);
+          const kept = done.filter((d) => !d.error);
+          const left = done.filter((d) => d.error);
+          result.textContent = `${kept.length} answered${left.length ? `; ${left.length} not taken: ${left.map((d) => d.error).join(" ")}` : ""}. Drawing the page again…`;
+          window.setTimeout(() => location.reload(), left.length ? 4000 : 1200);
+        } catch (e) {
+          result.textContent = e instanceof Error ? e.message : String(e);
+          sync();
+        }
+      }),
+    );
+  });
+</script>
+
+<style>
+  .approval-batch { display: grid; gap: 8px; padding: 12px 14px; border: 1px dashed var(--line); border-radius: var(--radius); margin: 0 0 12px; }
+  .approval-batch-line { margin: 0; font-size: 14px; }
+  .approval-batch-cost { color: var(--muted); }
+  .approval-batch-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .approval-batch-result { margin: 0; font-size: 13px; color: var(--muted); }
+</style>

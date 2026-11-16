@@ -629,6 +629,27 @@ class WorkflowSelection(_MarvinModel):
     `todo`; there are no `ids` and nothing is counted as left out."""
 
 
+class WorkflowApprovalManyItem(_MarvinModel):
+    id: UUID4
+    choice: str | int | None = None  # an approval with choices: the one to approve it with
+    fields: dict[str, str] | None = Field(default=None, max_length=8)  # its own boxes, changed (as on one decide)
+
+
+class WorkflowApprovalDecideMany(_MarvinModel):
+    """Several waiting approvals answered at once ("Approve all 20"), each with its own choice and boxes."""
+
+    decision: Literal["approve", "deny"]
+    note: str | None = None
+    items: list[WorkflowApprovalManyItem] = Field(min_length=1, max_length=50)
+
+
+class WorkflowApprovalManyResult(_MarvinModel):
+    id: str
+    status: str | None = None  # approved | denied | stale, as decided
+    error: str | None = None  # why this one was not taken (already decided, a box refused); the others still went
+    code: int | None = None
+
+
 class WorkflowApprovalDecision(_MarvinModel):
     decision: Literal["approve", "deny"]
     note: str | None = None
