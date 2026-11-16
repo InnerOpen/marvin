@@ -1,0 +1,56 @@
+---
+/**
+ * A guided step's links to a step of another setup (`see_also`), under its help: "Make or upload music and ambience: Sounds for a story →".
+ * Each opens that setup with the choices it carries (the story) and the way back to this step, which the other setup offers at its top
+ * (WizardCameFrom). A setup this person cannot open, or that is not installed, shows no link.
+ */
+import { getWizard } from "@/lib/api/wizards";
+import { type Ctx, type Step, backValue, carriedCtx, seeAlsoHref, seeAlsoOf } from "@/lib/wizard";
+
+interface Props {
+  step: Step;
+  slug: string;
+  ctx: Ctx;
+  entries: Record<string, { dataJson?: Record<string, unknown> | null }>;
+  lists: Set<string>;
+  authToken: string;
+}
+const { step, slug, ctx, entries, lists, authToken } = Astro.props;
+const back = backValue(slug, ctx, step.id, lists);
+const links = (
+  await Promise.all(
+    seeAlsoOf(step).map(async (item) => {
+      const target = await getWizard(item.setup, authToken).catch(() => null); // not there, or not this person's to open: no link
+      if (!target) return null;
+      const steps = (target.definition?.steps ?? []) as { id?: string; title?: string }[];
+      const to = item.step ? steps.find((s) => s.id === item.step) : undefined;
+      return {
+        label: item.label.trim(),
+        name: `${target.name}${to?.title ? `: “${to.title}”` : ""}`,
+        text: typeof item.text === "string" ? item.text.trim() : "",
+        href: seeAlsoHref({ ...item, step: to ? item.step : undefined }, carriedCtx(item.carry, ctx, entries), back),
+      };
+    }),
+  )
+).filter((l) => !!l);
+---
+
+{
+  links.length > 0 && (
+    <nav class="see-also" aria-label="Other guided setups">
+      {links.map((l) => (
+        <p>
+          <span>{l!.label}:</span> <a href={l!.href}>{l!.name} →</a>
+          {l!.text && <span class="why">{l!.text}</span>}
+        </p>
+      ))}
+    </nav>
+  )
+}
+
+<style>
+  .see-also { display: grid; gap: 6px; padding: 10px 12px; border-left: 3px solid var(--accent); border-radius: var(--radius); background: var(--panel-2); max-width: 70ch; }
+  .see-also p { margin: 0; font-size: 14px; line-height: 1.5; }
+  .see-also a { font-weight: 600; }
+  .see-also .why { display: block; color: var(--muted); font-size: 13px; }
+</style>

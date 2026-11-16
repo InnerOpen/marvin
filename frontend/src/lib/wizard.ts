@@ -50,16 +50,20 @@ export function numberedTitle(base: string, noun: string, existing: number): str
   return `${base.trim() || "Untitled"} · ${noun.trim()} ${existing + 1}`;
 }
 
-/** What a step's `show` card reads out: each wanted field of the entry that has a value, labelled by the entry type's own label. */
+/** What a step's `show` card reads out: each wanted field of the entry that has a value, labelled by the entry type's own label. A field
+ *  with nothing in it is left out, unless the step's `show.empty` says what nothing means there (one line for every field, or one per
+ *  field: an empty "Chapters to bring in" reads "All the chapters"). */
 export function shownLines(
   entryData: Record<string, unknown> | null | undefined,
   schema: { fields?: { key?: string; label?: string }[] | null } | null | undefined,
   fields: string[],
+  empty?: string | Record<string, string> | null,
 ): { key: string; label: string; value: string }[] {
   const labels = new Map((schema?.fields ?? []).map((f) => [f.key, f.label] as const));
+  const said = (key: string) => (typeof empty === "string" ? empty : empty && typeof empty === "object" && typeof empty[key] === "string" ? empty[key] : "").trim();
   return fields.flatMap((key) => {
     const raw = entryData?.[key];
-    const value = typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : "";
+    const value = (typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : "") || said(key);
     return value ? [{ key, label: labels.get(key) || key, value }] : [];
   });
 }
@@ -247,7 +251,10 @@ export const PER_PARAM = "per";
 export const FILTER_PARAM = "filter";
 export const FACET_PARAM = "facet";
 export const SEARCH_PARAM = "q";
-const OWN_PARAMS = new Set([STEP_PARAM, NOTICE_PARAM, RUN_PARAM, PAGE_PARAM, PER_PARAM, FILTER_PARAM, FACET_PARAM, SEARCH_PARAM]);
+/** Where the person came from, when a step of another setup sent them here (`see_also`): that step's address, so the page can offer the
+ *  way back. The page's own, never a choice; the page carries it on every step of this setup (`withBack`). */
+export const BACK_PARAM = "back";
+const OWN_PARAMS = new Set([STEP_PARAM, NOTICE_PARAM, RUN_PARAM, PAGE_PARAM, PER_PARAM, FILTER_PARAM, FACET_PARAM, SEARCH_PARAM, BACK_PARAM]);
 
 /**
  * A multi-select step (`choose` with `multiple`) keeps its picks in the context as ONE value: the slugs of the entries (or the ids of the
@@ -601,6 +608,110 @@ export function buttonHref(wizardSlug: string, button: WizardButton, entry: { sl
     if (typeof value === "string" && value.trim()) ctx[key] = value.trim();
   }
   return stepHref(wizardSlug, ctx, button.step ?? null);
+}
+
+/** A step's link to a step of another setup (`see_also`): the words before it, the setup (any package's, found when the page is drawn: a
+ *  missing one shows no link), the step it opens on, and the choices it carries: {its key: this setup's key, or "key.field", a field of
+ *  the entry chosen here (a story's world)}. */
+export interface SeeAlso {
+  label: string;
+  setup: string;
+  step?: string;
+  carry?: Record<string, string>;
+  text?: string;
+}
+
+export const MAX_SEE_ALSO = 3;
+const SETUP_SLUG = /^[a-z0-9][a-z0-9_-]{0,79}$/;
+const STEP_ID = /^[a-z][a-z0-9_-]{0,39}$/;
+
+/** A step's `see_also` as it can be drawn: at most MAX_SEE_ALSO, each with words and a setup slug (the package was checked on install;
+ *  this is the page's own check). */
+export function seeAlsoOf(step: Step | null | undefined): SeeAlso[] {
+  const raw = Array.isArray(step?.see_also) ? (step.see_also as unknown[]) : [];
+  return raw
+    .filter((s): s is SeeAlso => !!s && typeof s === "object" && typeof (s as SeeAlso).label === "string" && !!(s as SeeAlso).label.trim() && SETUP_SLUG.test(String((s as SeeAlso).setup)))
+    .slice(0, MAX_SEE_ALSO);
+}
+
+/** The choices a `see_also` link carries: each of its keys gets this setup's choice, or a field of the chosen entry ("story.world"). One
+ *  that is empty here is left out: the other setup asks for it. */
+export function carriedCtx(
+  carry: Record<string, string> | undefined,
+  ctx: Ctx,
+  entries: Record<string, { dataJson?: Record<string, unknown> | null } | undefined>,
+): Ctx {
+  const out: Ctx = {};
+  for (const [to, from] of Object.entries(carry ?? {})) {
+    if (!CTX_NAME.test(to) || OWN_PARAMS.has(to) || typeof from !== "string") continue;
+    const [key, field] = from.split(".");
+    const raw = field ? entries[key]?.dataJson?.[field] : ctx[key];
+    const value = typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : "";
+    if (value) out[to] = value.slice(0, MAX_VALUE);
+  }
+  return out;
+}
+
+/** The way back to this step, as the marker a `see_also` link carries: this setup's address on this step with its choices. A list key
+ *  (a multi-select's picks, up to some KB) is left out, and so is a marker of its own: one way back, never a chain. */
+export function backValue(slug: string, ctx: Ctx, stepId: string, lists: Set<string> = new Set()): string {
+  return stepHref(slug, Object.fromEntries(Object.entries(ctx).filter(([k]) => k !== BACK_PARAM && !lists.has(k))), stepId);
+}
+
+/** Where a `see_also` link goes: the other setup, on its step, with the carried choices and the way back here. */
+export function seeAlsoHref(item: SeeAlso, carried: Ctx, back: string): string {
+  return stepHref(item.setup, carried, item.step && STEP_ID.test(item.step) ? item.step : null, { [BACK_PARAM]: back });
+}
+
+/** The way back, read from the address: a setup's slug, its step and its choices, and the address rebuilt from those alone. */
+export interface Back {
+  setup: string;
+  step: string | null;
+  ctx: Ctx;
+  href: string;
+}
+
+const MAX_BACK = 1500;
+const BACK_ORIGIN = "http://marvin.invalid";
+const SETUP_PATH = /^\/workspace\/setups\/([a-z0-9][a-z0-9_-]{0,79})$/;
+
+/** The marker as the page may use it, or null: only a path of a guided setup in this app (never another site, another page, or a path
+ *  that walks out with `..`), and the link back is built again from its setup, step and choices, never handed on as it came. */
+export function parseBack(raw: string | null | undefined): Back | null {
+  if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//") || raw.length > MAX_BACK || /[\\\s]/.test(raw)) return null;
+  let url: URL;
+  try {
+    url = new URL(raw, BACK_ORIGIN);
+  } catch {
+    return null;
+  }
+  const path = raw.split(/[?#]/)[0];
+  const at = SETUP_PATH.exec(url.pathname);
+  if (url.origin !== BACK_ORIGIN || !at || path !== url.pathname) return null;
+  const asked = url.searchParams.get(STEP_PARAM) ?? "";
+  const step = STEP_ID.test(asked) ? asked : null;
+  const ctx = readCtx(url.searchParams);
+  return { setup: at[1], step, ctx, href: stepHref(at[1], ctx, step) };
+}
+
+/** The choices with the way back the address carries (when it is one: `parseBack`), so every link of the page that keeps the choices
+ *  (the steps, Continue, Previous, the page after a form is sent) keeps it too, until the person leaves the setup or goes back. */
+export function withBack(ctx: Ctx, params: URLSearchParams): Ctx {
+  const back = parseBack(params.get(BACK_PARAM));
+  return back ? { ...ctx, [BACK_PARAM]: back.href } : ctx;
+}
+
+/** The choices without the way back: what is really chosen. */
+export function choicesOnly(ctx: Ctx): Ctx {
+  const { [BACK_PARAM]: _back, ...rest } = ctx;
+  return rest;
+}
+
+/** Which step the way back names, as the person counted it there: its number among the steps shown with those choices, and its title. */
+export function backStep(def: WizardDefinition, back: Back): { number: number; title: string } | null {
+  const shown = shownSteps(def, back.ctx);
+  const at = back.step ? shown.findIndex((s) => s.id === back.step) : -1;
+  return at < 0 ? null : { number: at + 1, title: shown[at].title };
 }
 
 /** The entry type a context key's entry is of: the `choose` step that sets it names it (an `option` choice is no entry, and neither is a

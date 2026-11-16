@@ -121,6 +121,14 @@ The engine does not look into the workflow to find what it sends: the package de
 
 Every step in the list at the top is a link, so you can jump ahead. A step that needs an earlier answer (a story list needs its world) opens on that earlier step instead, and says why. **Skip without saving →** at the bottom of a step goes on without it, the same on every kind of step; on an optional choice it also clears what was chosen there, and what later steps chose on the strength of it, as changing the choice would. A choice that is not optional has no skip: the steps after it need it.
 
+### Going to another setup, and coming back
+
+A step can point at a step of another setup (`see_also`, up to three: `{label, setup, step?, carry?, text?}`), shown under its help as *Make or upload music and ambience: Sounds for a story →*, with `text` as a line beneath. The link opens that setup on `step` with the choices `carry` names already made: `{its key: "this setup's key"}`, or `"key.field"` for a field of the entry chosen here (`{story: "story", world: "story.world"}` hands on a story and its world). The setup may be another package's; one that is not installed, or that the person cannot open, shows no link.
+
+The other setup then says at its top *You came from Narrate a story, step 11 (“Sounds: are these read right?”). ← Back to it*, on every step, after a form is sent and after a reload, until the person leaves the setup or goes back. **Back to it** opens that very step with its choices as they were. The way back rides in the address (`back`, like `step`) and is only ever a guided setup's address in this app, rebuilt from its setup, step and choices; one that names a setup the person cannot open is ignored. `back` is the page's own, so no step may set a choice of that name.
+
+A step's `show` card leaves out a field that is empty, unless `show.empty` says what empty means there: one line for every field, or one per field (`{import_part: "All the chapters"}`), so *Chapters to bring in: All the chapters* is said rather than missing.
+
 `${name}` reads a choice made earlier. A setup ends with `next` (what to do after, with links) and `open` (a button that opens what was made, or its view). Field keys may be camelCase (`sellOnline`). A picture field is read under its role, so a type whose `image` field has `role: "featured"` shows the pictures attached as *featured*. The format is validated when the package is previewed; see `services/blueprints/wizards.py` for the exact rules.
 
 ## Workers

@@ -497,10 +497,20 @@ def test_a_gallery_may_list_takes_name_them_after_a_line_and_measure_an_upload()
         ({"show": {"entry": "nope", "fields": ["text"]}}, "show needs entry"),
         ({"show": {"entry": "line", "fields": []}}, "show.fields"),
         ({"show": {"entry": "line", "fields": [f"f{i}" for i in range(9)]}}, "show.fields"),
+        ({"show": {"entry": "line", "fields": ["text"], "empty": " "}}, "show.empty"),
+        ({"show": {"entry": "line", "fields": ["text"], "empty": {"speaker": "Nobody"}}}, "show.empty"),
+        ({"show": {"entry": "line", "fields": ["text"], "empty": {"text": "x" * 81}}}, "show.empty"),
+        ({"show": {"entry": "line", "fields": ["text"], "empty": {}}}, "show.empty"),
     ],
 )
 def test_a_wrong_takes_gallery_says_what_is_wrong(change, words):
     assert words in (payload_problem(_takes_wizard(**change), "takes") or "")
+
+
+@pytest.mark.parametrize("empty", ["Not set yet", {"direction": "No direction: read it plainly"}])
+def test_a_show_card_may_say_what_an_empty_field_means(empty):
+    show = {"entry": "line", "fields": ["speaker", "text", "direction"], "empty": empty}
+    assert payload_problem(_takes_wizard(show=show), "takes") is None
 
 
 _CAST = {"referenced_by": {"entry_type": "cast-member", "field": "actor", "scope": {"story": "${line}"}}, "label": "Cast as", "label_field": "role"}
@@ -807,6 +817,51 @@ def test_a_wrong_empty_line_or_link_says_what_is_wrong(settings, words):
     for at in (1, 4):  # the same on a choose and on a run
         problem = _bad(lambda p, at=at: p["steps"][at].update(**settings))
         assert problem is not None and words in problem
+
+
+# --- a step points at a step of another setup, and the way back ------------------------------------------------------------------------
+
+_SEE = {"label": "Make or upload music and ambience", "setup": "sounds-for-a-story", "step": "music", "text": "Then come back here."}
+
+
+@pytest.mark.parametrize("at", [1, 4, 5, 7, 8])  # a choose (its own choice), a run, a list, a gallery, a review
+def test_any_step_may_point_at_a_step_of_another_setup_carrying_its_choices(at):
+    carry = {"story": "story", "world": "story.world", "place": "world"}
+    assert _bad(lambda p: p["steps"][at].update(see_also=[{**_SEE, "carry": carry}])) is None
+    assert _bad(lambda p: p["steps"][at].update(see_also=[{"label": "Cast it", "setup": "casting-call"}] * 3)) is None
+
+
+@pytest.mark.parametrize(
+    ("at", "see_also", "words"),
+    [
+        (4, [], "see_also is a list of 1 to 3"),
+        (4, [_SEE] * 4, "see_also is a list of 1 to 3"),
+        (4, {"label": "x", "setup": "y"}, "see_also is a list"),
+        (4, ["casting-call"], "not {label"),
+        (4, [{**_SEE, "href": "https://example.com"}], "unknown keys href"),
+        (4, [{**_SEE, "label": " "}], "see_also.label"),
+        (4, [{**_SEE, "label": "x" * 81}], "see_also.label"),
+        (4, [{**_SEE, "setup": "Sounds For A Story"}], "see_also.setup"),
+        (4, [{**_SEE, "setup": "/workspace/setups/x"}], "see_also.setup"),
+        (4, [{**_SEE, "step": "Bad Step"}], "see_also.step"),
+        (4, [{**_SEE, "text": ""}], "see_also.text"),
+        (4, [{**_SEE, "carry": []}], "see_also.carry is"),
+        (4, [{**_SEE, "carry": {"Story": "story"}}], "not a choice name"),
+        (4, [{**_SEE, "carry": {"back": "story"}}], "not a choice name"),
+        (4, [{**_SEE, "carry": {"story": "nope"}}], "names no choice"),
+        (4, [{**_SEE, "carry": {"story": ["story"]}}], "names no choice"),
+        (4, [{**_SEE, "carry": {"world": "nope.world"}}], "key.field"),
+        (4, [{**_SEE, "carry": {"world": "story.bad field"}}], "key.field"),
+        (0, [{**_SEE, "carry": {"story": "story"}}], "names no choice"),  # the world pick: no story is chosen yet
+    ],
+)
+def test_a_wrong_link_to_another_setup_says_what_is_wrong(at, see_also, words):
+    problem = _bad(lambda p: p["steps"][at].update(see_also=see_also))
+    assert problem is not None and words in problem
+
+
+def test_back_is_the_pages_own_and_never_a_choice():
+    assert "back" in (_bad(lambda p: p["steps"][0].update({"as": "back"})) or "")
 
 
 # --- a paid action says so ---------------------------------------------------------------------------------------------------------------

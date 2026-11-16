@@ -1,0 +1,35 @@
+---
+/**
+ * The way back, at the top of a guided setup that a step of another one sent the person to (`see_also`): "You came from Narrate a story,
+ * step 11 (“Sounds: are these read right?”). ← Back to it". It stays on every step of this setup, as the marker rides in the address
+ * with the choices (lib/wizard.ts `withBack`). A marker that names no setup this person can open shows nothing.
+ */
+import { getWizard } from "@/lib/api/wizards";
+import { type WizardDefinition, backStep, parseBack } from "@/lib/wizard";
+
+interface Props {
+  value: string | undefined;
+  authToken: string;
+}
+const { value, authToken } = Astro.props;
+const back = parseBack(value);
+const from = back ? await getWizard(back.setup, authToken).catch(() => null) : null;
+const at = back && from?.definition?.steps ? backStep(from.definition as WizardDefinition, back) : null;
+---
+
+{
+  back && from && (
+    <aside class="came-from" aria-label="Where you came from">
+      <span>
+        You came from <strong>{from.name}</strong>{at ? `, step ${at.number} (“${at.title}”)` : ""}.
+      </span>
+      <a href={back.href}>← Back to it</a>
+    </aside>
+  )
+}
+
+<style>
+  .came-from { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 8px 12px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); font-size: 14px; color: var(--muted); }
+  .came-from strong { color: var(--ink); font-weight: 600; }
+  .came-from a { font-weight: 600; }
+</style>
