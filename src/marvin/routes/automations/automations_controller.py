@@ -40,7 +40,9 @@ from marvin.schemas.group.automation import (
     IntegrationRetryRead,
     RecipeConfigureRequest,
     RecipeConfigureResult,
+    WorkflowApprovalDecideMany,
     WorkflowApprovalDecision,
+    WorkflowApprovalManyResult,
     WorkflowApprovalRead,
     WorkflowLibraryRead,
     WorkflowLibraryRefs,
@@ -531,6 +533,30 @@ class AutomationsController(BaseUserController):
             return WorkflowSelection.model_validate(selection(self.session, self.group_id, row, data.inputs, left_out=reasons))
         except (RunInputError, AutomationActionError) as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    @router.post("/approvals/decide-many", response_model=list[WorkflowApprovalManyResult], summary="Approve or deny several waiting runs")
+    def decide_many_approvals(self, data: WorkflowApprovalDecideMany) -> list[WorkflowApprovalManyResult]:
+        """Answer up to 50 waiting approvals at once, each `{id, choice?, fields?}` as `decide` takes them; the runs go on one after
+        another behind the answer. Each item says how it went: its `status`, or the `error` (and HTTP `code`) that kept it back
+        (already decided, not yours to decide, a box refused) while the others still went. EDITOR and above."""
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import require_workspace_role
+        from marvin.services.automation import approvals
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        try:
+            done = approvals.decide_many(
+                self.session,
+                self.group_id,
+                [item.model_dump() for item in data.items],
+                data.decision,
+                user_id=self.user.id,
+                role=_rank(self.user, self.group_id),
+                note=data.note,
+            )
+        except approvals.ApprovalError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        return [WorkflowApprovalManyResult(**r) for r in done]
 
     @router.post("/approvals/{approval_id}/decide", response_model=WorkflowApprovalRead, summary="Approve or deny a waiting run")
     def decide_approval(self, approval_id: UUID4, data: WorkflowApprovalDecision) -> WorkflowApprovalRead:

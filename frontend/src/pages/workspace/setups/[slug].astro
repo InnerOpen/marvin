@@ -31,8 +31,10 @@ import { emptyLine, emptyLinks, lackingOf, narrowedBy } from "@/lib/wizardEmpty"
 import { type Paid, type Sent, paidCardsLine, paidConfirm, paidFields, paidLine, paidOf, paidSent } from "@/lib/wizardPaid";
 import { getRunState, latestRunAbout, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { busyLabel, runKey, runLine, shownRun } from "@/lib/runState";
+import ApprovalBatch from "@/components/ApprovalBatch.astro";
 import ApprovalBoxes from "@/components/ApprovalBoxes.astro";
 import ApprovalCost from "@/components/ApprovalCost.astro";
+import ApprovalPick from "@/components/ApprovalPick.astro";
 import { fieldsFromForm } from "@/lib/approvalFields";
 import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, optionsOf, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
 import { isScopedList } from "@/lib/wizardScopedList";
@@ -758,8 +760,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
               {!step.generate && (pendingCards.length > 0 || workingCards.length > 0 || galleryRun) && (
                 <section class="approvals" aria-live="polite">
+                  <ApprovalBatch cards={pendingCards} names={approveNames} />
                   {pendingCards.map((c) => (
-                    <form method="post" class="approval">
+                    <form method="post" class="approval" data-approval-card={c.id}>
                       <input type="hidden" name="decide" value={c.id} />
                       <p class="approval-title">{approveNames[c.automationSlug ?? ""] ?? "A workflow"} is asking</p>
                       <div class="approval-message">{c.message}</div>
@@ -767,6 +770,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       {c.imageUrl && <audio class="approval-audio" controls src={c.imageUrl}></audio>}
                       <ApprovalCost estimate={c.estimate} />
                       <ApprovalBoxes fields={c.fields} />
+                      <ApprovalPick card={c} cards={pendingCards} />
                       <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                       <div class="actions">
                         {c.choices?.length
@@ -927,8 +931,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                         {flow.forbidden && <div class="alert alert-info">Only a workspace admin can start a workflow today.</div>}
                         {!flow.found && !flow.forbidden && <div class="alert alert-info">This workspace has no workflow “{step.generate.workflow}”.</div>}
                         {flow.found && !flow.enabled && <div class="alert alert-info">“{flow.name}” is switched off: turn it on under <a href="/automation/workflows">Automation → Workflows</a>.</div>}
+                        <ApprovalBatch cards={pendingCards} names={approveNames} />
                         {pendingCards.map((c) => (
-                          <form method="post" class="approval">
+                          <form method="post" class="approval" data-approval-card={c.id}>
                             <input type="hidden" name="decide" value={c.id} />
                             <p class="approval-title">{flow.name ?? step.generate.workflow} is asking</p>
                             <div class="approval-message">{c.message}</div>
@@ -936,6 +941,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
                             <ApprovalCost estimate={c.estimate} />
                             <ApprovalBoxes fields={c.fields} />
+                            <ApprovalPick card={c} cards={pendingCards} />
                             <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                             <div class="actions">
                               {c.choices?.length
@@ -1009,8 +1015,10 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               ))}
               {leftSays && <p class="muted leftout">{leftSays}</p>}
 
+              <ApprovalBatch cards={pendingCards} names={approveNames} />
+
               {pendingCards.map((c) => (
-                <form method="post" class="approval">
+                <form method="post" class="approval" data-approval-card={c.id}>
                   <input type="hidden" name="decide" value={c.id} />
                   <p class="approval-title">{flow.name ?? step.workflow} is asking</p>
                   <div class="approval-message">{c.message}</div>
@@ -1018,6 +1026,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
                   <ApprovalCost estimate={c.estimate} />
                   <ApprovalBoxes fields={c.fields} />
+                  <ApprovalPick card={c} cards={pendingCards} />
                   <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                   <div class="actions">
                     {c.choices?.length

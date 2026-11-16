@@ -1025,6 +1025,14 @@ changed. Give the paid step that text, so what is shown and what is sent can't d
   a sound or music, else the typical call; pictures of another `size` or `quality` don't count. With nothing to go by
   it says "cost unknown"; it never guesses. Several paid steps add up when they share a unit. API: `estimate`
   (`text`, `items`, `total`) on a pending approval.
+- **Approve all N:** when two or more approvals of the same workflow wait (twenty sounds, say), the Approvals page and
+  a guided setup's cards show a bar over them: "20 waiting from …", the likely cost in all, and **Approve all 20**
+  (one button per choice when they ask to pick: **Keep all 20**, **Redo all 20**) and **Deny all 20**. Each card keeps
+  its own prompt: change a card's box first and that one is sent changed. Untick a card's **In "all"** to leave it
+  out (the buttons then say "these 19" and the cost follows). The runs go on one after another, not all at once; one
+  that can't be taken (already decided, a box refused) says why and the others still go. API:
+  `POST /api/automations/approvals/decide-many` with `{"decision": "approve", "items": [{"id": …, "choice": …,
+  "fields": {…}}]}` (up to 50), answered per item with its `status` or its `error` and `code`.
 
 ### One run per entry at a time
 
