@@ -4,11 +4,13 @@ import FileDrop from "@/components/FileDrop.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
 import JobResult from "@/components/JobResult.astro";
 import LinkedItemsField from "@/components/schema-fields/LinkedItemsField.astro";
+import WizardCameFrom from "@/components/WizardCameFrom.astro";
 import WizardCard from "@/components/WizardCard.astro";
 import WizardCreate from "@/components/WizardCreate.astro";
 import WizardEmpty from "@/components/WizardEmpty.astro";
 import WizardPaid from "@/components/WizardPaid.astro";
 import WizardScopedList from "@/components/WizardScopedList.astro";
+import WizardSeeAlso from "@/components/WizardSeeAlso.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import SchemaFormField from "@/components/SchemaFormField.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -29,6 +31,7 @@ import {
 import { leftOutLine, listLine, nothingLine, previewCards, previewLine, previewProblem, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
 import { emptyLine, emptyLinks, lackingOf, narrowedBy } from "@/lib/wizardEmpty";
+import { BACK_PARAM, choicesOnly, withBack } from "@/lib/wizard";
 import { type Paid, type Sent, paidCardsLine, paidConfirm, paidFields, paidLine, paidOf, paidSent } from "@/lib/wizardPaid";
 import { getRunState, latestRunAbout, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { busyLabel, runKey, runLine, shownRun } from "@/lib/runState";
@@ -96,7 +99,8 @@ async function checkedCtx(raw: Ctx): Promise<Ctx> {
   }
   return out;
 }
-const ctx = await checkedCtx(readCtx(Astro.url.searchParams, def ? listKeys(def) : undefined));
+// The way back to another setup's step (`see_also`), when the address carries one: kept with the choices so every link here keeps it.
+const ctx = withBack(await checkedCtx(readCtx(Astro.url.searchParams, def ? listKeys(def) : undefined)), Astro.url.searchParams);
 const step: Step | null = def ? currentStep(def, ctx, Astro.url.searchParams.get("step")) : null;
 
 if (Astro.request.method === "POST" && authToken && def && step) {
@@ -213,7 +217,7 @@ let showLines: { key: string; label: string; value: string }[] = [];
 // far that the referenced type has a field for (a cast member's actor comes from the chosen world's troupe, not every actor).
 let refs: Record<string, RefOption[]> = {};
 // (A multi-select's list is no one entry: it narrows nothing.)
-const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, Object.fromEntries(Object.entries(ctx).filter(([k]) => !(k in lists))));
+const refsFor = (fields: any[]) => refOptionsFor({ fields }, authToken, Object.fromEntries(Object.entries(choicesOnly(ctx)).filter(([k]) => !(k in lists))));
 
 // Drawn whatever happened to a post: an error shows above a complete page, never an empty one.
 if (authToken && def && step) {
@@ -226,7 +230,7 @@ if (authToken && def && step) {
     const shownType = await typeBySlug(entryTypeOf(def, step.show.entry) ?? "", authToken, Astro.locals);
     showTitle = shown.title;
     showHref = `/workspace/entries/${shown.id}`;
-    showLines = shownLines(shown.dataJson, shownType?.schemaJson as any, step.show.fields);
+    showLines = shownLines(shown.dataJson, shownType?.schemaJson as any, step.show.fields, step.show.empty);
   }
   if (step.kind === "choose" && step.multiple === true) {
     // A page at a time (`page`, `per`): entries are paged by the query (by title), assets read once and cut here.
@@ -504,6 +508,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
     {wizard?.description && <p>{wizard.description}</p>}
   </div>
 
+  {ctx[BACK_PARAM] && authToken && <WizardCameFrom value={ctx[BACK_PARAM]} authToken={authToken} />}
   {problem && <div class="alert alert-error">{problem}</div>}
   {notice && !problem && <div class="alert alert-info">{notice === NOTICES.added && step?.added ? step.added : notice}</div>}
   {!problem && !wizard && <div class="alert alert-info">There is no guided setup called “{slug}” here. <a href="/workspace/setups">See the ones there are.</a></div>}
@@ -526,6 +531,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           <p class="eyebrow">Step {here + 1}{more ? "" : ` of ${steps.length}`}</p>
           <h3>{step.title}</h3>
           {step.help && <p class="help">{step.help}</p>}
+          {step.see_also && authToken && <WizardSeeAlso step={step} slug={slug} ctx={ctx} entries={entries} lists={listKeys(def)} authToken={authToken} />}
           {jumpedFrom && <div class="alert alert-info">“{jumpedFrom.title}” needs this step answered first, so it opened here.</div>}
           {showTitle && (
             <aside class="showcard" aria-label={showTitle}>

@@ -66,6 +66,12 @@ Any step that can come up with nothing to show (a pick, a list, a gallery, a run
 step whose ``requires`` is not met names the earlier step that fills the field (a form that shows it, an upload into it, a run whose
 ``report`` is it), or the entry's own page when no step does.
 
+Any step may point at a step of another setup (``see_also``, at most three: ``{label, setup, step?, carry?, text?}``), under its help:
+"Make or upload music and ambience: Sounds for a story". The link opens that setup (this package's or another's, found when the page is
+drawn: one that is not there shows no link) with the choices ``carry`` names (``{its key: "this setup's key" | "key.field"}``, a field
+of the entry chosen here: a story's world), and the way back to this step rides along in the address (``back``), so the other setup
+shows "You came from …, step N. Back to it" on every step until the person leaves it (``_check_see_also``).
+
 ``next`` ([{text, href?}]) is shown at the end: what to do once the wizard is done, with paths inside the app.
 ``when`` ({ctx, op: eq|neq|set|unset, value?}) hides a step unless it holds, which is how an upload step follows the option chosen.
 Progress is never stored: the context rides in the page's address and each step shows done from what exists.
@@ -91,12 +97,14 @@ _FIELD = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")  # an entry type's field ke
 _ACCEPT_PART = r"(?:[a-z]+/(?:\*|[a-z0-9.+-]+)|\.[a-z0-9]{1,10})"
 _ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IGNORECASE)
 MAX_SHOWN = 8
+MAX_SHOW_EMPTY = 80  # what an empty field of a show card reads as
 MAX_PREFILL = 12
 MAX_WORKING = 6  # status values a gallery watches as being made (queued, redo)
 MAX_WORKING_LINE = 160  # a card's line while it is being made
 MAX_APPROVE = 6  # workflows whose approvals a gallery shows: a sound's two ways to be made, by its button and by its event, and music's
 MAX_SCRIPT = 3  # fields of the add form the recorder shows to read from
-RESERVED_KEYS = ("step", "notice", "run", "page", "per", "q", "filter", "facet")  # address parameters the page uses for itself: never a context key
+# Address parameters the page uses for itself: never a context key (``back`` is the way back to another setup's step, ``see_also``).
+RESERVED_KEYS = ("step", "notice", "run", "page", "per", "q", "filter", "facet", "back")
 MAX_PICKS = 100  # a multi-select step's picks: the address carries them all (frontend/src/lib/wizard.ts MAX_PICKS)
 # The Assets library's filters a multi-select step over assets may use (GET /api/platform/assets takes them as they are).
 ASSET_FILTERS = ("q", "asset_type", "tag", "collection", "unattached", "unused", "origin")
@@ -165,6 +173,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             or (problem := _check_show(step.get("show"), entries, label))
             or (problem := _check_selection(step.get("selection"), lists, label))
             or (problem := _check_empty(step, seen - {sid}, label))
+            or (problem := _check_see_also(step.get("see_also"), _own_keys(step, kind, known, entries), label))
         ):
             return problem
         if kind in ("option", "choose"):
@@ -246,6 +255,10 @@ def _check_button(spec: Any, entries: set[str], steps: set[str], slug: str) -> s
     return None
 
 
+def _said(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= MAX_SHOW_EMPTY
+
+
 def _check_show(spec: Any, entries: set[str], label: str) -> str | None:
     """``show`` on any step: a card above it with the chosen entry's own words, ``{entry, fields}``: ``entry`` is a key an earlier choose step
     set and ``fields`` (at most 8) the fields to read out, so someone recording a line sees the line, its direction and the rest."""
@@ -256,11 +269,67 @@ def _check_show(spec: Any, entries: set[str], label: str) -> str | None:
     fields = spec.get("fields")
     if not isinstance(fields, list) or not fields or len(fields) > MAX_SHOWN or not all(_is_field(f) for f in fields):
         return f"{label}: show.fields is a list of 1 to {MAX_SHOWN} field keys"
+    # ``empty``: what an empty field reads as, instead of being left out ("All the chapters"): one line for every field, or one per field.
+    empty = spec.get("empty")
+    if empty is not None and not (_said(empty) or (isinstance(empty, dict) and empty and all(k in fields and _said(v) for k, v in empty.items()))):
+        return f"{label}: show.empty is what an empty field reads as: a line (at most {MAX_SHOW_EMPTY} characters), or {{field: line}}"
     return None
 
 
 MAX_EMPTY = 300
 MAX_EMPTY_NEXT = 80
+MAX_SEE_ALSO = 3
+MAX_SEE_ALSO_LABEL = 80
+MAX_SEE_ALSO_TEXT = 200
+SEE_ALSO_KEYS = frozenset({"label", "setup", "step", "carry", "text"})
+
+
+def _own_keys(step: dict, kind: str, known: set[str], entries: set[str]) -> tuple[set[str], set[str]]:
+    """The choices a step's ``see_also`` may carry: those made before it and its own (a link on a story pick carries the story once it is
+    picked), and of those, the single entries whose fields it may read."""
+    own = step.get("as") if kind in ("option", "choose") and isinstance(step.get("as"), str) else None
+    single = kind == "choose" and step.get("multiple") is not True
+    return known | ({own} if own else set()), entries | ({own} if own and single else set())
+
+
+def _check_see_also(items: Any, keys: tuple[set[str], set[str]], label: str) -> str | None:
+    """``see_also``: links under a step's help to a step of another setup, ``{label, setup, step?, carry?, text?}``. ``setup`` is a slug and
+    ``step`` an id, looked up when the page is drawn (the setup may be another package's; one that is not there shows no link), so only
+    their shape is checked here. ``carry`` ({its key: "key" | "key.field"}) hands on choices made here, or a field of an entry chosen here."""
+    if items is None:
+        return None
+    if not isinstance(items, list) or not 1 <= len(items) <= MAX_SEE_ALSO:
+        return f"{label}: see_also is a list of 1 to {MAX_SEE_ALSO} links to another setup, each {{label, setup, step?, carry?, text?}}"
+    known, entries = keys
+    for item in items:
+        if not isinstance(item, dict):
+            return f"{label}: see_also has a link that is not {{label, setup, step?, carry?, text?}}"
+        if unknown := sorted(set(item) - SEE_ALSO_KEYS):
+            return f"{label}: see_also has unknown keys {', '.join(unknown)}; a link has label, setup, step, carry and text"
+        words = item.get("label")
+        if not (isinstance(words, str) and words.strip() and len(words) <= MAX_SEE_ALSO_LABEL):
+            return f"{label}: see_also.label is the words before the link (at most {MAX_SEE_ALSO_LABEL} characters)"
+        if not (isinstance(item.get("setup"), str) and _SLUG.match(item["setup"])):
+            return f"{label}: see_also.setup is the slug of a guided setup (lowercase letters, digits, - or _)"
+        if item.get("step") is not None and not (isinstance(item["step"], str) and _STEP_ID.match(item["step"])):
+            return f"{label}: see_also.step is the id of a step of that setup"
+        text = item.get("text")
+        if text is not None and not (isinstance(text, str) and text.strip() and len(text) <= MAX_SEE_ALSO_TEXT):
+            return f"{label}: see_also.text is a line under the link (at most {MAX_SEE_ALSO_TEXT} characters)"
+        carry = item.get("carry")
+        if carry is None:
+            continue
+        if not isinstance(carry, dict) or not carry:
+            return f"{label}: see_also.carry is {{its key: this setup's key, or key.field}}"
+        for to, from_ in carry.items():
+            if not (isinstance(to, str) and _NAME.match(to)) or to in RESERVED_KEYS:
+                return f"{label}: see_also.carry key {to!r} is not a choice name (lowercase, not one of {', '.join(RESERVED_KEYS)})"
+            key, _, field = from_.partition(".") if isinstance(from_, str) else ("", "", "")
+            if field and not (key in entries and _is_field(field)):
+                return f"{label}: see_also.carry {from_!r} is key.field, a field of an entry a choose step here (or before) picks"
+            if not field and key not in known:
+                return f"{label}: see_also.carry {from_!r} names no choice made here or before"
+    return None
 
 
 def _check_empty(step: dict, earlier: set[str], label: str) -> str | None:
