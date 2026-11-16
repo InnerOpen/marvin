@@ -628,7 +628,13 @@ def test_a_wrong_add_form_says_what_is_wrong(change, words):
     assert words in (payload_problem(_add_wizard(**change), "takes") or "")
 
 
-@pytest.mark.parametrize("approve", [[], "make-take", ["Not A Slug"], ["a", "b", "c", "d"]])
+def test_approve_may_name_up_to_six_workflows():
+    payload = _add_wizard()
+    payload["steps"][1]["approve"] = ["a", "b", "c", "d", "e", "f"]
+    assert payload_problem(payload, "takes") is None
+
+
+@pytest.mark.parametrize("approve", [[], "make-take", ["Not A Slug"], ["a", "b", "c", "d", "e", "f", "g"]])
 def test_approve_is_a_short_list_of_workflow_slugs(approve):
     payload = _add_wizard()
     payload["steps"][1]["approve"] = approve
