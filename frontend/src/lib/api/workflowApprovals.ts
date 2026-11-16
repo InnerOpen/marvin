@@ -45,6 +45,9 @@ export interface WorkflowApproval {
   redo?: string | null;
   /** Pending, and it guards a paid step: its likely cost, from this workspace's earlier calls like it (or "cost unknown"). */
   estimate?: ApprovalEstimate | null;
+  /** It guards a paid step; with a daily limit set, how much of today's is used (UTC). */
+  paid?: boolean;
+  spendLimit?: { limit: number; usedToday: number; resetsAt: string } | null;
 }
 
 export interface ApprovalEstimate {

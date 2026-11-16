@@ -1040,6 +1040,7 @@ class SiteRebuildReactionListener(BuiltinReaction):
             "integration_alert_reminder_hours",
             "workflow_max_steps",
             "approval_expires_hours",
+            "paid_approvals_per_day",
             "submission_protection_json",
         }
     )

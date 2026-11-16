@@ -48,7 +48,7 @@ try {
         {a.imageUrl && (isAudioUrl(a.imageUrl)
           ? <audio class="preview-audio" src={a.imageUrl} controls preload="metadata" />
           : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
-        <ApprovalCost estimate={a.estimate} />
+        <ApprovalCost estimate={a.estimate} limit={a.spendLimit} />
         <ApprovalBoxes fields={a.fields} />
         {a.postPreview && (
           <details class="post-preview" open>

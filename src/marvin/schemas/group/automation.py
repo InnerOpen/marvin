@@ -512,6 +512,14 @@ class ApprovalEstimate(_MarvinModel):
     total: ApprovalEstimateTotal | None = None
 
 
+class ApprovalSpendLimit(_MarvinModel):
+    """The workspace's daily limit on paid approvals (Settings → General → Workflows) and how much of it is used today (UTC)."""
+
+    limit: int
+    used_today: int
+    resets_at: str  # midnight UTC
+
+
 class WorkflowApprovalRead(_MarvinModel):
     """A workflow run waiting at an Approval step (or the decision on one)."""
 
@@ -540,6 +548,8 @@ class WorkflowApprovalRead(_MarvinModel):
     field_values: dict[str, str] | None = None  # once approved: the boxes' text as approved
     edited_fields: list[str] = Field(default_factory=list)  # once approved: the boxes changed
     redo: str | None = None  # the choice that makes it again: picked with a changed box, the next try starts from it
+    paid: bool = False  # it guards a paid step: what the daily limit on paid approvals counts
+    spend_limit: ApprovalSpendLimit | None = None  # pending and paid, with a limit set: how much of today's is used
     estimate: ApprovalEstimate | None = None  # pending, and it guards a paid step: what that is likely to cost (or "cost unknown")
 
 

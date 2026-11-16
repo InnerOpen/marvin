@@ -172,16 +172,16 @@ def _as_approved(session, row, index: int) -> dict:
     return context
 
 
-def _step_estimate(session, group_id, step: dict, context: dict) -> dict | None:
+def paid_call(session, group_id, step: dict, context: dict) -> tuple | None:
+    """A guarded step's paid call, resolved as the run would make it: (integration, provider, operation, args), or None when
+    it is not paid (a free action, an integration that is gone or off)."""
     from marvin.db.models.groups.integrations import IntegrationModel
     from marvin.services.automation.actions.integration import _declared_action
-    from marvin.services.automation.matcher import interpolate, matches
+    from marvin.services.automation.matcher import interpolate
     from marvin.services.integrations.alert_routing import capability_action, needs_approval
 
     from . import get_provider
 
-    if step.get("when") and not matches(step["when"], context):
-        return None  # a branch this run would not take (an animal's sheet for a person)
     slug = str(interpolate(step.get("integration") or "", context) or "").strip()
     integration = session.query(IntegrationModel).filter_by(group_id=group_id, slug=slug).first() if slug else None
     if integration is None or not integration.enabled:
@@ -197,10 +197,30 @@ def _step_estimate(session, group_id, step: dict, context: dict) -> dict | None:
         key, args = found
     declared = _declared_action(provider, key) if key else None
     if declared is None or not (getattr(declared, "cost_hint", None) == "paid" or needs_approval(declared)):
+        return None
+    return integration, provider, capability or f"{integration.provider}.{key}", args
+
+
+def _step_estimate(session, group_id, step: dict, context: dict) -> dict | None:
+    from marvin.services.automation.matcher import matches
+
+    if step.get("when") and not matches(step["when"], context):
+        return None  # a branch this run would not take (an animal's sheet for a person)
+    found = paid_call(session, group_id, step, context)
+    if found is None:
         return None  # not a paid call: nothing to say
+    integration, provider, operation, args = found
     name = getattr(provider, "name", None) or integration.provider
-    operation = capability or f"{integration.provider}.{key}"
     return {"step": step.get("id"), **estimate_call(session, group_id, integration, operation, args, provider_name=name)}
+
+
+def guards_paid(session, group_id, actions: list, index: int, context: dict) -> bool:
+    """Whether the approval at `index` guards a paid step (what a workspace's daily limit on paid approvals counts): a paid call
+    among the steps it guards, whatever their `when` (the decision they read is not made yet). Never raises: False on doubt."""
+    try:
+        return any(paid_call(session, group_id, step, context) for step in guarded_steps(actions, index, context))
+    except Exception:  # noqa: BLE001 — a count is never worth failing a park
+        return False
 
 
 def combine(items: list[dict]) -> dict:
