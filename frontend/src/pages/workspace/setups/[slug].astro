@@ -1052,7 +1052,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               )}
               {jobSays && <JobResult label="What the job said" text={jobSays.text} failed={jobSays.failed} />}
               {/* What the run wrote, whenever it holds something (also for whoever did not start the run), except while a run is going. */}
-              {report && !running && <JobResult label={report.label} text={report.text} href={report.href} linkText={`Open ${report.title} to edit it ↗`} />}
+              {report && !running && <JobResult label={report.label} text={report.text} href={report.href} linkText={`Open ${report.title} to edit it ↗`} latest />}
 
               {/* The run's button is a form of its own, under its paid notice when it has one: never among another form's buttons. */}
               <form method="post" class="form" data-once>

@@ -18,9 +18,13 @@ interface Props {
   linkText?: string;
   /** Show "The job's own text" here (off where the page holds the text itself, as a form's read-only field does). */
   raw?: boolean;
+  /** A log (a story's sheet log) says only its newest line: a run step's report is what that run did, not the history. */
+  latest?: boolean;
 }
-const { text, label, failed = false, href, linkText, raw: showRaw = true } = Astro.props;
-const { blocks, raw, formatted } = jobResult(text, { failed });
+const { text, label, failed = false, href, linkText, raw: showRaw = true, latest: latestOnly = false } = Astro.props;
+const { blocks, raw: all, formatted } = jobResult(text, { failed });
+// A log said by its newest line only keeps to that line in the text one click away too.
+const raw = latestOnly && blocks.length === 1 && blocks[0].kind === "history" ? blocks[0].latest.line : all;
 const ROWS_SHOWN = 6;
 const CAST_SHOWN = 4;
 const TAGS = { bad: "Fix", warn: "Look", good: "Info", plain: "Info" } as const;
@@ -94,18 +98,55 @@ const TAGS = { bad: "Fix", warn: "Look", good: "Info", plain: "Info" } as const;
             </details>
           </div>
         );
-      if (b.kind === "log")
+      if (b.kind === "history") {
+        // A log (a story's sheet log): the newest run is the result, said on its own; the older lines fold under Earlier.
+        const day = b.latest.when?.slice(0, 10);
+        const at = (when: string | null) => (when ? (when.slice(0, 10) === day ? when.slice(11) : when) : "");
+        const tone = b.latest.kind === "import" ? "good" : b.latest.kind === "clear" ? "warn" : "plain";
         return (
-          <ol class="jr-log">
-            {b.rows.map((r) => (
-              <li>
-                <span class="jr-time">{r.when}</span>
-                <span class="jr-tag tone-plain">{r.what}</span>
-                {r.parts.map((p) => (p.bits ? <span class="jr-chips">{p.bits.map((bit) => <span>{bit}</span>)}</span> : <span class="jr-part">{p.text}</span>))}
-              </li>
-            ))}
-          </ol>
+          <div class="jr-history">
+            <div class:list={["jr-verdict", `tone-${tone}`]}>
+              {tone !== "plain" && <span class="jr-dot" aria-hidden="true" />}
+              <p>
+                <strong>
+                  {b.latest.title}
+                  {b.latest.when && <span class="jr-at"> · {at(b.latest.when)}</span>}
+                </strong>
+                {b.latest.notes.map((n) => <span class="jr-sub">{n}</span>)}
+              </p>
+            </div>
+            {b.latest.tiles.length > 0 && (
+              <dl class="jr-stats">
+                {b.latest.tiles.map((t) => (
+                  <div class="jr-stat">
+                    <dt>{t.label}</dt>
+                    <dd>{t.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {!latestOnly && b.earlier.length > 0 && (
+              <details class="jr-fold">
+                <summary>
+                  Earlier <span class="jr-count">{b.earlier.length}</span>
+                </summary>
+                <ol class="jr-log">
+                  {b.earlier.map((e) => (
+                    <li>
+                      <span class="jr-log-title">
+                        {e.title}
+                        {e.when && <span class="jr-time"> · {at(e.when)}</span>}
+                      </span>
+                      {e.tiles.length > 0 && <span class="jr-part">{e.tiles.map((t) => `${t.value} ${t.label}`).join(" · ")}</span>}
+                      {e.notes.map((n) => <span class="jr-part">{n}</span>)}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
+          </div>
         );
+      }
       if (b.kind === "table")
         return (
           <div class="jr-scroll">
@@ -302,8 +343,12 @@ const TAGS = { bad: "Fix", warn: "Look", good: "Info", plain: "Info" } as const;
   .jr-list + .jr-list { margin-top: 12px; }
   .jr-list-title { font-size: 13px; font-weight: 600; margin-bottom: 6px !important; }
   .jr-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .jr-log li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); }
-  .jr-log .jr-chips > span { background: var(--panel); }
+  .jr-log li { display: grid; gap: 2px; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); }
+  .jr-log-title { font-weight: 600; }
+  .jr-log-title .jr-time { font-weight: 400; }
+  .jr-log .jr-part { color: var(--muted); font-size: 13px; }
+  .jr-history { display: grid; gap: 12px; }
+  .jr-at { font-weight: 400; color: var(--muted); }
   .jr-part { overflow-wrap: anywhere; }
   .jr-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
   .jr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
