@@ -62,6 +62,21 @@ export function shownLines(
   });
 }
 
+/**
+ * The fields of a gallery's add form, of the type's `fields` those `asked` (askedKeys: the step's `add.fields` and what the type requires).
+ * When the step lists its fields in the type's own order, the form is as the type draws it, groups and all. When it lists them in another
+ * order, that order is the form's: the listed fields come first, as listed and outside their groups (a group folds its fields together where
+ * its first one is, which would undo the order and hide a field the step asks for: a line's Direction under its words), then whatever else
+ * the type requires, in its order and groups.
+ */
+export function addFormFields<F extends { key: string; group?: unknown }>(typeFields: F[], listed: string[] | undefined, asked: string[]): F[] {
+  const inType = typeFields.filter((f) => asked.includes(f.key));
+  const named = (listed ?? []).flatMap((k) => inType.filter((f) => f.key === k));
+  const at = named.map((f) => inType.indexOf(f));
+  if (at.every((n, i) => i === 0 || n > at[i - 1])) return inType;
+  return [...named.map((f) => ({ ...f, group: undefined })), ...inType.filter((f) => !named.includes(f))];
+}
+
 /** What a gallery's add form starts with (`add.prefill`: {field: "key.field"}): the chosen entries' own values, so a take starts from its line's words. */
 export function prefillOf(
   add: { prefill?: Record<string, string> } | undefined,

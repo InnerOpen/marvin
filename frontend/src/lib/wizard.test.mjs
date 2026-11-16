@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom } from "./wizard.ts";
+import { approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom, addFormFields } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -487,4 +487,29 @@ test("a question a later step waits on is not the end while it has no answer", (
   assert.deepEqual(shownSteps(merged, { how: "several" }).map((s) => s.id), ["how", "pictures", "next"]);
   assert.equal(opensMore(merged, { how: "several" }, pictures), false, "a pick nothing later waits on opens nothing");
   assert.equal(opensMore(merged, { how: "several", pictures: "a,b" }, next), false);
+});
+
+test("an add form keeps the type's order and groups unless the step lists its fields in another order", () => {
+  const type = [
+    { key: "speaker" },
+    { key: "text" },
+    { key: "status" },
+    { key: "order", group: "In the beat" },
+    { key: "direction", group: "How it is said" },
+    { key: "caption", group: "How it is said", required: true },
+  ];
+  const keys = (fs) => fs.map((f) => `${f.key}${f.group ? `@${f.group}` : ""}`);
+  // Listed in the type's order: drawn as the type draws it, groups and all.
+  assert.deepEqual(keys(addFormFields(type, ["speaker", "order", "direction"], ["speaker", "order", "direction"])), ["speaker", "order@In the beat", "direction@How it is said"]);
+  // Another order: the step's, its fields out of their groups; a required field it did not list follows in the type's order and group.
+  assert.deepEqual(keys(addFormFields(type, ["speaker", "text", "direction", "order"], ["speaker", "text", "direction", "order", "caption"])), [
+    "speaker",
+    "text",
+    "direction",
+    "order",
+    "caption@How it is said",
+  ]);
+  // A field the type does not have is passed over; a field already supplied (not asked) is not drawn.
+  assert.deepEqual(keys(addFormFields(type, ["direction", "nope", "text"], ["direction", "text"])), ["direction", "text"]);
+  assert.deepEqual(keys(addFormFields(type, undefined, ["caption"])), ["caption@How it is said"]);
 });
