@@ -59,6 +59,14 @@ export async function getRunState(executionId: string, authToken?: string): Prom
   }
 }
 
+/** The latest run of a workflow that acted on an entry (GET /api/automations/runs), as getRunState says it; null when there is none.
+ *  What a page that did not start the run (a reload, another tab) reads to know whether one is still going. */
+export async function latestRunAbout(workflow: string, entryId: string, authToken?: string): Promise<WorkflowRunState | null> {
+  const query = new URLSearchParams({ automation: workflow, entry_id: entryId });
+  const found = await fetchApi<WorkflowRunState[]>(`/api/automations/runs?${query}`, {}, authToken);
+  return found[0] ?? null;
+}
+
 export async function getWorkflowState(slug: string, authToken?: string): Promise<WorkflowStateRead> {
   return fetchApi<WorkflowStateRead>(`/api/automations/state?slug=${encodeURIComponent(slug)}`, {}, authToken);
 }

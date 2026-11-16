@@ -1,7 +1,9 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
 import { acceptKind, assetIsKind, isKind } from "./acceptKind";
-import { type Ctx, type Step, StepError, type WizardDefinition, assetSpec, entryTypeOf, joinList, listOf, mergePicks, picksAssets, picksProblem, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater } from "./wizard";
+import { type Ctx, type Step, StepError, type WizardDefinition, assetSpec, entryTypeOf, joinList, listOf, mergePicks, picksAssets, picksProblem, fieldRole, fileWays, galleryAccept, generateAsRun, hasValue, listSpec, measuredSeconds, missingForNewRow, numberedTitle, runInputs, sameValue, suppliedData, titleFor, withoutLater, workingOf, inputKeys } from "./wizard";
+import { latestRunAbout } from "./api/workflowRuns";
+import { runLine, shownRun } from "./runState";
 import { changedKeys, editableKeys, listParams, readListState, scopedSpecs, isScopedList, unionRows, SCOPED_PER } from "./wizardScopedList";
 import { fieldTypeMap } from "./schemaFields";
 import { PAGE_SIZES } from "./pagination";
@@ -296,7 +298,8 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
       attached[chosen.file.field] = held;
     }
     await setData(entry, { ...attached, ...chosen.set }, authToken);
-    return { ctx, stay: true, notice: "changed" };
+    // A button that sets the card being made (Make this one: queued) says nothing up top: the card itself says where it stands.
+    return workingOf(step, { ...entry.dataJson, ...chosen.set }) ? { ctx, stay: true } : { ctx, stay: true, notice: "changed" };
   }
   if (action === "trash") {
     // Only what this gallery lists can be trashed from it: the id is checked against its own entries, never taken on trust.
@@ -331,13 +334,22 @@ async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string):
   if (action === "generate") {
     const { run, extra } = generateAsRun(step, text(form, "prompt"));
     if (step.generate?.prompt && !extra[step.generate.prompt.name]) throw new Error(`Say ${step.generate.prompt.label.toLowerCase()} first.`);
+    await refuseWhileGoing(run, ctx, authToken);
     return startedRun(ctx, await runWorkflow(run.workflow, runInputs(run, { ...ctx, ...extra }), authToken));
   }
   throw new Error("Add one, upload one, or generate one.");
 }
 
-/** Do what the posted step asks. Throws an Error whose message the page shows. */
-export async function runStep(def: WizardDefinition, step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
+/** A run (a run step's, a gallery's generate) is not started again while the last one about the step's first entry is still going: a tab
+ *  opened before it started still shows the button. */
+async function refuseWhileGoing(run: Step, ctx: Ctx, authToken: string): Promise<void> {
+  const entry = await entryBySlug(inputKeys(run).map((k) => ctx[k]).find(Boolean), authToken);
+  const going = entry ? shownRun(null, await latestRunAbout(run.workflow, entry.id, authToken).catch(() => null)) : null;
+  if (going) throw new StepError(`It is still going (${runLine(going).text.replace(/…$/, "")}). Wait for it to finish before you start it again.`);
+}
+
+/** Do what the posted step asks (`again`: a Redo answered on the page runs the step again behind its own run, which is still ending). */
+export async function runStep(def: WizardDefinition, step: Step, form: FormData, ctx: Ctx, authToken: string, again = false): Promise<Outcome> {
   if (step.kind === "option") {
     if (step.optional && text(form, "action") === "skip") {
       const { [step.as]: _dropped, ...rest } = withoutLater(def, ctx, step.id); // skipped: nothing is chosen, so what a choice here made shown stays hidden
@@ -349,7 +361,10 @@ export async function runStep(def: WizardDefinition, step: Step, form: FormData,
   }
   if (step.kind === "choose") return choose(def, step, form, ctx, authToken);
   if (step.kind === "upload") return upload(def, step, form, ctx, authToken);
-  if (step.kind === "run") return startedRun(ctx, await runWorkflow(step.workflow, runInputs(step, ctx), authToken));
+  if (step.kind === "run") {
+    if (!again) await refuseWhileGoing(step, ctx, authToken);
+    return startedRun(ctx, await runWorkflow(step.workflow, runInputs(step, ctx), authToken));
+  }
   if (step.kind === "list") return isScopedList(step) ? editScopedList(step, form, ctx, authToken) : editList(step, form, ctx, authToken);
   if (step.kind === "gallery") return gallery(step, form, ctx, authToken);
   if (step.kind === "form") {

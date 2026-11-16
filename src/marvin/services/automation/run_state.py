@@ -70,6 +70,25 @@ def run_state(session, group_id, execution_id, *, role: int) -> dict | None:
     }
 
 
+def runs_about(session, group_id, automation_slug: str, entry_id, *, role: int, limit: int = 1) -> list[dict]:
+    """The latest runs of a workflow that acted on one entry, newest first, as ``run_state`` says them: what a page that did
+    not start the run (a reload, another tab, another person) needs to know whether one is still going before it offers to
+    start another. A run is about an entry when one of its steps acted on it. Only first runs are listed: one that went on
+    after an approval or a wait is followed from the run it went on from. A run that has not recorded a step yet is not
+    found."""
+    step, run = AutomationActionExecutionModel, AutomationExecutionModel
+    ids = (
+        session.query(run.id, run.started_at)
+        .join(step, step.execution_id == run.id)
+        .filter(run.group_id == group_id, run.automation_slug == automation_slug, run.retry_of_id.is_(None), step.target_entity_id == str(entry_id))
+        .distinct()
+        .order_by(run.started_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [found for run_id, _ in ids if (found := run_state(session, group_id, run_id, role=role)) is not None]
+
+
 def _followed(session, root) -> tuple[list, list]:
     """The run and the runs that went on from it after an approval or a wait, oldest first, and every approval they
     asked. A run over several entries may park one approval each, so this is a tree walked a level at a time."""

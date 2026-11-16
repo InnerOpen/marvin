@@ -23,14 +23,14 @@ import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type OptionChoice, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, opensMore, optionStepOf, passes, previousStep, readCtx, suppliedData,
   MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets, pictureFieldOf, skipTo, withoutFrom,
-  StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, referenceMarks, referencingSpec, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref, addFormFields,
+  StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, referenceMarks, referencingSpec, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref, addFormFields, workingOf,
 } from "@/lib/wizard";
 import { jobLead, leftOutLine, listLine, nothingLine, previewCards, previewLine, previewProblem, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
 import { emptyLine, emptyLinks, lackingOf, narrowedBy } from "@/lib/wizardEmpty";
 import { type Paid, type Sent, paidCardsLine, paidConfirm, paidFields, paidLine, paidOf, paidSent } from "@/lib/wizardPaid";
-import { getRunState, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
-import { runKey, runLine } from "@/lib/runState";
+import { getRunState, latestRunAbout, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
+import { busyLabel, runKey, runLine, shownRun } from "@/lib/runState";
 import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, optionsOf, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
 import { isScopedList } from "@/lib/wizardScopedList";
 import { lastPage, rangeText, readPage } from "@/lib/pagination";
@@ -100,8 +100,16 @@ if (Astro.request.method === "POST" && authToken && def && step) {
     if (deciding) {
       const decision = form.get("decision") === "deny" ? "deny" : "approve";
       const choice = String(form.get("choice") ?? "").trim() || null;
-      await decideApproval(deciding, decision, choice, String(form.get("note") ?? "").trim() || null, authToken);
-      return Astro.redirect(stepHref(slug, ctx, step.id, { ...(runId ? { [RUN_PARAM]: runId } : {}), [NOTICE_PARAM]: decision === "deny" ? "denied" : choice ? "chosen" : "approved" }));
+      const asked = await decideApproval(deciding, decision, choice, String(form.get("note") ?? "").trim() || null, authToken);
+      // A run step's own Redo (`redo`: the choice its workflow offers) runs the step again at once, and the page follows the new run.
+      if (step.kind === "run" && step.redo && choice === step.redo && asked.workflow === step.workflow) {
+        const again = await runStep(def, step, form, ctx, authToken, true);
+        return Astro.redirect(stepHref(slug, ctx, step.id, { ...(again.run ? { [RUN_PARAM]: again.run } : {}), [NOTICE_PARAM]: again.notice ?? "again" }));
+      }
+      // A gallery's approvals come from runs it did not start (a card's event): the page follows the run that asked, from here on. A
+      // denied one stops there (its paid step refuses), and the card says so by going back to draft.
+      const follow = step.kind === "gallery" && step.approve && decision !== "deny" ? (asked.run ?? runId) : runId;
+      return Astro.redirect(stepHref(slug, ctx, step.id, { ...(follow ? { [RUN_PARAM]: follow } : {}), [NOTICE_PARAM]: decision === "deny" ? "denied" : choice ? "chosen" : "approved" }));
     }
     const done = await runStep(def, step, form, ctx, authToken);
     const target = done.stay ? step : (nextStep(def, done.ctx, step.id) ?? step);
@@ -131,10 +139,18 @@ let checks: { label: string; ok: boolean; count: number; step?: Step | null }[] 
 let columns: any[] = [];
 let flow: WorkflowState = { found: true, enabled: true, canRun: true };
 let runNow: WorkflowRunState | null = null; // where the run in the address stands, when it is this step's workflow's
-/** The run in the address, if it is a run of this workflow (an id carried over from another step says nothing here). */
-const runOf = async (workflow: string): Promise<WorkflowRunState | null> => {
+/** The run in the address, if it is a run of this workflow (or of one of a gallery's `approve` workflows): an id carried over from another
+ *  step says nothing here. */
+const runOf = async (workflow: string | string[]): Promise<WorkflowRunState | null> => {
   const found = runId && authToken ? await getRunState(runId, authToken).catch(() => null) : null;
-  return found && found.automationSlug === workflow ? found : null;
+  return found && [workflow].flat().includes(found.automationSlug) ? found : null;
+};
+/** The latest run of a workflow about the first entry a step hands it: a reload, another tab or a return to the step still sees a run that
+ *  is going (shownRun). Not for "again": Preview and Make share one workflow. */
+let latestRun: WorkflowRunState | null = null;
+const latestAbout = async (workflow: string, keys: string[]): Promise<WorkflowRunState | null> => {
+  const entry = keys.map((k) => entries[k]).find(Boolean);
+  return entry && authToken ? await latestRunAbout(workflow, entry.id, authToken).catch(() => null) : null;
 };
 const askedBy = (run: WorkflowRunState | null): string[] => (run?.waitingOn ?? []).map((w) => w.approvalId);
 let pendingCards: ApprovalCard[] = [];
@@ -183,6 +199,7 @@ let refMarks = new Map<string, string>(); // gallery card slug → its highlight
 let genStep: Step | null = null; // a gallery's generate action, as the run step it is
 let addValues: Record<string, string> = {}; // the add form's starting values (`add.prefill`)
 let approveNames: Record<string, string> = {}; // a gallery's `approve` workflows, by slug, with their names
+let workingCards: Row[] = []; // a gallery's cards being made (their status is one of the step's `working`): watched until they move on
 let showTitle = ""; // a step's `show` card: the chosen entry's title, address and the fields it reads out
 let showHref = "";
 let showLines: { key: string; label: string; value: string }[] = [];
@@ -300,7 +317,13 @@ if (authToken && def && step) {
     if (step.add?.file?.assets || (step.card_actions ?? []).some((a: any) => a.file?.assets)) {
       pickerAssets = authToken ? await getAssets(authToken, { sort: "newest" }).catch(() => []) : [];
     }
+    workingCards = cards.filter((c) => workingOf(step, c.dataJson));
     if (step.approve) {
+      // A run the page follows: one whose approval was answered here (the address carries it), so it says how it goes on.
+      if (!step.generate) runNow = await runOf(step.approve as string[]);
+      // Its run makes the card: the entry its last step changed is the card itself (a sound has a kind and a status queued, as a worker
+      // job does), never a job to wait on.
+      if (runNow?.job) runNow = { ...runNow, state: "done", job: null, error: null };
       // The approvals of these workflows about the entries listed here (its takes, and what was chosen), so they are answered on this page.
       const about = [...cards.map((c) => c.id), ...Object.values(entries).map((e) => e.id)];
       watchIds = about;
@@ -321,7 +344,8 @@ if (authToken && def && step) {
       flow = await workflowState(genStep.workflow, authToken);
       const about = inputKeys(genStep).map((k) => entries[k]).filter((e): e is Row => !!e).map((e) => e.id);
       watchIds = about;
-      runNow = await runOf(genStep.workflow);
+      latestRun = await latestAbout(genStep.workflow, inputKeys(genStep));
+      runNow = shownRun(await runOf(genStep.workflow), latestRun);
       const all = await approvalCards(genStep.workflow, authToken);
       pendingCards = approvalsOf(all.pending, genStep.workflow, about, askedBy(runNow));
       decidedCards = approvalsOf(all.decided, genStep.workflow, about).slice(0, MAX_DECIDED_SHOWN);
@@ -338,7 +362,8 @@ if (authToken && def && step) {
         lacking = lackingOf(def, ctx, step, slug, { label, entry: needed });
       }
     }
-    runNow = await runOf(step.workflow);
+    latestRun = await latestAbout(step.workflow, inputKeys(step));
+    runNow = shownRun(await runOf(step.workflow), latestRun);
     runPaid = paidOf(step.paid);
     runSent = await sentBy(runPaid);
     const reasons = (step.left_out ?? []) as { label: string; where: SelectionCondition[] }[];
@@ -392,6 +417,9 @@ const jumpedFrom = def && step && askedId && askedId !== step.id ? (steps.find((
 // question was asked makes the approval count as neither yes nor no).
 const held = (step?.kind === "run" || step?.kind === "gallery") && pendingCards.length > 0;
 const runSays = runNow ? runLine(runNow) : null;
+// A gallery follows the run whose question was answered on it while the run goes on, or when it failed (the reason): a run that is done
+// shows its result on the card itself.
+const galleryRun = step?.kind === "gallery" && !step.generate && !!runSays && !(runSays.over && runSays.tone === "ok");
 // A run step whose list is empty has nothing to do: Continue is its main button, not a run that would do nothing. While a run of it is
 // still going (the list empties as soon as it takes them), the run's own line speaks instead.
 const nothingToDo = !!picked && picked.selection.count === 0;
@@ -722,9 +750,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
           )}
 
           {step.kind === "gallery" && (
-            <div class="gallery" data-watch={(step.generate && (notice === NOTICES.started || pendingCards.length)) || (step.approve && (pendingCards.length || cards.some((c) => c.dataJson?.status === "queued"))) ? "1" : undefined} data-workflow={step.approve ? (step.approve as string[]).join(",") : genStep?.workflow} data-entries={watchIds.join(",")} data-asked={askedBy(runNow).join(",")} data-pending={String(pendingCards.length)}>
+            <div class="gallery" data-watch={(step.generate && notice === NOTICES.started) || pendingCards.length || workingCards.length ? "1" : undefined} data-workflow={step.approve ? (step.approve as string[]).join(",") : genStep?.workflow} data-entries={watchIds.join(",")} data-asked={askedBy(runNow).join(",")} data-pending={String(pendingCards.length)} data-working={workingCards.length ? JSON.stringify(Object.fromEntries(workingCards.map((c) => [c.id, String(c.dataJson?.status ?? "")]))) : undefined}>
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
-              {step.approve && (pendingCards.length > 0 || cards.some((c) => c.dataJson?.status === "queued")) && (
+              {!step.generate && (pendingCards.length > 0 || workingCards.length > 0 || galleryRun) && (
                 <section class="approvals" aria-live="polite">
                   {pendingCards.map((c) => (
                     <form method="post" class="approval">
@@ -742,7 +770,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       </div>
                     </form>
                   ))}
-                  {pendingCards.length === 0 && <p class="muted waiting">A take is being made. Whatever needs your answer appears here, so you can stay on this page.</p>}
+                  {galleryRun && runNow && runSays && (
+                    <p class:list={["run-state", runSays.tone]} role="status" aria-live="polite" data-run={runNow.executionId} data-key={runKey(runNow)} data-over={runSays.over ? "1" : undefined}>
+                      <span data-run-text>{runSays.text}</span>
+                    </p>
+                  )}
+                  {pendingCards.length === 0 && workingCards.length > 0 && <p class="muted waiting">Being made: {workingCards.map((c) => `“${c.title}”`).join(", ")}. Whatever needs your answer appears here as it goes, so you can stay on this page.</p>}
                 </section>
               )}
               {!missingType && cards.length > 0 && paidCards.length > 0 && (
@@ -765,6 +798,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                         marked={refMarks.get(r.slug) ?? highlightOf(step, r.dataJson)}
                         pills={[...badges.map((b) => String(r.dataJson?.[b])), ...(lengthField && r.dataJson?.[lengthField] && (badges.length > 0 || highlightOf(step, r.dataJson)) ? [`${Number(r.dataJson[lengthField]).toFixed(1)} s`] : [])]}
                       />
+                      {workingOf(step, r.dataJson) && <p class="run-state busy gworking"><span data-run-text>{workingOf(step, r.dataJson)}</span></p>}
                       <div class="gbar">
                       {(step.card_actions ?? []).some((a: any) => cardActionShown(a, r.dataJson)) && (
                         <div class="gacts">
@@ -909,11 +943,11 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             {runNow.job && <a href={`/workspace/entries/${runNow.job.entryId}`}>Open the job</a>}
                           </p>
                         )}
-                        <form method="post" class="form">
+                        <form method="post" class="form" data-once>
                           <input type="hidden" name="action" value="generate" />
                           {step.generate.prompt && <label class="col"><span>{step.generate.prompt.label}</span><textarea class="input" rows="3" name="prompt" required /></label>}
                           {runPaid && <WizardPaid line={paidLine(runPaid, step.generate.prompt ? "what you type here" : "your request")} sent={runSent} />}
-                          <div class="actions"><button class="button" type="submit" disabled={!flow.canRun}>{step.generate.button ?? "Generate"}</button></div>
+                          <div class="actions"><button class="button" type="submit" disabled={!flow.canRun || running}>{running && runNow ? <span>{busyLabel(runNow)}{runNow.startedAt && <Fragment> (started <time data-local datetime={runNow.startedAt}>{String(runNow.startedAt).slice(11, 16)} UTC</time>)</Fragment>}</span> : (step.generate.button ?? "Generate")}</button></div>
                         </form>
                       </div>
                     </details>
@@ -1006,12 +1040,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
               )}
 
               {/* The run's button is a form of its own, under its paid notice when it has one: never among another form's buttons. */}
-              <form method="post" class="form">
+              <form method="post" class="form" data-once>
                 {runPaid && !nothingToDo && <WizardPaid line={paidLine(runPaid)} sent={runSent} />}
                 <div class="actions">
                   {!nothingToDo && (
-                    <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking || (!!previewed && (running || !!previewed.problem))}>
-                      {picked ? runButton(step.button, picked.selection.count) : pendingCards.length > 0 || decidedCards.length > 0 || runNow ? `${runButton(step.button, null)} again` : runButton(step.button, null)}
+                    <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking || running || (!!previewed && !!previewed.problem)}>
+                      {running && runNow ? <span>{busyLabel(runNow)}{runNow.startedAt && <Fragment> (started <time data-local datetime={runNow.startedAt}>{String(runNow.startedAt).slice(11, 16)} UTC</time>)</Fragment>}</span> : picked ? runButton(step.button, picked.selection.count) : pendingCards.length > 0 || decidedCards.length > 0 || runNow ? `${runButton(step.button, null)} again` : runButton(step.button, null)}
                     </button>
                   )}
                   {continues && <a class:list={["button", !(nothingToDo && !running) && runSays && runSays.tone !== "ok" && "secondary"]} href={stepHref(slug, ctx, after!.id)}>Continue →</a>}
@@ -1253,7 +1287,8 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
     });
   });
   import { listApprovals } from "@/lib/api/workflowApprovals";
-  import { approvalsOf } from "@/lib/wizard";
+  import { RUN_PARAM, approvalsOf, workingChanged } from "@/lib/wizard";
+  import { fetchApi } from "@/lib/api/client";
   import { getRunState } from "@/lib/api/workflowRuns";
   import { runKey, runLine } from "@/lib/runState";
   // A pick list longer than a few: type to narrow it by name (and by the line under it), as you type.
@@ -1283,6 +1318,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
     const entries = (run.dataset.entries ?? "").split(",").filter(Boolean);
     const asked = (run.dataset.asked ?? "").split(",").filter(Boolean);
     const shown = Number(run.dataset.pending ?? "0");
+    const working: Record<string, string> = JSON.parse(run.dataset.working || "{}");
     const started = Date.now();
     const tick = async () => {
       if (Date.now() - started > 10 * 60 * 1000) return;
@@ -1292,6 +1328,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
         const lists = await Promise.all(slugs.map((slug) => listApprovals(undefined, "pending", { automation: slug })));
         const mine = slugs.flatMap((slug, i) => approvalsOf(lists[i], slug, entries, asked));
         if (mine.length !== shown) return location.reload();
+        // A gallery's cards being made: drawn again when one moves on (made, kept, put back to draft), so its sound shows without a refresh.
+        const ids = Object.keys(working);
+        if (ids.length) {
+          const found = await fetchApi<{ entries?: { id: string; dataJson?: Record<string, unknown> | null }[] }>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: { entries: ids }, limit: ids.length }) });
+          if (workingChanged(working, found.entries ?? [])) return location.reload();
+        }
       } catch {
         /* a failed poll just tries again */
       }
@@ -1311,7 +1353,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
       if (Date.now() - began > RUN_WATCH_MS) return;
       try {
         const now = await getRunState(live.dataset.run ?? "");
-        if (!now || runKey(now) !== live.dataset.key) return location.reload();
+        if (!now || runKey(now) !== live.dataset.key) {
+          // Drawn again with the run in the address, so one found by its entry (a reload, another tab) still shows how it ended.
+          const next = new URL(location.href);
+          next.searchParams.set(RUN_PARAM, live.dataset.run ?? "");
+          return location.replace(next);
+        }
         if (words) words.textContent = runLine(now).text;
       } catch {
         /* a failed poll just tries again */
@@ -1320,9 +1367,26 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
     };
     window.setTimeout(follow, RUN_POLL_MS);
   }
+  // A button that starts something is pressed once: a second click while the page posts would start a second run (a second job, a second
+  // sound). Checked after the page's own submit handlers (a confirm said no, a length still being measured): only a post that goes is held.
+  document.querySelectorAll<HTMLFormElement>("form[data-once], form.gact, form.approval, #add-form").forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      if (e.defaultPrevented) return;
+      // After the post has taken the pressed button's name and value: a button disabled first would not be sent.
+      window.setTimeout(() => {
+        for (const el of Array.from(form.elements)) if (el instanceof HTMLButtonElement && el.type === "submit") el.disabled = true;
+      });
+    });
+  });
+  // When a run started, in the reader's own clock (the server only knows UTC).
+  for (const el of Array.from(document.querySelectorAll<HTMLTimeElement>("time[data-local]"))) {
+    const at = new Date(el.dateTime);
+    if (!Number.isNaN(at.getTime())) el.textContent = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
 </script>
 
 <style>
+  .run-state.gworking { margin: 6px 0 0; padding: 4px 10px; font-size: 13px; }
   .stepper { list-style: none; margin: 0 0 24px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
   .stepper a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: var(--panel); }
   .stepper .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--panel-2); font-size: 12px; }

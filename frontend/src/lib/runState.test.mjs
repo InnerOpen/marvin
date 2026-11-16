@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runKey, runLine } from "./runState.ts";
+import { BUSY_HOURS, busyLabel, runKey, runLine, shownRun } from "./runState.ts";
 
 const run = (state, extra = {}) => ({ executionId: "run-1", automationSlug: "make-stills", state, stepsTotal: 7, stepsOk: 0, stepsFailed: 0, waitingOn: [], ...extra });
 const asked = (message = "Keep this still?") => ({ approvalId: "ap-1", message, approvers: message === null ? "admin" : "editor" });
@@ -38,4 +38,26 @@ test("what the page drew changes with the state and with what it waits on, not w
   assert.equal(runKey(run("running", { stepsOk: 1 })), runKey(run("running", { stepsOk: 4 })));
   assert.notEqual(runKey(run("running")), runKey(run("waiting", { waitingOn: [asked()] })));
   assert.notEqual(runKey(run("waiting", { waitingOn: [asked()] })), runKey(run("waiting", { waitingOn: [{ ...asked(), approvalId: "ap-2" }] })));
+});
+
+test("a step shows the run in its address, else the latest run about its entry while that one is still going", () => {
+  const mine = run("done", { executionId: "mine" });
+  const going = (state) => run(state, { executionId: "latest", job: state === "working" ? { kind: "import-beats", status: "running" } : null });
+  assert.equal(shownRun(mine, going("running")), mine);
+  for (const state of ["starting", "running", "waiting", "working"]) assert.equal(shownRun(null, going(state))?.executionId, "latest", state);
+  for (const state of ["done", "failed", "cancelled"]) assert.equal(shownRun(null, going(state)), null, state); // another step's result is not shown here
+  assert.equal(shownRun(null, null), null);
+});
+
+test("the run button says what its run is doing while it goes", () => {
+  assert.equal(busyLabel(run("working")), "Working…");
+  assert.equal(busyLabel(run("waiting", { waitingOn: [asked()] })), "Waiting for your answer…");
+});
+
+test("a run still not over hours after it started (a stopped worker's job) no longer holds the button off", () => {
+  const now = Date.parse("2026-11-16T18:00:00Z");
+  const at = (hours) => run("working", { startedAt: new Date(now - hours * 3600 * 1000).toISOString(), job: { kind: "import-beats", status: "running" } });
+  assert.ok(shownRun(null, at(BUSY_HOURS - 1), now));
+  assert.equal(shownRun(null, at(BUSY_HOURS + 1), now), null);
+  assert.ok(shownRun(at(BUSY_HOURS + 1), null, now)); // one in the address is still followed
 });

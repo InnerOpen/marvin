@@ -136,6 +136,29 @@ export function subtitleOf(subtitle: unknown, data: Record<string, unknown> | nu
     .join(" · ");
 }
 
+/** What a card being made says before its run does, when the step names no words for its status. */
+export const WORKING_LINE = "Being made…";
+
+/** A gallery's `working`: the `status` values that mean something is being made for the card (queued, redo), each with the line the card
+ *  shows meanwhile. A step that shows approvals and names none watches `queued`, as it always has. */
+function workingSays(step: Step): Record<string, string> {
+  return (step.working as Record<string, string> | undefined) ?? (step.approve ? { queued: WORKING_LINE } : {});
+}
+
+/** The line a gallery card shows while something is being made for it, or null when nothing is. */
+export function workingOf(step: Step, data: Record<string, unknown> | null | undefined): string | null {
+  const status = String(data?.status ?? "");
+  const says = workingSays(step);
+  return status && Object.hasOwn(says, status) ? says[status] || WORKING_LINE : null;
+}
+
+/** Whether the cards a page drew as being made (id → status) stand differently now: one's status moved on, or it is gone. The page is
+ *  drawn again then, so the card shows its sound (or what failed) without a refresh. */
+export function workingChanged(drawn: Record<string, string>, now: { id: string; dataJson?: Record<string, unknown> | null }[]): boolean {
+  const status = new Map(now.map((r) => [r.id, String(r.dataJson?.status ?? "")]));
+  return Object.entries(drawn).some(([id, was]) => status.get(id) !== was);
+}
+
 /** The label a gallery's `highlight` puts on a card whose field has the wanted value (the take in use), or null. */
 export function highlightOf(step: Step, data: Record<string, unknown> | null | undefined): string | null {
   const h = step.highlight as { field?: string; value?: string; label: string } | undefined;
@@ -195,6 +218,7 @@ export const NOTICES: Record<string, string> = {
   approved: "Approved. The workflow goes on; anything else it asks appears here.",
   denied: "Denied. The workflow stops there; run it again if you change your mind.",
   chosen: "Your choice was taken. The workflow goes on; anything else it asks appears here.",
+  again: "Started again. Anything it asks appears below as it runs.",
   added: "Added.",
   trashed: "Moved to the Trash. You can bring it back from the Trash.",
   changed: "Done.",
