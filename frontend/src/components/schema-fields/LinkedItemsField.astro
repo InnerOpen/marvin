@@ -58,6 +58,8 @@ const picked = chosen(ids, items);
 const inputId = `field-${field.key}`;
 const addable = canAdd(ids.length, multiple, max) && !field.readOnly;
 const newHref = isAsset ? "/workspace/assets/new" : "/workspace/resources/new";
+/** A chosen file or link opens on its own page, so the script, picture or link behind a field is one click away. */
+const openHref = (id: string) => `/workspace/${isAsset ? "assets" : "resources"}/${id}`;
 const role = (field as { role?: string | null }).role?.trim() || field.key;
 const accept = isAsset ? (field.accept ?? "").trim() : "";
 const offType = (item: LinkedItem) => !!accept && !matchesAccept(accept, item);
@@ -79,7 +81,7 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
     {picked.map((item) => (
       <li class="li-card" data-id={item.id}>
         <span class="li-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={item.alt || item.name} /> : item.audioUrl ? <PlayButton src={item.audioUrl} label={`Play ${item.name}`} /> : <span aria-hidden="true">{isAsset ? "📄" : "🔗"}</span>}</span>
-        <span class="li-text"><strong>{item.name}</strong>{item.meta && <small>{item.meta}</small>}</span>
+        <span class="li-text"><strong><a class="li-open" href={openHref(item.id)} target="_blank" rel="noopener" title={`Open ${item.name}`}>{item.name}</a></strong>{item.meta && <small>{item.meta}</small>}</span>
         {!field.readOnly && <button type="button" class="li-remove" aria-label={`Remove ${item.name}`} data-linked-remove>×</button>}
       </li>
     ))}
@@ -180,6 +182,8 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
   .li-field .li-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .li-field .li-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
   .li-field .li-text strong { font-size: 0.875rem; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .li-field .li-text .li-open { color: inherit; text-decoration: none; }
+  .li-field .li-text .li-open:hover, .li-field .li-text .li-open:focus-visible { color: var(--accent); text-decoration: underline; }
   .li-field .li-text small { color: var(--muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .li-field .li-remove, .li-field .li-add { flex: 0 0 auto; width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; display: grid; place-items: center; }
   .li-field .li-remove:hover { color: var(--color-error); border-color: var(--color-error); }
@@ -276,7 +280,14 @@ const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id
       const text = document.createElement("span");
       text.className = "li-text";
       const name = document.createElement("strong");
-      name.textContent = option.dataset.name || "";
+      const open = document.createElement("a");
+      open.className = "li-open";
+      open.href = `/workspace/${isAsset ? "assets" : "resources"}/${option.dataset.id}`;
+      open.target = "_blank";
+      open.rel = "noopener";
+      open.textContent = option.dataset.name || "";
+      open.title = `Open ${option.dataset.name || ""}`;
+      name.append(open);
       text.append(name);
       if (option.dataset.meta) {
         const meta = document.createElement("small");
