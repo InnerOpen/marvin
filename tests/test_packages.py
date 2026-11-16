@@ -712,6 +712,53 @@ def test_an_entry_type_only_gains_fields_options_and_lookups_and_keeps_what_the_
     assert next(i for i in again.items if i.kind == "entry_type").status == "current"  # and a second update has nothing to add
 
 
+def test_a_lookup_gains_the_order_the_package_now_names_and_keeps_one_the_workspace_set(db_session, workspace):
+    # v1 of a story kit listed its lines by title; the next names script order. A lookup the workspace ordered itself keeps that.
+    older = _manifest()
+    older["blueprints"][0]["payload"]["schema_json"]["children"] = [
+        {"title": "Lines", "entry_type": "line", "field": "beat"},
+        {"title": "Takes", "entry_type": "take", "field": "beat", "sort": {"by": "created_at", "direction": "desc"}},
+    ]
+    _installed(db_session, workspace, older)
+    newer = _newer()
+    newer["blueprints"][0]["payload"]["schema_json"]["children"] = [
+        {"title": "Lines", "entry_type": "line", "field": "beat", "sort": {"by": "order"}},
+        {"title": "Takes", "entry_type": "take", "field": "beat", "sort": {"by": "created_at"}},
+    ]
+
+    result = service.update(db_session, workspace.id, service.parse_manifest(newer), actor_id=workspace.user_id)
+    db_session.commit()
+
+    db_session.expire_all()
+    beat = db_session.query(EntryTypes).filter_by(group_id=workspace.id, slug="beat").one()
+    assert beat.schema_json["children"] == [
+        {"title": "Lines", "entry_type": "line", "field": "beat", "sort": {"by": "order"}},
+        {"title": "Takes", "entry_type": "take", "field": "beat", "sort": {"by": "created_at", "direction": "desc"}},
+    ]
+    assert "list Lines: sort" in next(i for i in result.items if i.kind == "entry_type").detail
+    again = service.update(db_session, workspace.id, service.parse_manifest(newer), actor_id=workspace.user_id)
+    assert next(i for i in again.items if i.kind == "entry_type").status == "current"
+
+
+@pytest.mark.parametrize("sort", [{"by": "Not A Key"}, {"by": "number", "direction": "up"}, "newest"])
+def test_a_lookup_with_an_order_a_page_cannot_ask_for_is_refused(db_session, workspace, sort):
+    bad = _manifest()
+    bad["blueprints"][0]["payload"]["schema_json"]["children"] = [{"title": "Lines", "entry_type": "line", "field": "beat", "sort": sort}]
+    installed = service.install(db_session, workspace.id, service.parse_manifest(bad), actor_id=workspace.user_id)
+    item = next(i for i in installed.items if i.kind == "entry_type")
+    assert item.status == "blocked" and "list 'Lines'" in item.detail and "sort is natural" in item.detail
+    db_session.rollback()
+
+    _installed(db_session, workspace)
+    newer = _newer()
+    newer["blueprints"][0]["payload"]["schema_json"]["children"] = [{"title": "Lines", "entry_type": "line", "field": "beat", "sort": sort}]
+    updated = service.update(db_session, workspace.id, service.parse_manifest(newer), actor_id=workspace.user_id)
+    assert "sort is natural" in next(i for i in updated.items if i.kind == "entry_type").detail
+    db_session.expire_all()
+    beat = db_session.query(EntryTypes).filter_by(group_id=workspace.id, slug="beat").one()
+    assert "children" not in beat.schema_json  # nothing half-applied
+
+
 def test_an_update_of_a_playbook_the_package_installed_replaces_its_text_and_keeps_its_id(db_session, workspace_with_playbooks):
     workspace = workspace_with_playbooks
     service.install(db_session, workspace.id, service.parse_manifest(_with_playbook()), actor_id=workspace.user_id)

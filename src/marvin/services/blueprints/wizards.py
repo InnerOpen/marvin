@@ -583,26 +583,35 @@ def _check_scoped_list(s: _Step) -> str | None:
 
 
 ENTRY_SORTS = ("title", "created_at", "updated_at")  # the entries query's own columns a step may order by, besides a field
+THEN_SORTS = ("created_at", "updated_at")  # the columns that may break ties in a field: a line's takes in the order recorded
 
 
-def _check_sort(s: _Step) -> str | None:
-    """``sort`` on a pick, a list with a parent or a gallery: ``natural`` (by title, 2 before 10, the default) or ``{by, direction?,
-    then?}``, asked of the entries query: ``created_at`` (the order they were made: a script's scenes as they first appear) or a field
-    key, numbers as numbers (a beat's number, a line's order); ``direction`` asc (the default) or desc; ``then``, with a field ``by``,
-    a second field for those alike in the first (a story's lines: by beat, then order)."""
-    sort = s.step.get("sort")
+def sort_problem(sort: Any) -> str | None:
+    """What is wrong with a named order, or None. ``natural`` (by title, 2 before 10, the default) or ``{by, direction?, then?}``,
+    asked of the entries query: ``created_at`` (the order they were made: a script's scenes as they first appear) or a field key,
+    numbers as numbers (a beat's number, a line's order); ``direction`` asc (the default) or desc; ``then``, with a field ``by``, a
+    second field (a story's lines: by beat, then order) or ``created_at``/``updated_at`` for those alike in the first (a story's
+    takes: by line, then as recorded). A guided step's ``sort`` and a related list's (``children`` of an entry type's schema) alike."""
     if sort in (None, "natural"):
         return None
     if isinstance(sort, dict) and not (set(sort) - {"by", "direction", "then"}) and sort.get("direction", "asc") in ("asc", "desc"):
         by, then = sort.get("by"), sort.get("then")
         if then is None and isinstance(by, str) and (by in ENTRY_SORTS or _is_field(by)):
             return None
-        if _is_field(by) and by not in ENTRY_SORTS and _is_field(then) and then not in ENTRY_SORTS:  # a story's lines: by beat, then order
+        by_field = _is_field(by) and by not in ENTRY_SORTS
+        if by_field and (then in THEN_SORTS or _is_field(then) and then not in ENTRY_SORTS):  # a story's lines: by beat, then order
             return None
     return (
-        f"{s.label}: sort is natural (by title, 2 before 10), or {{by, direction?, then?}}: by {', '.join(ENTRY_SORTS)} or a field key "
-        "(numbers as numbers, text as people read it), direction asc or desc, then a second field key for those alike in the first"
+        f"sort is natural (by title, 2 before 10), or {{by, direction?, then?}}: by {', '.join(ENTRY_SORTS)} or a field key "
+        f"(numbers as numbers, text as people read it), direction asc or desc, then a second field key (or {' or '.join(THEN_SORTS)}) "
+        "for those alike in the first"
     )
+
+
+def _check_sort(s: _Step) -> str | None:
+    """``sort`` on a pick, a list with a parent or a gallery (``sort_problem``)."""
+    problem = sort_problem(s.step.get("sort"))
+    return f"{s.label}: {problem}" if problem else None
 
 
 def _check_list(s: _Step) -> str | None:

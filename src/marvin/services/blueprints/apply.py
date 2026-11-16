@@ -463,6 +463,7 @@ def _create(
 
     from marvin.db.models.platform.entry_types import EntryTypes
 
+    _checked_children(payload.get("schema_json"), slug)
     if payload.get("picture_presets_json") is not None:
         payload["picture_presets_json"] = _checked_presets(payload["picture_presets_json"], slug)
     if payload.get("templates_json") is not None:
@@ -705,7 +706,8 @@ def update_blueprint(
 #
 # An entry type records no source package and the workspace may have customised its fields, so an update only ever *adds*: the declared fields the
 # type lacks, the settings a declared field has that the existing one lacks (a slider, a step), the options a declared select lacks, and the declared
-# `children` lookups it lacks, and the picture presets and templates (by slug) it lacks. A setting an existing field already has is never
+# `children` lookups it lacks (and the settings a declared lookup has that the existing one lacks: its `sort`), and the picture presets and
+# templates (by slug) it lacks. A setting an existing field already has is never
 # changed, a field the package does not declare is kept, a template or preset the type already has is left as it is, and nothing is removed.
 
 
@@ -741,12 +743,30 @@ def entry_type_additions(entry_type, blueprint: Blueprint) -> tuple[dict | None,
                 notes.append(f"{key}: {', '.join(lacking)}")
     declared_children = declared.get("children") or []
     children = schema.setdefault("children", []) if declared_children else []
-    have = {(c.get("entry_type"), c.get("field")) for c in children if isinstance(c, dict)}
+    have = {(c.get("entry_type"), c.get("field")): c for c in children if isinstance(c, dict)}
     for child in declared_children:
-        if (child.get("entry_type"), child.get("field")) not in have:
+        name = child.get("title") or child.get("entry_type")
+        existing = have.get((child.get("entry_type"), child.get("field")))
+        if existing is None:
             children.append(copy.deepcopy(child))
-            notes.append(f"list {child.get('title') or child.get('entry_type')}")
+            notes.append(f"list {name}")
+            continue
+        # A setting the declared list has and this one lacks (its order: a story's chapters by number) is added; one it has is kept.
+        if lacking := [k for k in child if k not in existing]:
+            for k in lacking:
+                existing[k] = copy.deepcopy(child[k])
+            notes.append(f"list {name}: {', '.join(lacking)}")
     return (schema, notes) if notes else (None, [])
+
+
+def _checked_children(schema_json, slug: str) -> None:
+    """A package's related lists (``children`` of the schema) for entry type ``slug``: each one's ``sort`` is a guided step's
+    (wizards.sort_problem), so a list a page would quietly show by title instead is refused here."""
+    from marvin.services.blueprints.wizards import sort_problem
+
+    for child in (schema_json or {}).get("children") or []:
+        if isinstance(child, dict) and (problem := sort_problem(child.get("sort"))):
+            raise BlueprintParameterError(f"the list '{child.get('title') or child.get('entry_type')}' of entry type '{slug}': {problem}")
 
 
 def _checked_templates(templates, schema_json, slug: str, presets=None) -> list | None:
@@ -811,6 +831,7 @@ def update_entry_type(session, group_id, blueprint: Blueprint, row) -> Blueprint
     try:
         if schema is not None:
             EntryTypeSchemaDefinition.model_validate(schema)
+            _checked_children((blueprint.payload or {}).get("schema_json"), row.slug)
         if presets is not None:
             presets = _checked_presets(presets, row.slug)
         if templates is not None:

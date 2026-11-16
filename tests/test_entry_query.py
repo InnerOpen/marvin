@@ -250,3 +250,28 @@ def test_a_text_field_sorts_as_people_read_it_and_then_breaks_ties(db_session, s
     assert _titles(run(db_session, shop, {"entry_type": "line", "sort": {"by": "beat"}}))[:2] in (["a", "b"], ["b", "a"])
     backwards = run(db_session, shop, {"entry_type": "line", "sort": {"by": "beat", "then": "order", "direction": "desc"}})
     assert _titles(backwards) == ["d", "e", "c", "b", "a", "z"]
+
+
+def test_a_field_sort_may_break_ties_by_the_order_they_were_made(db_session, shop):
+    # A story's takes: line by line in script order, a line's takes in the order recorded (created_at), never by title.
+    from datetime import UTC, datetime, timedelta
+
+    from marvin.db.models.platform import Entries, EntryTypes
+
+    take = EntryTypes(session=db_session, group_id=shop, name="Take", slug="take", schema_json={})
+    db_session.add(take)
+    db_session.flush()
+    start = datetime(2026, 11, 1, 12, 0, 0, tzinfo=UTC)
+    rows = [("z1", "tin-line-1002-1"), ("y1", "tin-line-1001-1"), ("x2", "tin-line-1002-1"), ("w2", "tin-line-1001-1"), ("v1", "tin-line-10001-1")]
+    for i, (title, line) in enumerate(rows):
+        entry = Entries(
+            session=db_session, group_id=shop, entry_type_id=take.id, title=title, slug=f"t-{title}-{shop.hex[:6]}", data_json={"line": line}
+        )
+        entry.created_at = start + timedelta(minutes=i)
+        db_session.add(entry)
+    db_session.commit()
+
+    by_line = run(db_session, shop, {"entry_type": "take", "sort": {"by": "line", "then": "created_at"}})
+    assert _titles(by_line) == ["y1", "w2", "z1", "x2", "v1"]
+    backwards = run(db_session, shop, {"entry_type": "take", "sort": {"by": "line", "then": "created_at", "direction": "desc"}})
+    assert _titles(backwards) == ["v1", "x2", "z1", "w2", "y1"]
