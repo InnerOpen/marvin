@@ -229,6 +229,51 @@ def test_nobody_deciding_in_time_goes_on_as_expired(ws):  # noqa: F811
     assert _reload(ws, article).metadata_json["not_featured"] == "expired"
 
 
+MARK = {
+    "trigger": {"type": "event", "event": "entry_published"},
+    "actions": [
+        {"kind": "approval", "id": "ok", "message": "Keep “${entry.title}”?", "choices": ["Keep", "Redo"]},
+        {"kind": "entry", "op": "set_data", "data": {"answer": "${steps.ok.output.decision} ${steps.ok.output.choice}"}},
+    ],
+}
+
+
+def _depths_after(ws, monkeypatch, settle) -> list[int]:  # noqa: F811
+    """The reaction depth of what the run sends after its approval is settled by `settle`, the run started at depth 2 (two
+    workflows deep already, as a Redo that a requeue workflow started again is)."""
+    from marvin.services.automation.context import event_context
+    from marvin.services.automation.engine import run_automations_for_event
+    from marvin.services.automation.recorder import ExecutionRecorder
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+    _install(ws, MARK)
+    article = _published(ws)
+    ctx = event_context("entry_published", _entry_doc(article), entity_id=article.id, entity_type="entry", reaction_depth=2, correlation_id="c")
+    run_automations_for_event(ws.session, ws.gid, ctx, recorder=ExecutionRecorder(ws.session, ws.gid))
+    sent: list[tuple[str, int]] = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: sent.append((kw["event_type"].name, kw.get("reaction_depth", 0))))
+    settle(_waiting(ws))
+    return [depth for name, depth in sent if name == "entry_updated"]
+
+
+def test_a_persons_answer_starts_the_hop_count_again(ws, monkeypatch):  # noqa: F811
+    # The loop guard stops a chain three workflows deep. A Redo goes Keep/Redo question → redo → requeue → queued → a new run: a
+    # second Redo of the same sound was past the guard and nothing happened. Each round waits on a person, so it is no runaway loop.
+    def redo(waiting):
+        approvals.decide(ws.session, ws.gid, waiting.id, "approve", user_id=ws.uid, role=ROLE_EDITOR, choice="Redo")
+
+    assert set(_depths_after(ws, monkeypatch, redo)) == {1}
+
+
+def test_an_approval_nobody_answered_keeps_the_hop_count(ws, monkeypatch):  # noqa: F811
+    def expire(waiting):
+        waiting.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        ws.session.commit()
+        approvals.expire_due(ws.session)
+
+    assert set(_depths_after(ws, monkeypatch, expire)) == {3}
+
+
 def test_an_on_failure_step_cant_wait():
     from pydantic import ValidationError
 
