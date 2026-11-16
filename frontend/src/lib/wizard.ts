@@ -471,8 +471,10 @@ export function suppliedData(step: Step, ctx: Ctx): Record<string, unknown> {
 
 /** The entries query behind a `list` or `gallery` step: those whose `parent_field` holds the parent's slug (a gallery may be unscoped). */
 export function listSpec(step: Step, ctx: Ctx): Record<string, unknown> {
-  if (!step.parent_field) return { entry_type: step.entry_type, ...referenceFilter(step, ctx) };
-  return { entry_type: step.entry_type, fields: { [step.parent_field]: ctx[step.parent] }, ...referenceFilter(step, ctx) };
+  // A gallery's `where` keeps only the cards that meet it (a story's sounds of kind ambience); a list's is its scoped kind's own.
+  const where = step.kind === "gallery" && Array.isArray(step.where) && step.where.length ? { where: substitute(step.where, ctx) } : {};
+  if (!step.parent_field) return { entry_type: step.entry_type, ...where, ...referenceFilter(step, ctx) };
+  return { entry_type: step.entry_type, fields: { [step.parent_field]: ctx[step.parent] }, ...where, ...referenceFilter(step, ctx) };
 }
 
 export interface AttachedAsset {

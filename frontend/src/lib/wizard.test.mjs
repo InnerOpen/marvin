@@ -532,6 +532,17 @@ test("only_with and only_without ask the entries query for what another type poi
   assert.deepEqual(referenceFilter({ kind: "list" }, {}), {});
 });
 
+test("a gallery's where keeps only the cards that meet it, on top of its parent; a list's where is not read here", () => {
+  const beds = { kind: "gallery", entry_type: "sound", parent_field: "story", parent: "story", where: [{ field: "kind", op: "eq", value: "ambience" }, { field: "story", op: "eq", value: "${story}" }] };
+  assert.deepEqual(listSpec(beds, { story: "tin" }), {
+    entry_type: "sound",
+    fields: { story: "tin" },
+    where: [{ field: "kind", op: "eq", value: "ambience" }, { field: "story", op: "eq", value: "tin" }],
+  });
+  assert.deepEqual(listSpec({ ...beds, where: [] }, { story: "tin" }), { entry_type: "sound", fields: { story: "tin" } });
+  assert.deepEqual(listSpec({ ...beds, kind: "list" }, { story: "tin" }), { entry_type: "sound", fields: { story: "tin" } });
+});
+
 test("a gallery card is being made while its status is one the step names, and says the step's words", () => {
   const step = { id: "found", kind: "gallery", title: "Sounds", approve: ["take-sound"], working: { queued: "Starting…", redo: "Making it again in two minutes…" } };
   assert.equal(workingOf(step, { status: "redo" }), "Making it again in two minutes…");

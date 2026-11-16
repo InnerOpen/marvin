@@ -33,7 +33,8 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   ``or_where``) instead, as cards a page at a time with a search, and edits only its ``columns`` on them (and ``check``); it makes
   nothing. ``flags``, ``check``, ``facet``, ``fill``, ``picture`` and ``subtitle`` are in ``_check_scoped_list``.
 - ``gallery``: the entries of ``entry_type`` as picture cards (a troupe of actors, a story's cast), scoped like a list (``parent_field`` holds
-  context key ``parent``; both or neither). ``picture`` is the asset field shown, ``audio`` an asset field played from the card, ``subtitle``
+  context key ``parent``; both or neither), and ``where`` (plain conditions, as a scoped list's) keeps only the cards that meet it: a
+  story's sounds of kind ambience. ``picture`` is the asset field shown, ``audio`` an asset field played from the card, ``subtitle``
   a field under the name, ``badges`` fields shown as pills. Actions, each optional: ``add`` ({fields, data?}: a form), ``upload`` ({field,
   accept?, template?}: a file becomes a new entry, named for the file; ``accept`` is the file input's accept, ``image/*`` unless it says,
   e.g., ``audio/*``; ``template``, one of the type's templates, makes the entry with it, picture preset and all), ``generate`` ({workflow,
@@ -872,6 +873,8 @@ def _check_gallery(s: _Step) -> str | None:
     if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
         return problem
     if problem := _check_gallery_extras(s) or _check_only(s):
+        return problem
+    if step.get("where") is not None and (problem := _check_conditions(s, step["where"], "where", refs=True)):
         return problem
     if step.get("add") is not None and (
         (problem := _check_create(s, step["add"])) and (problem := problem.replace("create", "add")) or (problem := _check_add_extras(s, step["add"]))

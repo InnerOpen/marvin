@@ -680,6 +680,26 @@ def test_a_wizard_only_shows_approvals_of_workflows_its_own_package_brings():
         service.parse_manifest(manifest)
 
 
+def test_a_gallery_may_keep_only_the_cards_that_meet_a_where():
+    kind = {"field": "kind", "op": "eq", "value": "ambience"}
+    assert payload_problem(_takes_wizard(where=[kind]), "takes") is None
+    assert payload_problem(_takes_wizard(where=[kind, {"field": "line", "op": "eq", "value": "${line}"}]), "takes") is None
+
+
+@pytest.mark.parametrize(
+    ("where", "words"),
+    [
+        ([], "where is a list of 1 to 6 conditions"),
+        ({"field": "kind"}, "where is a list of 1 to 6 conditions"),
+        ([{"field": "Not A Key", "op": "eq", "value": "x"}], "on a field key"),
+        ([{"field": "kind", "op": "like", "value": "x"}], "op is one of"),
+        ([{"field": "kind", "op": "eq", "value": "${nope}"}], "nope"),
+    ],
+)
+def test_a_wrong_gallery_where_says_what_is_wrong(where, words):
+    assert words in (payload_problem(_takes_wizard(where=where), "takes") or "")
+
+
 def test_a_gallery_may_offer_to_trash_what_it_lists():
     assert payload_problem(_takes_wizard(trash=True), "takes") is None
 
