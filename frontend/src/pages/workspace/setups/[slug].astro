@@ -103,7 +103,7 @@ if (Astro.request.method === "POST" && authToken && def && step) {
       const asked = await decideApproval(deciding, decision, choice, String(form.get("note") ?? "").trim() || null, authToken);
       // A run step's own Redo (`redo`: the choice its workflow offers) runs the step again at once, and the page follows the new run.
       if (step.kind === "run" && step.redo && choice === step.redo && asked.workflow === step.workflow) {
-        const again = await runStep(def, step, form, ctx, authToken);
+        const again = await runStep(def, step, form, ctx, authToken, true);
         return Astro.redirect(stepHref(slug, ctx, step.id, { ...(again.run ? { [RUN_PARAM]: again.run } : {}), [NOTICE_PARAM]: again.notice ?? "again" }));
       }
       // A gallery's approvals come from runs it did not start (a card's event): the page follows the run that asked, from here on. A
@@ -146,7 +146,7 @@ const runOf = async (workflow: string | string[]): Promise<WorkflowRunState | nu
   return found && [workflow].flat().includes(found.automationSlug) ? found : null;
 };
 /** The latest run of a workflow about the first entry a step hands it: a reload, another tab or a return to the step still sees a run that
- *  is going (shownRun), and the button says "again" once one has run. */
+ *  is going (shownRun). Not for "again": Preview and Make share one workflow. */
 let latestRun: WorkflowRunState | null = null;
 const latestAbout = async (workflow: string, keys: string[]): Promise<WorkflowRunState | null> => {
   const entry = keys.map((k) => entries[k]).find(Boolean);
@@ -1045,7 +1045,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                 <div class="actions">
                   {!nothingToDo && (
                     <button class:list={["button", (pendingCards.length > 0 || (runSays && runSays.tone !== "bad")) && "secondary"]} type="submit" disabled={!flow.canRun || !!lacking || running || (!!previewed && !!previewed.problem)}>
-                      {running && runNow ? <span>{busyLabel(runNow)}{runNow.startedAt && <Fragment> (started <time data-local datetime={runNow.startedAt}>{String(runNow.startedAt).slice(11, 16)} UTC</time>)</Fragment>}</span> : picked ? runButton(step.button, picked.selection.count) : pendingCards.length > 0 || decidedCards.length > 0 || runNow || latestRun ? `${runButton(step.button, null)} again` : runButton(step.button, null)}
+                      {running && runNow ? <span>{busyLabel(runNow)}{runNow.startedAt && <Fragment> (started <time data-local datetime={runNow.startedAt}>{String(runNow.startedAt).slice(11, 16)} UTC</time>)</Fragment>}</span> : picked ? runButton(step.button, picked.selection.count) : pendingCards.length > 0 || decidedCards.length > 0 || runNow ? `${runButton(step.button, null)} again` : runButton(step.button, null)}
                     </button>
                   )}
                   {continues && <a class:list={["button", !(nothingToDo && !running) && runSays && runSays.tone !== "ok" && "secondary"]} href={stepHref(slug, ctx, after!.id)}>Continue →</a>}

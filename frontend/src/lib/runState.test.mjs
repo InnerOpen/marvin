@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { busyLabel, runKey, runLine, shownRun } from "./runState.ts";
+import { BUSY_HOURS, busyLabel, runKey, runLine, shownRun } from "./runState.ts";
 
 const run = (state, extra = {}) => ({ executionId: "run-1", automationSlug: "make-stills", state, stepsTotal: 7, stepsOk: 0, stepsFailed: 0, waitingOn: [], ...extra });
 const asked = (message = "Keep this still?") => ({ approvalId: "ap-1", message, approvers: message === null ? "admin" : "editor" });
@@ -52,4 +52,12 @@ test("a step shows the run in its address, else the latest run about its entry w
 test("the run button says what its run is doing while it goes", () => {
   assert.equal(busyLabel(run("working")), "Working…");
   assert.equal(busyLabel(run("waiting", { waitingOn: [asked()] })), "Waiting for your answer…");
+});
+
+test("a run still not over hours after it started (a stopped worker's job) no longer holds the button off", () => {
+  const now = Date.parse("2026-11-16T18:00:00Z");
+  const at = (hours) => run("working", { startedAt: new Date(now - hours * 3600 * 1000).toISOString(), job: { kind: "import-beats", status: "running" } });
+  assert.ok(shownRun(null, at(BUSY_HOURS - 1), now));
+  assert.equal(shownRun(null, at(BUSY_HOURS + 1), now), null);
+  assert.ok(shownRun(at(BUSY_HOURS + 1), null, now)); // one in the address is still followed
 });

@@ -50,8 +50,17 @@ export function runKey(run: WorkflowRunState): string {
 /** The run a run step shows: the one in the address (this page started it, or answered its question), else the latest run of its workflow
  *  about the step's entry while that one is still going, so a reload, another tab or a return to the step never offers to start a second.
  *  A finished run that is not in the address is not shown: it may be another step's (Preview and Make share one workflow). */
-export function shownRun(inAddress: WorkflowRunState | null, latest: WorkflowRunState | null): WorkflowRunState | null {
-  return inAddress ?? (latest && !runLine(latest).over ? latest : null);
+export function shownRun(inAddress: WorkflowRunState | null, latest: WorkflowRunState | null, now: number = Date.now()): WorkflowRunState | null {
+  return inAddress ?? (latest && !runLine(latest).over && !leftBehind(latest, now) ? latest : null);
+}
+
+/** A run that started longer ago than this and still is not over is taken as left behind (a worker that stopped mid-job leaves its job
+ *  "running"): it no longer holds the button off. */
+export const BUSY_HOURS = 6;
+
+function leftBehind(run: WorkflowRunState, now: number): boolean {
+  const started = run.startedAt ? Date.parse(String(run.startedAt)) : Number.NaN;
+  return Number.isFinite(started) && now - started > BUSY_HOURS * 3600 * 1000;
 }
 
 /** The run button's words while its run is still going, with when it started (the page puts the time in the reader's own clock). */
