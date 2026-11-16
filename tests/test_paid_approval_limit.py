@@ -86,3 +86,25 @@ def test_the_card_says_how_much_of_the_day_is_used(ws, studio, limit):  # noqa: 
     card = _approval_read(ws.session, _paid(ws, "Card"))
 
     assert card.paid is True and (card.spend_limit.limit, card.spend_limit.used_today) == (5, 0)
+
+
+def test_a_batch_that_makes_inside_a_repeat_counts_and_one_that_only_queues_does_not(ws, studio):  # noqa: F811
+    from marvin.services.integrations.estimate import guards_paid
+
+    make = {"kind": "integration", "id": "fx", "integration": "studio", "action": "sound_effect", "args": {"text": "${item}"}}
+    record = [
+        {"kind": "approval", "id": "spend", "message": "Record them?"},
+        {"kind": "repeat", "id": "each", "for_each": ["a", "b"], "steps": [make]},
+    ]
+    queue = [
+        {"kind": "approval", "id": "spend", "message": "Make them?"},
+        {"kind": "repeat", "id": "each", "for_each": ["a"], "steps": [{"kind": "entry", "op": "set_data", "data": {"status": "queued"}}]},
+    ]
+    both = [
+        {"kind": "approval", "id": "spend", "message": "Both?"},
+        {"kind": "parallel", "id": "p", "branches": [{"name": "one", "steps": [make]}, {"name": "two", "steps": [make]}]},
+    ]
+
+    assert guards_paid(ws.session, ws.gid, record, 0, {}) is True
+    assert guards_paid(ws.session, ws.gid, queue, 0, {}) is False
+    assert guards_paid(ws.session, ws.gid, both, 0, {}) is True

@@ -5,15 +5,17 @@ warning before it and a block past it; stored in settings, not hard-coded. Phase
 ground it stands on.
 
 ## What counts
-- A **paid approval** is one that guards a paid step: an integration step after it (up to the next approval) whose
-  provider action is `cost_hint: paid` or needs an approval — the same rule the likely-cost line uses
-  (services/integrations/estimate.py). It is decided at park time and kept on the row (`workflow_approvals.paid`,
+- A **paid approval** is one that guards a paid step: an integration step after it (up to the next approval, a
+  `repeat`'s or a `parallel`'s own steps included) whose provider action is `cost_hint: paid` or needs an approval —
+  the rule the likely-cost line uses (services/integrations/estimate.py), looking inside a repeat. It is decided at park time and kept on the row (`workflow_approvals.paid`,
   boolean), so the count never re-reads workflows and a workflow edited later does not change history.
 - **Used today** = this workspace's approvals with `paid` true, settled `approved`, `decided_at` since midnight UTC.
   (UTC, not the workspace's timezone: there is no workspace timezone setting to read; the card says when it resets.)
-- Not counted: a deny, an expiry, a stale; an `approved_when` that went on unasked (a page that already asked: its own
-  approval was counted, e.g. *Make the stills* is one approval for twenty stills). That is the honest limit of counting
-  approvals rather than calls; a limit on credits per provider is the follow-up (below).
+- Not counted: a deny, an expiry, a stale; an `approved_when` that went on unasked. A batch that makes inside its
+  repeat (*Record lines*) counts once. **A batch that only queues entries for other runs (*Make the stills*, *Make the
+  sounds*) is not counted at all**: its approval guards no paid step itself, and each item's run goes on through
+  `approved_when`. That is the honest limit of counting approvals rather than calls; a limit on calls or credits per
+  provider (counted from the AI-executions rows the paid steps write) is the follow-up (below).
 
 ## Where it is kept
 `group_preferences.paid_approvals_per_day` (int, nullable, 1-1000; null = no limit), beside `approval_expires_hours`

@@ -1038,8 +1038,9 @@ changed. Give the paid step that text, so what is shown and what is sent can't d
   UTC. A paid card says "3 of 20 paid approvals used today" (and how many are left near the end); past the limit
   Approve is refused (409: "Today's limit of 20 paid approvals is reached…") until the next day, Deny still works, and
   **Approve all** approves in order until the limit and reports the rest as not taken. It counts approvals, not
-  calls: one approval of a batch (*Make the stills*) is one, and a step a page already approved (`approved_when`) is
-  not counted again. API: `paid` and `spendLimit` (`limit`, `usedToday`, `resetsAt`) on an approval.
+  calls: a batch that makes inside its repeat (record twenty lines) counts once; a batch that only queues entries for
+  other runs to make (Screenplay Studio's *Make the stills*) is not counted, nor is a step a page already approved
+  (`approved_when`). API: `paid` and `spendLimit` (`limit`, `usedToday`, `resetsAt`) on an approval.
 
 ### One run per entry at a time
 

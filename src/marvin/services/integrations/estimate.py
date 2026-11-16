@@ -214,11 +214,32 @@ def _step_estimate(session, group_id, step: dict, context: dict) -> dict | None:
     return {"step": step.get("id"), **estimate_call(session, group_id, integration, operation, args, provider_name=name)}
 
 
+def _inner_steps(actions: list, index: int, context: dict) -> list[dict]:
+    """The steps the approval at `index` guards, a `repeat`'s and a `parallel`'s own steps included (a batch: *Record lines*)."""
+    from marvin.services.automation.matcher import matches
+
+    found: list[dict] = []
+    for step in actions[index + 1 :]:
+        if not isinstance(step, dict):
+            continue
+        if step.get("kind") == "approval":
+            if step.get("when") and not matches(step["when"], context):
+                continue
+            break
+        found.append(step)
+        found += [s for s in step.get("steps") or [] if isinstance(s, dict)]
+        for branch in step.get("branches") or []:  # a parallel step: [{name, steps}]
+            found += [s for s in (branch.get("steps") or [] if isinstance(branch, dict) else []) if isinstance(s, dict)]
+    return [s for s in found if s.get("kind") == "integration" and s.get("integration")]
+
+
 def guards_paid(session, group_id, actions: list, index: int, context: dict) -> bool:
     """Whether the approval at `index` guards a paid step (what a workspace's daily limit on paid approvals counts): a paid call
-    among the steps it guards, whatever their `when` (the decision they read is not made yet). Never raises: False on doubt."""
+    among the steps it guards, a repeat's or a parallel's included, whatever their `when` (the decision they read is not made
+    yet). A batch that only queues entries for other runs to make (*Make the stills*) guards no paid step itself. Never
+    raises: False on doubt."""
     try:
-        return any(paid_call(session, group_id, step, context) for step in guarded_steps(actions, index, context))
+        return any(paid_call(session, group_id, step, context) for step in _inner_steps(actions, index, context))
     except Exception:  # noqa: BLE001 — a count is never worth failing a park
         return False
 
