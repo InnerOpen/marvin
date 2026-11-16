@@ -734,6 +734,33 @@ def _check_add_extras(s: _Step, add: Any) -> str | None:
     return None
 
 
+def _check_highlight(s: _Step, hi: Any) -> str | None:
+    """A gallery's ``highlight``: ``{field, value, label}`` marks the card whose own field has that value (the take in use), or
+    ``{referenced_by: {entry_type, field, scope?}, label, label_field?}`` marks a card that an entry of another type points at: its
+    ``field`` holds the card's slug, and ``scope`` ({field: "${key}"}, as a choose step's) narrows those entries to earlier choices (an
+    actor cast in this story: a cast member of the story whose ``actor`` is the actor). ``label_field``, a field of those entries,
+    follows the label ("Cast as" + "Granny"). A scope value that is empty marks nothing."""
+    if not isinstance(hi, dict) or not isinstance(hi.get("label"), str) or not hi["label"].strip():
+        return f"{s.label}: highlight needs a label, the mark on the card"
+    by = hi.get("referenced_by")
+    if by is None:
+        if _is_field(hi.get("field")) and isinstance(hi.get("value"), str) and hi.get("label_field") is None:
+            return None
+        return f"{s.label}: highlight is {{field, value, label}}, the card whose field has that value is marked with the label"
+    if hi.get("field") is not None or hi.get("value") is not None:
+        return f"{s.label}: highlight marks by its own field (field, value) or by referenced_by, not both"
+    if not (isinstance(by, dict) and isinstance(by.get("entry_type"), str) and _SLUG.match(by["entry_type"]) and _is_field(by.get("field"))):
+        return f"{s.label}: highlight.referenced_by is {{entry_type, field, scope?}}: the entries whose field holds the card's slug"
+    if (extra := sorted(set(by) - {"entry_type", "field", "scope"})) != []:
+        return f"{s.label}: highlight.referenced_by takes entry_type, field and scope, not {', '.join(extra)}"
+    scope = by.get("scope")
+    if scope is not None and (not isinstance(scope, dict) or not all(_is_field(k) and isinstance(v, str) for k, v in scope.items())):
+        return f"{s.label}: highlight.referenced_by.scope maps field keys to values, as a choose step's scope"
+    if hi.get("label_field") is not None and not _is_field(hi["label_field"]):
+        return f"{s.label}: highlight.label_field is a field of the referencing entries, whose value follows the label"
+    return s.refs_one(scope, "highlight.referenced_by.scope")
+
+
 def _check_gallery_extras(s: _Step) -> str | None:
     """A gallery's presentation and card options: sort, card_actions, trash, layout, name, highlight, added."""
     step = s.step
@@ -772,10 +799,8 @@ def _check_gallery_extras(s: _Step) -> str | None:
             isinstance(name["placeholder"], str) and name["placeholder"].strip() and len(name["placeholder"]) <= 80
         ):
             return f"{s.label}: name.placeholder is the short hint shown in the name box (at most 80 characters)"
-    if (hi := step.get("highlight")) is not None and not (
-        isinstance(hi, dict) and _is_field(hi.get("field")) and isinstance(hi.get("value"), str) and isinstance(hi.get("label"), str)
-    ):
-        return f"{s.label}: highlight is {{field, value, label}}, the card whose field has that value is marked with the label"
+    if (hi := step.get("highlight")) is not None and (problem := _check_highlight(s, hi)):
+        return problem
     if step.get("added") is not None and not (isinstance(step["added"], str) and step["added"].strip()):
         return f"{s.label}: added is the line shown after one is added or uploaded"
     return None

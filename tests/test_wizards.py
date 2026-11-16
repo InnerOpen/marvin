@@ -503,6 +503,38 @@ def test_a_wrong_takes_gallery_says_what_is_wrong(change, words):
     assert words in (payload_problem(_takes_wizard(**change), "takes") or "")
 
 
+_CAST = {"referenced_by": {"entry_type": "cast-member", "field": "actor", "scope": {"story": "${line}"}}, "label": "Cast as", "label_field": "role"}
+
+
+def test_a_gallery_may_highlight_the_cards_another_type_points_at():
+    assert payload_problem(_takes_wizard(highlight=_CAST), "takes") is None
+    plain = {"referenced_by": {"entry_type": "cast-member", "field": "actor"}, "label": "Cast"}
+    assert payload_problem(_takes_wizard(highlight=plain), "takes") is None
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [
+        ({"label": " "}, "highlight needs a label"),
+        ({"field": "status", "value": "x"}, "not both"),
+        ({"referenced_by": {"entry_type": "Cast Member", "field": "actor"}}, "referenced_by is {entry_type, field"),
+        ({"referenced_by": {"entry_type": "cast-member"}}, "referenced_by is {entry_type, field"),
+        ({"referenced_by": {"entry_type": "cast-member", "field": "actor", "where": {}}}, "not where"),
+        ({"referenced_by": {"entry_type": "cast-member", "field": "actor", "scope": ["story"]}}, "scope maps field keys"),
+        ({"referenced_by": {"entry_type": "cast-member", "field": "actor", "scope": {"story": "${nope}"}}}, "uses ${nope}"),
+        ({"label_field": "bad key"}, "label_field"),
+    ],
+)
+def test_a_wrong_highlight_by_reference_says_what_is_wrong(change, words):
+    assert words in (payload_problem(_takes_wizard(highlight={**_CAST, **change}), "takes") or "")
+
+
+def test_a_highlight_by_its_own_field_takes_no_label_field():
+    assert "highlight is {field, value, label}" in (
+        payload_problem(_takes_wizard(highlight={"field": "status", "value": "in_use", "label": "In use", "label_field": "x"}), "takes") or ""
+    )
+
+
 def test_a_card_action_may_ask_for_a_file_and_an_add_form_may_offer_the_workspaces_assets():
     action = {"label": "Use my file", "set": {"status": "approved"}, "file": {"field": "audio", "accept": "audio/*", "assets": True}}
     assert payload_problem(_takes_wizard(card_actions=[action]), "takes") is None
