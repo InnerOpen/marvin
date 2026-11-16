@@ -18,8 +18,17 @@ should offer a clear way back to the very step it came from.
 - Validator (`_check_see_also`): list ≤3, unknown keys, label/text length, setup slug, step id shape, carry keys/values.
 
 ## Steps
-- [ ] wizard.ts helpers + node tests
-- [ ] components + 2 small includes in [slug].astro
-- [ ] validator + pytest, docs
-- [ ] scratch Marvin + headless Chromium walk (link, banner on several steps, reload, Back, bad back)
+- [x] wizard.ts helpers + node tests
+- [x] components + 2 small includes in [slug].astro
+- [x] validator + pytest, docs
+- [x] scratch Marvin + headless Chromium walk (link, banner on several steps, reload, Back, bad back)
 - [ ] Marvin PR → merge → Promote; Studio package PR (see_also links, version bump)
+
+Also (from Jared, same PR): a step's `show.empty` ({field: line} or one line) states an empty field instead of leaving it out, so
+Narrate's Preview and Make steps say "Chapters to bring in: All the chapters".
+
+## Review
+- Scratch SQLite Marvin + Studio v191 on a scratch workspace, headless Chromium: link → Sounds for a story on "What the story
+  calls for" with the story chosen; banner on 6 steps, after Continue, Previous, a sent form and a reload; Back lands on Narrate
+  step 11 with world and story; six bad `back` values ignored or rebuilt; reverse link carries the story's world; show card reads
+  "All the chapters". node --test, pytest test_wizards, ruff, biome lint, astro check (31 errors, none new).
