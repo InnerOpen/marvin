@@ -1,0 +1,335 @@
+---
+/**
+ * What a job came to, as every guided step shows it: the worker job's own words (its log), or the report a step names (a field the job
+ * writes, like a story's Fountain check or chapter plan). `lib/jobResult.ts` reads the text into blocks: how it went, a strip of counts,
+ * findings grouped by kind, a table, long lists folded away. A line it does not know is shown as written, in its place, and the job's own
+ * text is always one click away.
+ */
+import { jobResult } from "@/lib/jobResult";
+
+interface Props {
+  text: string;
+  /** The heading: "What the job said", or the report's name. */
+  label: string;
+  /** The job failed: its last paragraph says why. */
+  failed?: boolean;
+  /** Where the text can be changed, and the link's words. */
+  href?: string;
+  linkText?: string;
+}
+const { text, label, failed = false, href, linkText } = Astro.props;
+const { blocks, raw, formatted } = jobResult(text, { failed });
+const ROWS_SHOWN = 6;
+const CAST_SHOWN = 4;
+const TAGS = { bad: "Fix", warn: "Look", good: "Info", plain: "Info" } as const;
+---
+
+<section class="jr" aria-label={label}>
+  <div class="jr-head">
+    <strong>{label}</strong>
+    {href && <a class="muted" href={href}>{linkText ?? "Open it ↗"}</a>}
+  </div>
+  {
+    blocks.map((b) => {
+      if (b.kind === "stamp") return <p class="jr-when">{[b.when, ...b.parts].join(" · ")}</p>;
+      if (b.kind === "verdict")
+        return (
+          <div class:list={["jr-verdict", `tone-${b.tone}`]}>
+            {b.tone !== "plain" && <span class="jr-dot" aria-hidden="true" />}
+            <p>
+              <strong>{b.text.map((s) => (s.code ? <code>{s.text}</code> : s.text))}</strong>
+              {b.sub.map((line) => <span class="jr-sub">{line.map((s) => (s.code ? <code>{s.text}</code> : s.text))}</span>)}
+            </p>
+          </div>
+        );
+      if (b.kind === "stats")
+        return (
+          <dl class="jr-stats">
+            {b.items.map((i) => (
+              <div class="jr-stat">
+                <dt>{i.label}</dt>
+                <dd>{i.value}</dd>
+              </div>
+            ))}
+          </dl>
+        );
+      if (b.kind === "note") return <p class="jr-note">{b.text.map((s) => (s.code ? <code>{s.text}</code> : s.text))}</p>;
+      if (b.kind === "lack")
+        return (
+          <div class="jr-lack">
+            <span class="jr-tag tone-warn">Missing</span>
+            <p>{b.text.map((s) => (s.code ? <code>{s.text}</code> : s.text))}</p>
+          </div>
+        );
+      if (b.kind === "text") return <div class="jr-text">{b.text}</div>;
+      if (b.kind === "pairs")
+        return (
+          <details class="jr-fold">
+            <summary>
+              {b.title} <span class="jr-count">{b.pairs.length}</span>
+            </summary>
+            <div class="jr-names">
+              {b.pairs.map(([from, to]) => (
+                <span class="jr-pair">
+                  {from} <span class="jr-arrow">→</span> <b>{to}</b>
+                </span>
+              ))}
+            </div>
+          </details>
+        );
+      if (b.kind === "lists")
+        return (
+          <div class="jr-lists">
+            <p class="jr-note">{b.text.map((s) => (s.code ? <code>{s.text}</code> : s.text))}</p>
+            <details class="jr-fold">
+              <summary>{b.lists.map((l) => l.label).join(" · ")}</summary>
+              {b.lists.map((l) => (
+                <div class="jr-list">
+                  <p class="jr-list-title">{l.label}</p>
+                  <div class="jr-chips">{l.items.map((item) => <span>{item}</span>)}</div>
+                </div>
+              ))}
+            </details>
+          </div>
+        );
+      if (b.kind === "log")
+        return (
+          <ol class="jr-log">
+            {b.rows.map((r) => (
+              <li>
+                <span class="jr-time">{r.when}</span>
+                <span class="jr-tag tone-plain">{r.what}</span>
+                {r.parts.map((p) => (p.bits ? <span class="jr-chips">{p.bits.map((bit) => <span>{bit}</span>)}</span> : <span class="jr-part">{p.text}</span>))}
+              </li>
+            ))}
+          </ol>
+        );
+      if (b.kind === "table")
+        return (
+          <div class="jr-scroll">
+            <table class="jr-table">
+              <thead>
+                <tr>
+                  <th scope="col"><span class="sr-only">Number</span></th>
+                  <th scope="col">Chapter</th>
+                  {b.columns.map((c) => <th scope="col" class="num">{c}</th>)}
+                  {b.listColumn !== "" || b.rows.some((r) => r.list.length) ? <th scope="col">{b.listColumn}</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {b.rows.map((r) => (
+                  <tr>
+                    <td class="ix">{r.n}</td>
+                    <td class="name">
+                      {r.name}
+                      {r.note && <span class="jr-sub">{r.note}</span>}
+                    </td>
+                    {r.cells.map((c) => <td class="num">{c}</td>)}
+                    {r.list.length > 0 && (
+                      <td>
+                        <div class="jr-cast">
+                          {r.list.slice(0, CAST_SHOWN).map((x) => <span>{x}</span>)}
+                          {r.list.length > CAST_SHOWN && (
+                            <details class="jr-cast-more">
+                              <summary>+{r.list.length - CAST_SHOWN}</summary>
+                              {r.list.slice(CAST_SHOWN).map((x) => <span>{x}</span>)}
+                            </details>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      // Findings: a section ("Worth a look (43)"), its rows grouped by kind, with a chip per kind to show one at a time.
+      // The section's own count; a section that gives none ("Check:") shows no total rather than one the job never said.
+      const total = b.count;
+      const rows = b.groups.reduce((n, g) => n + g.rows.length, 0);
+      return (
+        <details class:list={["jr-findings", `tone-${b.tone}`]} open={b.tone === "bad" || rows <= ROWS_SHOWN}>
+          <summary>
+            <span class:list={["jr-tag", `tone-${b.tone}`]}>{TAGS[b.tone]}</span>
+            {b.title} {total != null && <span class="jr-count">{total}</span>}
+          </summary>
+          {b.said && <p class="jr-why">{b.said[0].toUpperCase() + b.said.slice(1)}</p>}
+          {b.groups.length > 1 && (
+            <div class="jr-filters" role="group" aria-label="Show">
+              <button class="jr-chip" type="button" aria-pressed="true" data-jr-filter="all">All{total != null && ` ${total}`}</button>
+              {b.groups.map((g, n) => (
+                <button class="jr-chip" type="button" aria-pressed="false" data-jr-filter={String(n)}>
+                  {g.title} {g.count}
+                </button>
+              ))}
+            </div>
+          )}
+          {b.groups.map((g, n) => {
+            const row = (r: (typeof g.rows)[number]) => (
+              <li class="jr-row">
+                <span class="jr-ln">{r.line ?? ""}</span>
+                <div class="jr-body">
+                  {g.why && r.quotes.length > 0 ? (
+                    <>
+                      <code class="jr-quote">{r.quotes[0]}</code>
+                      {r.quotes.length > 1 && <span class="jr-fix">{r.quotes.slice(1).map((q, i) => (<>{i > 0 && " · "}<code>{q}</code></>))}</span>}
+                    </>
+                  ) : (
+                    r.text.map((s) => (s.code ? <code>{s.text}</code> : s.text))
+                  )}
+                </div>
+              </li>
+            );
+            return (
+              <section class="jr-group" data-jr-group={String(n)}>
+                {b.groups.length > 1 && (
+                  <h4>
+                    {g.title} <span class="jr-count">{g.count}</span>
+                  </h4>
+                )}
+                {g.why && <p class="jr-why">{g.why.map((s) => (s.code ? <code>{s.text}</code> : s.text))}</p>}
+                {g.pairs ? (
+                  <div class="jr-names">
+                    {g.pairs.map(([from, to]) => (
+                      <span class="jr-pair">
+                        {from} <span class="jr-arrow">→</span> <b>{to}</b>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <ol class="jr-rows">{g.rows.slice(0, ROWS_SHOWN).map(row)}</ol>
+                    {g.rows.length > ROWS_SHOWN && (
+                      <details class="jr-more">
+                        <summary>Show the other {g.rows.length - ROWS_SHOWN}</summary>
+                        <ol class="jr-rows">{g.rows.slice(ROWS_SHOWN).map(row)}</ol>
+                      </details>
+                    )}
+                  </>
+                )}
+                {g.after.map((line) => <p class="jr-note">{line}</p>)}
+              </section>
+            );
+          })}
+        </details>
+      );
+    })
+  }
+  {
+    formatted && (
+      <details class="jr-raw">
+        <summary>The job's own text</summary>
+        <pre>{raw}</pre>
+      </details>
+    )
+  }
+</section>
+
+<script>
+  // A findings section's chips show one kind of finding at a time (or all of them); one listener for every result on the page.
+  document.addEventListener("click", (event) => {
+    const chip = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-jr-filter]");
+    const section = chip?.closest(".jr-findings");
+    if (!chip || !section) return;
+    const which = chip.dataset.jrFilter;
+    for (const c of section.querySelectorAll<HTMLButtonElement>("[data-jr-filter]")) c.setAttribute("aria-pressed", String(c === chip));
+    for (const g of section.querySelectorAll<HTMLElement>("[data-jr-group]")) g.hidden = which !== "all" && g.dataset.jrGroup !== which;
+  });
+</script>
+
+<style>
+  .jr { display: grid; gap: 12px; margin: 0 0 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); min-width: 0; font-size: 14px; line-height: 1.5; }
+  .jr-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 12px; flex-wrap: wrap; }
+  .jr-head .muted { font-size: 13px; }
+  .jr code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; padding: 1px 5px; border-radius: 4px; background: var(--panel-2); overflow-wrap: anywhere; }
+  .jr p { margin: 0; }
+  .jr-when, .jr-time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .jr-verdict { display: flex; gap: 10px; align-items: flex-start; }
+  .jr-verdict strong { display: block; font-weight: 600; color: var(--ink); }
+  .jr-dot { flex: none; width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--muted); }
+  .jr-verdict.tone-good .jr-dot { background: var(--good); }
+  .jr-verdict.tone-warn .jr-dot { background: var(--warn); }
+  .jr-verdict.tone-bad .jr-dot { background: var(--color-error); }
+  .jr-sub { display: block; color: var(--muted); font-size: 13px; }
+  .jr-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; margin: 0; }
+  .jr-stat { padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); min-width: 0; }
+  .jr-stat dt { color: var(--muted); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; overflow-wrap: anywhere; }
+  .jr-stat dd { margin: 2px 0 0; font-size: 20px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .jr-note { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .jr-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28em; overflow: auto; }
+  .jr-tag { display: inline-block; padding: 3px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600; line-height: 1; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 1px; background: var(--panel-2); color: var(--muted); }
+  .jr-tag.tone-warn { background: color-mix(in srgb, var(--warn) 16%, var(--panel)); color: color-mix(in srgb, var(--warn) 75%, var(--ink)); }
+  .jr-tag.tone-bad { background: var(--color-error-bg); color: color-mix(in srgb, var(--color-error) 80%, var(--ink)); }
+  .jr-lack { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 10%, var(--panel)); }
+  .jr-lack .jr-tag { margin-top: 3px; flex: none; }
+  .jr details > summary { cursor: pointer; }
+  .jr-fold > summary, .jr-findings > summary { font-size: 13px; font-weight: 600; color: var(--accent); }
+  .jr-fold[open] > summary { margin-bottom: 10px; }
+  .jr-findings { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 10px; }
+  .jr-findings > summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .jr-findings > summary .jr-tag { margin: 0; }
+  .jr-findings[open] > summary { margin-bottom: 4px; }
+  .jr-count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .jr-why { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .jr-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .jr-chip { padding: 4px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font: inherit; font-size: 12px; font-weight: 500; line-height: 1.4; cursor: pointer; }
+  .jr-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .jr-chip:focus-visible, .jr summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .jr-group { display: grid; gap: 8px; min-width: 0; }
+  .jr-group + .jr-group { margin-top: 10px; }
+  .jr-group[hidden] { display: none; }
+  .jr-group h4 { margin: 4px 0 0; font-size: 13px; font-weight: 600; }
+  .jr-rows { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .jr-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding: 8px 10px; border-top: 1px solid var(--line); align-items: baseline; }
+  .jr-row:first-child { border-top: 0; }
+  .jr-row:nth-child(even) { background: var(--panel-2); }
+  .jr-ln { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+  .jr-ln:not(:empty)::before { content: "line "; font-size: 11px; }
+  .jr-body { min-width: 0; overflow-wrap: anywhere; }
+  .jr-quote { font-weight: 600; margin-right: 8px; }
+  .jr-fix { color: var(--muted); }
+  .jr-more > summary { font-size: 12.5px; font-weight: 600; color: var(--accent); }
+  .jr-more[open] > summary { margin-bottom: 8px; }
+  .jr-names, .jr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .jr-names { padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); }
+  .jr-pair, .jr-chips > span { padding: 3px 8px; border-radius: 6px; background: var(--panel-2); font-size: 12.5px; }
+  .jr-arrow { color: var(--muted); }
+  .jr-pair b { font-weight: 600; }
+  .jr-lists { display: grid; gap: 8px; }
+  .jr-list + .jr-list { margin-top: 12px; }
+  .jr-list-title { font-size: 13px; font-weight: 600; margin-bottom: 6px !important; }
+  .jr-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .jr-log li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-radius: var(--radius); background: var(--panel-2); }
+  .jr-log .jr-chips > span { background: var(--panel); }
+  .jr-part { overflow-wrap: anywhere; }
+  .jr-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+  .jr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .jr-table th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+  .jr-table td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .jr-table tr:last-child td { border-bottom: 0; }
+  .jr-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .jr-table .ix { width: 28px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .jr-table .name { min-width: 150px; font-weight: 600; }
+  .jr-table .name .jr-sub { font-weight: 400; font-size: 12px; }
+  .jr-cast { display: flex; flex-wrap: wrap; gap: 4px; min-width: 160px; }
+  .jr-cast span { padding: 1px 6px; border-radius: 4px; background: var(--panel-2); font-size: 12px; }
+  .jr-cast-more { display: inline; }
+  .jr-cast-more > span { display: inline-block; margin: 0 4px 4px 0; }
+  .jr-cast-more > summary { list-style: none; color: var(--muted); font-size: 12px; padding: 1px 2px; }
+  .jr-cast-more > summary::-webkit-details-marker { display: none; }
+  .jr-cast-more[open] > summary { display: none; }
+  .jr-raw > summary { color: var(--muted); font-size: 12.5px; }
+  .jr-raw pre { margin: 8px 0 0; padding: 12px; max-height: 22em; overflow: auto; border-radius: var(--radius); background: var(--panel-2); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  @media (max-width: 560px) {
+    .jr { padding: 12px; }
+    .jr-row { grid-template-columns: 1fr; gap: 2px; }
+    .jr-ln { text-align: left; }
+    .jr-stats { grid-template-columns: repeat(auto-fit, minmax(86px, 1fr)); gap: 6px; }
+    .jr-stat { padding: 6px 8px; }
+    .jr-stat dt { font-size: 10px; }
+    .jr-stat dd { font-size: 17px; }
+    .jr-table .name { min-width: 120px; }
+  }
+</style>

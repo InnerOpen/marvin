@@ -2,6 +2,7 @@
 import AudioRecorder from "@/components/AudioRecorder.astro";
 import FileDrop from "@/components/FileDrop.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
+import JobResult from "@/components/JobResult.astro";
 import LinkedItemsField from "@/components/schema-fields/LinkedItemsField.astro";
 import WizardCard from "@/components/WizardCard.astro";
 import WizardCreate from "@/components/WizardCreate.astro";
@@ -25,7 +26,7 @@ import {
   MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets, pictureFieldOf, skipTo, withoutFrom,
   StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, referenceMarks, referencingSpec, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref, addFormFields, workingOf,
 } from "@/lib/wizard";
-import { jobLead, leftOutLine, listLine, nothingLine, previewCards, previewLine, previewProblem, runButton } from "@/lib/runList";
+import { leftOutLine, listLine, nothingLine, previewCards, previewLine, previewProblem, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
 import { emptyLine, emptyLinks, lackingOf, narrowedBy } from "@/lib/wizardEmpty";
 import { type Paid, type Sent, paidCardsLine, paidConfirm, paidFields, paidLine, paidOf, paidSent } from "@/lib/wizardPaid";
@@ -175,7 +176,7 @@ const sentBy = async (paid: Paid | null): Promise<Sent> => {
   return paidSent(paid, entries[paid.entry]?.dataJson, (type?.schemaJson as { fields?: any[] } | null)?.fields ?? []);
 };
 let options: OptionChoice[] = []; // an option step's choices: its own, or an entry type's templates
-let jobSays: { lead: string; more: boolean; all: string } | null = null; // what the worker job the run started said
+let jobSays: { text: string; failed: boolean } | null = null; // what the worker job the run started said
 let report: { label: string; text: string; title: string; href: string } | null = null; // the field the run writes, to read here
 let cards: Row[] = [];
 // A list without a parent: its page of cards, the fields they edit and its check field (the type's own, when it has it).
@@ -384,7 +385,7 @@ if (authToken && def && step) {
     const job = runNow?.job?.finished ? (await findEntries({ entries: [runNow.job.entryId] }, authToken, 1)).entries[0] : null;
     const log = String(job?.dataJson?.log ?? "").trim();
     // A run whose step names a report shows the report: the job's own words only when it failed (they say why).
-    if (log && (runNow?.job?.status === "failed" || !step.report)) jobSays = { ...jobLead(log, runNow?.job?.status === "failed"), all: log };
+    if (log && (runNow?.job?.status === "failed" || !step.report)) jobSays = { text: log, failed: runNow?.job?.status === "failed" };
     const holder = step.report ? entries[step.report.entry] : null;
     const text = holder ? String(holder.dataJson?.[step.report.field] ?? "").trim() : "";
     if (holder && text) {
@@ -1043,20 +1044,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   {runNow.job && <a href={`/workspace/entries/${runNow.job.entryId}`}>Open the job</a>}
                 </p>
               )}
-              {jobSays && (
-                <div class="said">
-                  <p class="label">What the job said</p>
-                  <p class="said-text">{jobSays.lead}</p>
-                  {jobSays.more && <details><summary>Show all of it</summary><div class="said-text">{jobSays.all}</div></details>}
-                </div>
-              )}
+              {jobSays && <JobResult label="What the job said" text={jobSays.text} failed={jobSays.failed} />}
               {/* What the run wrote, whenever it holds something (also for whoever did not start the run), except while a run is going. */}
-              {report && !running && (
-                <aside class="showcard report" aria-label={report.label}>
-                  <div class="showhead"><strong>{report.label}</strong><a class="muted" href={report.href}>Open {report.title} to edit it ↗</a></div>
-                  <div class="said-text">{report.text}</div>
-                </aside>
-              )}
+              {report && !running && <JobResult label={report.label} text={report.text} href={report.href} linkText={`Open ${report.title} to edit it ↗`} />}
 
               {/* The run's button is a form of its own, under its paid notice when it has one: never among another form's buttons. */}
               <form method="post" class="form" data-once>
@@ -1515,11 +1505,8 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .runs { margin: 0; font-size: 13px; }
   /* A run step's list of what it works on, why some are left out, and what came of it. */
   .runlist { display: grid; gap: 8px; }
-  .runlist .label, .said .label { margin: 0; }
+  .runlist .label { margin: 0; }
   .leftout { margin: 0; font-size: 13px; }
-  .said { display: grid; gap: 6px; }
-  .said-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
-  .report .said-text { max-height: 28em; overflow: auto; }
   .waiting { margin: 0; }
   .approval { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--warn, #d08700); border-left-width: 3px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn, #d08700) 6%, var(--bg)); }
   .approval-title { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
