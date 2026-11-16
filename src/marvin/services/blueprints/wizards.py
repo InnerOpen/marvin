@@ -90,6 +90,7 @@ _ACCEPT_PART = r"(?:[a-z]+/(?:\*|[a-z0-9.+-]+)|\.[a-z0-9]{1,10})"
 _ACCEPT = re.compile(rf"^\s*{_ACCEPT_PART}(?:\s*,\s*{_ACCEPT_PART})*\s*$", re.IGNORECASE)
 MAX_SHOWN = 8
 MAX_PREFILL = 12
+MAX_APPROVE = 6  # workflows whose approvals a gallery shows: a sound's two ways to be made, by its button and by its event, and music's
 MAX_SCRIPT = 3  # fields of the add form the recorder shows to read from
 RESERVED_KEYS = ("step", "notice", "run", "page", "per", "q", "filter", "facet")  # address parameters the page uses for itself: never a context key
 MAX_PICKS = 100  # a multi-select step's picks: the address carries them all (frontend/src/lib/wizard.ts MAX_PICKS)
@@ -855,9 +856,9 @@ def _check_gallery(s: _Step) -> str | None:
     ):
         return problem
     if (approve := step.get("approve")) is not None and not (
-        isinstance(approve, list) and 1 <= len(approve) <= 3 and all(isinstance(w, str) and _SLUG.match(w) for w in approve)
+        isinstance(approve, list) and 1 <= len(approve) <= MAX_APPROVE and all(isinstance(w, str) and _SLUG.match(w) for w in approve)
     ):
-        return f"{s.label}: approve is a list of up to 3 workflow slugs whose approvals are shown on this step"
+        return f"{s.label}: approve is a list of up to {MAX_APPROVE} workflow slugs whose approvals are shown on this step"
     if (upload := step.get("upload")) is not None and (problem := _check_upload_spec(s, upload, "upload")):
         return problem
     if (gen := step.get("generate")) is not None:

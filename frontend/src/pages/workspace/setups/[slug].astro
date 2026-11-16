@@ -304,12 +304,15 @@ if (authToken && def && step) {
       // The approvals of these workflows about the entries listed here (its takes, and what was chosen), so they are answered on this page.
       const about = [...cards.map((c) => c.id), ...Object.values(entries).map((e) => e.id)];
       watchIds = about;
-      for (const w of step.approve as string[]) {
-        const all = await approvalCards(w, authToken);
-        approveNames[w] = (await workflowState(w, authToken)).name ?? w;
+      // Each workflow asked at once (up to six): a sound made by its button or by its event, music the same, is one wait, not six.
+      const flows = step.approve as string[];
+      const found = await Promise.all(flows.map((w) => Promise.all([approvalCards(w, authToken), workflowState(w, authToken)])));
+      flows.forEach((w, i) => {
+        const [all, state] = found[i];
+        approveNames[w] = state.name ?? w;
         pendingCards = [...pendingCards, ...approvalsOf(all.pending, w, about)];
         decidedCards = [...decidedCards, ...approvalsOf(all.decided, w, about)].slice(0, MAX_DECIDED_SHOWN);
-      }
+      });
     }
     if (step.generate) {
       genStep = generateAsRun(step, undefined).run;
