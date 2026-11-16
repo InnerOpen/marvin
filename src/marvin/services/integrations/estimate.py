@@ -131,17 +131,30 @@ def _approval_estimate(session, row) -> dict | None:
         return None
     index, _ = parked
     actions = (automation.definition or {}).get("actions") or []
+    context = _as_approved(session, row, index)
+    guarded = guarded_steps(actions, index, context)
+    if not guarded:
+        return None
+    items = [item for step in guarded if (item := _step_estimate(session, row.group_id, step, context))]
+    return combine(items) if items else None
+
+
+def guarded_steps(actions: list, index: int, context: dict) -> list[dict]:
+    """The integration steps the approval at `index` guards: those after it up to the next approval this run would ask (one
+    whose `when` does not hold is passed over: an actor sheet asks a person's spend or an animal's, then makes one of them)."""
+    from marvin.services.automation.matcher import matches
+
     guarded = []
     for step in actions[index + 1 :]:
-        if not isinstance(step, dict) or step.get("kind") == "approval":
+        if not isinstance(step, dict):
+            continue
+        if step.get("kind") == "approval":
+            if step.get("when") and not matches(step["when"], context):
+                continue
             break
         if step.get("kind") == "integration" and step.get("integration"):
             guarded.append(step)
-    if not guarded:
-        return None
-    context = _as_approved(session, row, index)
-    items = [item for step in guarded if (item := _step_estimate(session, row.group_id, step, context))]
-    return combine(items) if items else None
+    return guarded
 
 
 def _as_approved(session, row, index: int) -> dict:

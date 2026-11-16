@@ -170,3 +170,16 @@ def test_the_card_carries_the_estimate(ws, studio):  # noqa: F811
     card = _approval_read(ws.session, _asked(ws, "sound_effect", {"text": "x"}))
 
     assert card.estimate.total.amount == 120 and card.estimate.items[0].calls == 1
+
+
+def test_an_approval_asked_instead_of_another_is_passed_over(ws, studio):  # noqa: F811
+    """An actor's sheet: a person's spend, then an animal's (asked only for an animal), then the paid step for each."""
+    _earlier(ws, studio, "sound_effect", meta={"credits": 70})
+    animal = {"kind": "approval", "id": "spend_animal", "message": "An animal?", "when": {"field": "entry.title", "op": "eq", "value": "never"}}
+
+    estimate = approval_estimate(
+        ws.session,
+        _asked(ws, "voices", {}, extra=[animal, {"kind": "integration", "id": "fx", "integration": "studio", "action": "sound_effect", "args": {}}]),
+    )
+
+    assert estimate["total"]["amount"] == 70
