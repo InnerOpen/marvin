@@ -14,6 +14,7 @@ import {
   canPauseReliably,
   containerOf,
   fileFor,
+  stampedName,
   formatClock,
   levelOf,
   looksTruncated,
@@ -237,3 +238,14 @@ describe("the script to read from", () => {
   });
 });
 
+
+describe("stampedName", () => {
+  it("dates a recording nobody named, so a list of them can be told apart", () => {
+    assert.equal(stampedName(new Date(2026, 10, 16, 19, 32)), "recording-2026-11-16-1932");
+    assert.equal(stampedName(new Date(2026, 0, 5, 7, 4)), "recording-2026-01-05-0704");
+  });
+  it("makes a file name that survives fileFor unchanged", () => {
+    const blob = new Blob(["x"]);
+    assert.equal(fileFor(blob, "audio/webm", stampedName(new Date(2026, 10, 16, 19, 32))).name, "recording-2026-11-16-1932.webm");
+  });
+});

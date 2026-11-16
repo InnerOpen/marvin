@@ -96,6 +96,7 @@
     canPauseReliably,
     cueCards,
     fileFor,
+    stampedName,
     formatClock,
     levelOf,
     looksTruncated,
@@ -111,7 +112,6 @@
   const TIMESLICE_MS = 1000;
   /** About 43 ms of sound at 48 kHz per meter frame. */
   const FFT_SIZE = 2048;
-  const FALLBACK_NAME = "recording";
 
   type Options = { suggestedName?: string; metadata?: Record<string, unknown>; script?: { label?: string; text?: string }[] };
   type Constraint = "autoGainControl" | "echoCancellation" | "noiseSuppression";
@@ -380,7 +380,7 @@
 
   function useTake() {
     if (!take || !settings) return;
-    const file = fileFor(take, mimeType, options.suggestedName || FALLBACK_NAME);
+    const file = fileFor(take, mimeType, options.suggestedName || stampedName());
     const facts = recordingMetadata(settings, { durationSeconds: decodedSeconds ?? elapsedBefore, peak, clipped: clippedInTake });
     metadataByFile.set(file, { ...(options.metadata ?? {}), ...facts });
     kept = file;

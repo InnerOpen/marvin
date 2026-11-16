@@ -32,6 +32,12 @@ export function containerOf(mimeType: string): string {
   return essence.includes("/") ? essence.split("/")[1] : "";
 }
 
+/** A name for a recording nobody named: "recording-2026-11-16-1932", so a list of them is told apart (not twelve "recording.webm"). */
+export function stampedName(now: Date = new Date()): string {
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${FALLBACK_NAME}-${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}`;
+}
+
 /** A name with nothing a path or the SDK would object to: "Line 7 · take 3" -> "line-7-take-3". */
 function safeBaseName(baseName: string): string {
   const slug = baseName
