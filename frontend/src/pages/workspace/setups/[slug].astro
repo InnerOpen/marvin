@@ -294,7 +294,7 @@ if (authToken && def && step) {
     const referencing = referencingSpec(step, ctx);
     if (referencing && cards.length) refMarks = referenceMarks(step, (await findEntries(referencing, authToken)).entries);
     pictureRole = fieldRole(type, step.picture);
-    addFields = simple(addFormFields(galleryFields, step.add?.fields, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
+    addFields = simple(addFormFields(galleryFields as { key: string; group?: unknown }[], step.add?.fields, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
     refs = await refsFor(addFields);
     addValues = prefillOf(step.add, entries);
     if (step.add?.file?.assets || (step.card_actions ?? []).some((a: any) => a.file?.assets)) {
