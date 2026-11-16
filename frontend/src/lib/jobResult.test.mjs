@@ -211,22 +211,87 @@ test("a preview says so plainly; nothing new is good news", () => {
   assert.equal(toneOf("Bob.wav → bob.mp3, 3.2 s."), "plain");
 });
 
-test("a sheet log: each dated line, in order, with what was added as chips", () => {
+test("a sheet log: the newest run first, with what it added as tiles, and the rest under Earlier", () => {
   const r = jobResult(SHEET_LOG);
   assert.equal(r.blocks.length, 1);
   const [log] = r.blocks;
-  assert.equal(log.kind, "log");
+  assert.equal(log.kind, "history");
+  assert.deepEqual(log.latest, {
+    kind: "import",
+    when: "2026-11-16 18:12 UTC",
+    title: "Refreshed chapter 2",
+    tiles: [
+      { value: "4", label: "beats" },
+      { value: "2", label: "lines" },
+    ],
+    notes: ["3 updated", "trashed: beat-2-07, beat-2-08"],
+  });
   assert.deepEqual(
-    log.rows.map((x) => x.what),
-    ["add", "refresh"],
+    log.earlier.map((e) => [e.title, e.when]),
+    [["Brought in all chapters", "2026-11-14 10:01 UTC"]],
   );
-  assert.deepEqual(log.rows[0].parts, [
-    { text: "from the Fountain", bits: null },
-    { text: "+120 beats, +140 lines, +3 chapters", bits: ["+120 beats", "+140 lines", "+3 chapters"] },
-  ]);
+});
+
+test("a sheet log with a clear in it: the import just run is the result, never the older numbers or the clear's", () => {
+  // Jared's story, 2026-11-16: an import of everything, a clear, then an import of chapter 1 only.
+  const text =
+    "2026-11-16 18:12 UTC · add · from the Fountain · +599 beats, +768 lines, +14 chapters\nclear · permanent · 768 speech lines, 599 beats, 146 scenes, 48 characters, 21 sounds and 14 chapters\n2026-11-16 21:45 UTC · add · from the Fountain (chapters  1) · +53 beats, +53 lines, +1 chapters";
+  const r = jobResult(text);
   assert.deepEqual(
-    log.rows[1].parts.map((p) => p.text),
-    ["from the Fountain (chapters 2)", "+4 beats, +2 lines", "3 updated", "trashed: beat-2-07, beat-2-08"],
+    r.blocks.map((b) => b.kind),
+    ["history"],
+  );
+  const [log] = r.blocks;
+  assert.deepEqual(log.latest, {
+    kind: "import",
+    when: "2026-11-16 21:45 UTC",
+    title: "Brought in chapter 1",
+    tiles: [
+      { value: "53", label: "beats" },
+      { value: "53", label: "lines" },
+      { value: "1", label: "chapter" },
+    ],
+    notes: [],
+  });
+  assert.deepEqual(log.earlier, [
+    {
+      kind: "clear",
+      when: null,
+      title: "Cleared (deleted for good)",
+      tiles: [],
+      notes: ["768 speech lines, 599 beats, 146 scenes, 48 characters, 21 sounds and 14 chapters"],
+    },
+    {
+      kind: "import",
+      when: "2026-11-16 18:12 UTC",
+      title: "Brought in all chapters",
+      tiles: [
+        { value: "599", label: "beats" },
+        { value: "768", label: "lines" },
+        { value: "14", label: "chapters" },
+      ],
+      notes: [],
+    },
+  ]);
+  assert.ok(!r.blocks.some((b) => b.kind === "stats"));
+});
+
+test("a sheet log line it does not know is kept as written; a clear can be the newest", () => {
+  const r = jobResult("clear · trash · 3 beats and 2 lines\nsomething an older version wrote");
+  const [log] = r.blocks;
+  assert.equal(log.kind, "history");
+  assert.deepEqual([log.latest.kind, log.latest.title], ["text", "something an older version wrote"]);
+  assert.deepEqual([log.earlier[0].title, log.earlier[0].tiles], ["Cleared (moved to the Trash)", []]);
+  const two = jobResult(
+    "2026-11-16 21:45 UTC · refresh · from the Fountain (chapters 1–3) · +2 beats\nclear · permanent · 9 beats",
+  );
+  assert.deepEqual([two.blocks[0].latest.title, two.blocks[0].latest.tiles], ["Cleared (deleted for good)", []]);
+  assert.equal(two.blocks[0].earlier[0].title, "Refreshed chapters 1–3");
+  // Prose with one dated line in it is not a log.
+  assert.equal(
+    jobResult("Some words.\n2026-11-16 21:45 UTC · add · from the Fountain · +2 beats\nMore words.\nAnd more.")
+      .blocks[0].kind,
+    "verdict",
   );
 });
 

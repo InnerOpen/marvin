@@ -32,6 +32,20 @@ export interface FindingGroup {
   after: string[];
   count: number;
 }
+/** One line of a log (a story's sheet log): what was done and when, newest first when shown. */
+export interface LogEntry {
+  /** import (lines brought in or refreshed), clear (what an import made, removed), or text (a line it does not know, as written). */
+  kind: "import" | "clear" | "text";
+  /** The line's own time ("2026-11-16 21:45 UTC"), when it says one. */
+  when: string | null;
+  /** What happened, in words: "Brought in chapter 1", "Cleared (deleted for good)"; for a text line, the line itself. */
+  title: string;
+  /** What an import added, as counts ("+53 beats" → 53 beats; "+1 chapters" → 1 chapter). Never for a clear. */
+  tiles: { value: string; label: string }[];
+  /** The rest of the line as written: a clear's counts, "3 updated", "trashed: …". */
+  notes: string[];
+}
+
 export interface TableRow {
   n: string;
   name: string;
@@ -50,7 +64,7 @@ export type Block = { src: string } & (
   | { kind: "pairs"; title: string; pairs: [string, string][] }
   | { kind: "lists"; text: Seg[]; lists: { label: string; items: string[] }[] }
   | { kind: "lack"; text: Seg[] }
-  | { kind: "log"; rows: { when: string; what: string; parts: { text: string; bits: string[] | null }[] }[] }
+  | { kind: "history"; latest: LogEntry; earlier: LogEntry[] }
   | { kind: "text"; text: string }
 );
 
@@ -319,16 +333,74 @@ export function listsOf(line: string): { text: string; lists: { label: string; i
   return { text: (text + line.slice(at)).replace(/\s+/g, " ").trim(), lists };
 }
 
-// ── A sheet log: "2026-11-16 18:12 UTC · add · from the Fountain · +599 beats, +768 lines, +14 chapters" ──────────────
+// ── A sheet log: one line per run, oldest first ─────────────────────────────────────────────────────────────────────
+//   2026-11-16 18:12 UTC · add · from the Fountain · +599 beats, +768 lines, +14 chapters
+//   clear · permanent · 768 speech lines, 599 beats, 146 scenes, 48 characters, 21 sounds and 14 chapters
+//   2026-11-16 21:45 UTC · refresh · from the Fountain (chapters  1) · +4 beats, +2 lines · 3 updated · trashed: beat-2-07
 
-function logRowOf(line: string) {
-  const parts = line.split(" · ");
-  if (parts.length < 3 || !STAMP.test(parts[0])) return null;
-  return {
-    when: parts[0],
-    what: parts[1],
-    parts: parts.slice(2).map((p) => ({ text: p, bits: /^[+-]?\d/.test(p) ? p.split(", ") : null })),
-  };
+const CLEAR_MODES: Record<string, string> = { permanent: "deleted for good", trash: "moved to the Trash" };
+
+/** "+53 beats, +1 chapters" → 53 beats, 1 chapter; null unless every piece is a count added. */
+function addedOf(part: string): { value: string; label: string }[] | null {
+  const pieces = part.split(", ");
+  const out: { value: string; label: string }[] = [];
+  for (const piece of pieces) {
+    const m = piece.match(/^\+(\d+) ([a-z][a-z ]*)$/i);
+    if (!m) return null;
+    out.push({ value: m[1], label: m[1] === "1" ? m[2].replace(/s$/, "") : m[2] });
+  }
+  return out;
+}
+
+/** "1" → chapter 1, "1–3" or "1, 3" → chapters 1–3; null or "all" → all chapters. */
+function chaptersOf(part: string | null): string {
+  const which = (part ?? "").replace(/\s+/g, " ").trim();
+  if (!which || which === "all") return "all chapters";
+  return /^\d+$/.test(which) ? `chapter ${which}` : `chapters ${which}`;
+}
+
+export function logEntryOf(line: string): LogEntry {
+  const parts = line.split(" · ").map((p) => p.trim());
+  const clear =
+    parts[0] === "clear" && parts.length >= 2
+      ? parts
+      : STAMP.test(parts[0]) && parts[1] === "clear"
+        ? parts.slice(1)
+        : null;
+  if (clear) {
+    const mode = clear[1];
+    return {
+      kind: "clear",
+      when: STAMP.test(parts[0]) ? parts[0] : null,
+      title: `Cleared (${CLEAR_MODES[mode] ?? mode})`,
+      tiles: [],
+      notes: clear.slice(2),
+    };
+  }
+  const run = STAMP.test(parts[0]) && parts.length >= 3 ? parts : null;
+  const verb = run ? { add: "Brought in", refresh: "Refreshed" }[run[1]] : undefined;
+  if (run && verb) {
+    const rest = run.slice(2);
+    const via = rest[0]?.match(/^from the Fountain(?: \(chapters\s+(.+?)\))?$/);
+    const tiles = rest.map(addedOf).find(Boolean) ?? [];
+    const notes = rest.filter((p, i) => !(i === 0 && via) && !addedOf(p));
+    return {
+      kind: "import",
+      when: run[0],
+      title: `${verb} ${chaptersOf(via ? (via[1] ?? null) : null)}`,
+      tiles,
+      notes,
+    };
+  }
+  return { kind: "text", when: null, title: line, tiles: [], notes: [] };
+}
+
+function historyOf(lines: string[], only: boolean): Block | null {
+  const entries = lines.map(logEntryOf);
+  const known = entries.filter((e) => e.kind !== "text").length;
+  if (!known || (known < lines.length && !(only && known * 2 >= lines.length))) return null;
+  const newest = [...entries].reverse();
+  return { kind: "history", src: lines.join("\n"), latest: newest[0], earlier: newest.slice(1) };
 }
 
 // ── The whole text ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -352,10 +424,10 @@ function verdictOk(line: string): boolean {
 }
 
 /** One paragraph read into blocks, or null when nothing in it is recognised. `lead` is true for the text's first paragraph (after a stamp). */
-function blocksOf(lines: string[], lead: boolean): Block[] | null {
+function blocksOf(lines: string[], lead: boolean, only = false): Block[] | null {
   const src = lines.join("\n");
-  if (lines.every((l) => logRowOf(l)))
-    return [{ kind: "log", src, rows: lines.map((l) => logRowOf(l) as NonNullable<ReturnType<typeof logRowOf>>) }];
+  const history = historyOf(lines, only);
+  if (history) return [history];
   const findings = findingsOf(lines);
   if (findings) return [findings];
   const table = tableOf(lines);
@@ -418,7 +490,7 @@ export function jobResult(text: string, opts: { failed?: boolean } = {}): JobRes
       blocks.push({ kind: "stamp", src: lines[0], when, parts });
       return;
     }
-    const found = blocksOf(lines, lead);
+    const found = blocksOf(lines, lead, paras.length === 1);
     lead = false;
     if (found) {
       blocks.push(...found);
