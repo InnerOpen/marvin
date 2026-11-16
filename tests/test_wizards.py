@@ -1204,3 +1204,54 @@ def test_a_template_that_does_not_fit_the_workspaces_type_is_refused_and_nothing
     found = service.update(db_session, workspace.id, service.parse_manifest(manifest), preview_only=True, actor_id=workspace.user_id)
     [item] = found.items
     assert item.status == "blocked" and "'sellOnline' is not a field" in item.detail
+
+
+def _beats_wizard(**beat) -> dict:
+    return {
+        "title": "Lines in a beat",
+        "steps": [
+            {"id": "story", "kind": "choose", "title": "Story", "as": "story", "entry_type": "story"},
+            {"id": "beat", "kind": "choose", "title": "Beat", "as": "beat", "entry_type": "beat", "scope": {"story": "${story}"}, **beat},
+            {
+                "id": "lines",
+                "kind": "list",
+                "title": "Lines",
+                "entry_type": "speech-line",
+                "parent_field": "beat",
+                "parent": "beat",
+                "columns": ["text"],
+            },
+        ],
+    }
+
+
+def test_a_pick_a_list_and_a_gallery_may_keep_only_what_another_type_points_at():
+    lines = {"entry_type": "speech-line", "field": "beat"}
+    assert payload_problem(_beats_wizard(only_with=lines), "beats") is None
+    assert payload_problem(_beats_wizard(only_without={**lines, "scope": {"story": "${story}"}}), "beats") is None
+    assert payload_problem(_takes_wizard(only_with={"entry_type": "speech-line", "field": "take"}), "takes") is None
+    listed = _beats_wizard()
+    listed["steps"][2]["only_without"] = {"entry_type": "take", "field": "line"}
+    assert payload_problem(listed, "beats") is None
+
+
+@pytest.mark.parametrize(
+    ("only", "words"),
+    [
+        ("speech-line", "only_with is {entry_type, field"),
+        ({"entry_type": "speech-line"}, "only_with is {entry_type, field"),
+        ({"entry_type": "Speech Line", "field": "beat"}, "only_with is {entry_type, field"),
+        ({"entry_type": "speech-line", "field": "beat", "where": []}, "not where"),
+        ({"entry_type": "speech-line", "field": "beat", "scope": ["story"]}, "only_with.scope maps"),
+        ({"entry_type": "speech-line", "field": "beat", "scope": {"story": "${nope}"}}, "uses ${nope}"),
+    ],
+)
+def test_a_wrong_only_with_says_what_is_wrong(only, words):
+    assert words in (payload_problem(_beats_wizard(only_with=only), "beats") or "")
+
+
+def test_only_with_is_for_entries_not_assets():
+    step = {"multiple": True, "assets": {"asset_type": "image"}, "only_with": {"entry_type": "artwork", "field": "image"}}
+    wizard = _beats_wizard(**step)
+    del wizard["steps"][1]["entry_type"], wizard["steps"][1]["scope"]
+    assert "only_with is for entries" in (payload_problem(wizard, "beats") or "")
