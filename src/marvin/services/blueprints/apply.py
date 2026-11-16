@@ -464,6 +464,7 @@ def _create(
     from marvin.db.models.platform.entry_types import EntryTypes
 
     _checked_children(payload.get("schema_json"), slug)
+    _exclusive_names_known(payload.get("schema_json"), slug)
     if payload.get("picture_presets_json") is not None:
         payload["picture_presets_json"] = _checked_presets(payload["picture_presets_json"], slug)
     if payload.get("templates_json") is not None:
@@ -550,6 +551,7 @@ def _add_fields(session, group_id, blueprint: Blueprint, params: dict) -> str:
             EntryTypeSchemaDefinition.model_validate(schema)
         except Exception as e:  # noqa: BLE001 — surface the schema rule that failed, don't half-apply
             raise BlueprintParameterError(f"the fields don't fit entry type '{entry_type.slug}': {e}") from e
+        _exclusive_names_known(schema, entry_type.slug)
         entry_type.schema_json = schema
         flag_modified(entry_type, "schema_json")
         session.flush()
@@ -769,6 +771,16 @@ def _checked_children(schema_json, slug: str) -> None:
             raise BlueprintParameterError(f"the list '{child.get('title') or child.get('entry_type')}' of entry type '{slug}': {problem}")
 
 
+def _exclusive_names_known(schema_json: dict | None, slug: str) -> None:
+    """A package's field may only take turns (``exclusive_with``) with a field of the same type. On an entry write a stray name is
+    ignored, so a schema edited later never stops the type's entries saving; a package brings it in whole and is told."""
+    fields = [f for f in (schema_json or {}).get("fields") or [] if isinstance(f, dict)]
+    keys = {f.get("key") for f in fields}
+    unknown = [f"{f.get('key')} -> {k}" for f in fields for k in f.get("exclusive_with") or [] if k not in keys]
+    if unknown:
+        raise BlueprintParameterError(f"entry type '{slug}': exclusive_with names a field it does not have ({', '.join(unknown)})")
+
+
 def _checked_templates(templates, schema_json, slug: str, presets=None) -> list | None:
     """A package's templates for entry type ``slug``, checked against the schema and picture presets they come with
     (services/entries/templates.py)."""
@@ -832,6 +844,7 @@ def update_entry_type(session, group_id, blueprint: Blueprint, row) -> Blueprint
         if schema is not None:
             EntryTypeSchemaDefinition.model_validate(schema)
             _checked_children((blueprint.payload or {}).get("schema_json"), row.slug)
+            _exclusive_names_known(schema, row.slug)
         if presets is not None:
             presets = _checked_presets(presets, row.slug)
         if templates is not None:

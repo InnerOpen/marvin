@@ -3,6 +3,8 @@ import AudioRecorder from "@/components/AudioRecorder.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
 import { type CueOption } from "./schema-fields/CueListField.astro";
 import SchemaFormField from "./SchemaFormField.astro";
+import FieldTurns from "./schema-fields/FieldTurns.astro";
+import { type PairField, exclusiveState, partnersOf } from "@/lib/exclusiveFields";
 import { groupFields } from "@/lib/fieldGroups";
 import type { CueSpec } from "@/lib/cueFields";
 /**
@@ -61,12 +63,18 @@ function getFieldError(key: string) {
 
 // A field may name a `group` (lib/fieldGroups.ts): its fields then sit in one collapsible section, folded until a field in it has an error.
 const segments = groupFields(schema.fields, values, errors);
+
+// Fields that take turns (`exclusive_with`): each one in a pair is wrapped (components/schema-fields/FieldTurns.astro), drawn closed when
+// the other holds something, as the values stand now.
+const pairFields = schema.fields as PairField[];
+const pairStates = exclusiveState(pairFields, values);
+const turnsOf = (key: string) => (pairStates[key] ? { field: pairFields.find((f) => f.key === key)!, partners: partnersOf(pairFields, key), state: pairStates[key] } : null);
 ---
 
 <div class="schema-form">
   {segments.map((seg) =>
     seg.group === null ? (
-      <SchemaFormField field={seg.fields[0] as any} value={getFieldValue(seg.fields[0].key)} error={getFieldError(seg.fields[0].key)} assets={assets} resources={resources} cues={cues} refs={refs} />
+      <FieldTurns turns={turnsOf(seg.fields[0].key)}><SchemaFormField field={seg.fields[0] as any} value={getFieldValue(seg.fields[0].key)} error={getFieldError(seg.fields[0].key)} assets={assets} resources={resources} cues={cues} refs={refs} /></FieldTurns>
     ) : (
       <details class="field-section" open={seg.open}>
         <summary>
@@ -75,7 +83,7 @@ const segments = groupFields(schema.fields, values, errors);
         </summary>
         <div class="field-section-body">
           {seg.fields.map((f) => (
-            <SchemaFormField field={f as any} value={getFieldValue(f.key)} error={getFieldError(f.key)} assets={assets} resources={resources} cues={cues} refs={refs} />
+            <FieldTurns turns={turnsOf(f.key)}><SchemaFormField field={f as any} value={getFieldValue(f.key)} error={getFieldError(f.key)} assets={assets} resources={resources} cues={cues} refs={refs} /></FieldTurns>
           ))}
         </div>
       </details>

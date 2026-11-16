@@ -13,7 +13,7 @@ from marvin.repos.platform._suggestions import SuggestionWritebackMixin
 from marvin.repos.repository_generic import GroupRepositoryGeneric
 from marvin.schemas.platform import EntryRead
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
-from marvin.services.content_validator import ContentValidationError, ContentValidator
+from marvin.services.content_validator import ContentValidationError, ContentValidator, exclusive_conflict
 
 
 class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRead, Entries]):
@@ -77,7 +77,7 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
             query = query.filter(EntryTypes.group_id.is_(None))
         return self.session.scalar(query)
 
-    def _validate_content(self, entry_type_id: UUID4, data_json: dict) -> None:
+    def _validate_content(self, entry_type_id: UUID4, data_json: dict, before: dict | None = None) -> None:
         """Validate entry content against entry type schema.
 
         Args:
@@ -117,6 +117,9 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Content validation failed: {e.message}",
             ) from e
+        # Fields that take turns (`exclusive_with`): this write may not fill the second of a pair (`before`: the entry as stored).
+        if conflict := exclusive_conflict(schema_def, data_json, before):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=conflict)
 
     def _refuse_system_name(self, entry_type_id, slug) -> None:
         """409 when a new Playbook would take the name of an installed system Playbook (it would shadow it): copy it instead."""
@@ -278,7 +281,7 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
                     entry_type_id = existing_entry.entry_type_id
 
             if entry_type_id:
-                self._validate_content(entry_type_id, data_dict["data_json"])
+                self._validate_content(entry_type_id, data_dict["data_json"], before=existing_entry.data_json if existing_entry else None)
 
         data_dict.pop("group_id", None)
 
@@ -343,6 +346,15 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
         if not entry:
             return
         columns = {t: v for t, v in fields.items() if t not in ("_meta", "tags", "resources") and "." not in t}
+        data_targets = {t.split(".", 1)[1]: v for t, v in fields.items() if t.startswith("data_json.")}
+        if data_targets and entry.entry_type is not None and (entry.entry_type.schema_json or {}).get("fields"):
+            # An applied suggestion is a write like any other: it may not fill the second field of an `exclusive_with` pair.
+            try:
+                schema_def = EntryTypeSchemaDefinition.model_validate(entry.entry_type.schema_json)
+            except Exception:  # noqa: BLE001 — a schema this cannot read has no pairs to keep
+                schema_def = None
+            if schema_def and (conflict := exclusive_conflict(schema_def, {**(entry.data_json or {}), **data_targets}, entry.data_json)):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=conflict)
         block_changed, block = after_edit(entry.scheduled_publish_blocked, columns, entry.publish_at)
         if block_changed:
             entry.scheduled_publish_blocked = block

@@ -51,6 +51,24 @@ class BaseFieldSchema(_MarvinModel):
     read_only: bool = Field(default=False, alias="readOnly")
     """If true, field cannot be edited (useful for computed/system fields)."""
 
+    exclusive_with: list[Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$")]] | None = Field(
+        default=None, alias="exclusive_with"
+    )
+    """Fields this one takes turns with: one of them may hold something, not both (a script written in the box, or the same
+    script as a file). The form shows the other one closed while one is filled, and a write that would fill both is refused.
+    Either side naming the other is enough. A name that is not a field of the type is ignored (a package applying it is refused)."""
+
+    @field_validator("exclusive_with")
+    @classmethod
+    def _exclusive_with_others(cls, value: list[str] | None, info) -> list[str] | None:
+        if not value:
+            return None
+        if len(set(value)) != len(value):
+            raise ValueError("exclusive_with names each field once")
+        if info.data.get("key") in value:
+            raise ValueError("exclusive_with names the other fields, not the field itself")
+        return value
+
 
 class TextFieldSchema(BaseFieldSchema):
     """Single-line text input field."""
@@ -183,6 +201,8 @@ class AssetFieldSchema(BaseFieldSchema):
     role: str | None = None
     """The role the attachment gets (``hero``, ``gallery``): what the site renderer and the completeness contract look for.
     Defaults to the field's key."""
+    preview: Literal["text"] | None = None
+    """``text``: the chosen file is text (a script, whatever its file type says) and the form can show it, read-only, under the field."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -286,6 +306,21 @@ class EntryTypeSchemaDefinition(_MarvinModel):
 
     fields: list[FieldSchema] = Field(default_factory=list)
     """List of field definitions for this entry type."""
+
+    def exclusive_pairs(self) -> list[tuple[FieldSchema, FieldSchema]]:
+        """The pairs of fields that take turns (``exclusive_with``, from either side), each once, in schema order. A name that is
+        not a field here is left out."""
+        pairs: list[tuple[FieldSchema, FieldSchema]] = []
+        seen: set[frozenset[str]] = set()
+        for field in self.fields:
+            for other_key in field.exclusive_with or []:
+                other = self.get_field(other_key)
+                pair = frozenset((field.key, other_key))
+                if other is None or other is field or pair in seen:
+                    continue
+                seen.add(pair)
+                pairs.append((field, other))
+        return pairs
 
     def get_field(self, key: str) -> FieldSchema | None:
         """Get a field definition by key.
