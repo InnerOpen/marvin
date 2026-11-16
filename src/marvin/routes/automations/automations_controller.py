@@ -215,6 +215,7 @@ def _approval_read(session, row) -> WorkflowApprovalRead:
     from marvin.db.models.platform.entries import Entries
     from marvin.db.models.users.users import Users
     from marvin.services.automation.approvals import edited_names, post_preview
+    from marvin.services.integrations.estimate import approval_estimate
     from marvin.services.automation.authz import ROLE_ADMIN
 
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
@@ -246,6 +247,7 @@ def _approval_read(session, row) -> WorkflowApprovalRead:
         field_values=row.field_values if row.status == "approved" and row.fields else None,
         edited_fields=edited_names(row),
         redo=(row.carry or {}).get("redo"),
+        estimate=approval_estimate(session, row),
     )
 
 

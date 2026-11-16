@@ -43,6 +43,14 @@ export interface WorkflowApproval {
   editedFields?: string[];
   /** The choice that makes it again: picked with a changed box, the next try starts from the change. */
   redo?: string | null;
+  /** Pending, and it guards a paid step: its likely cost, from this workspace's earlier calls like it (or "cost unknown"). */
+  estimate?: ApprovalEstimate | null;
+}
+
+export interface ApprovalEstimate {
+  text: string;
+  items?: { step?: string | null; text: string; amount?: number | null; unit?: string | null; calls?: number | null; unknown?: boolean }[];
+  total?: { amount: number; unit: string } | null;
 }
 
 /** Waiting for you (`pending`, oldest first), or the latest settled ones (`decided`, newest first, with who, when and the note).

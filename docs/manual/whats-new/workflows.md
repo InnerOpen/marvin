@@ -1017,6 +1017,14 @@ changed. Give the paid step that text, so what is shown and what is sent can't d
   (`approval_id`, `approved_by`, `approved_by_name`, `approved_at`) and `prompt_edited: true` when a box was changed.
 - API: `POST /api/automations/approvals/{id}/decide` with `"fields": {"prompt": "…"}` (a box left out, or unchanged,
   stays as asked; ignored on a deny).
+- **Likely cost:** an approval that guards a paid step (an integration action marked paid, or one that needs an
+  approval) says what it is likely to cost, on the Approvals page and a guided setup's card: "About 400 ElevenLabs
+  credits (for 4 seconds, going by the last 3 like it)", "About $0.05 (a call, going by the last 2 like it)". It comes
+  only from this workspace's own earlier calls of the same action on the same connection (the rows in AI executions):
+  credits per character times the text's length for speech, credits per second times the `duration_seconds` asked for
+  a sound or music, else the typical call; pictures of another `size` or `quality` don't count. With nothing to go by
+  it says "cost unknown"; it never guesses. Several paid steps add up when they share a unit. API: `estimate`
+  (`text`, `items`, `total`) on a pending approval.
 
 ### One run per entry at a time
 

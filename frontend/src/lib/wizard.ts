@@ -669,6 +669,8 @@ export interface ApprovalCard {
   /** The choice that makes it again: picked with a changed box, the next try starts from the change. */
   redo?: string | null;
   editedFields?: string[];
+  /** Its paid step's likely cost (the server's estimate), or null. */
+  estimate?: { text: string; items?: { text: string }[] } | null;
 }
 
 /** The approvals that belong to this step: raised by its workflow, about one of the entries it was given. With no entries given, only
