@@ -31,6 +31,8 @@ import { emptyLine, emptyLinks, lackingOf, narrowedBy } from "@/lib/wizardEmpty"
 import { type Paid, type Sent, paidCardsLine, paidConfirm, paidFields, paidLine, paidOf, paidSent } from "@/lib/wizardPaid";
 import { getRunState, latestRunAbout, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { busyLabel, runKey, runLine, shownRun } from "@/lib/runState";
+import ApprovalBoxes from "@/components/ApprovalBoxes.astro";
+import { fieldsFromForm } from "@/lib/approvalFields";
 import { type Row, type ScopedListPage, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findAssets, findEntries, optionsOf, picksOf, runSelection, scopedListPage, typeBySlug, workflowState } from "@/lib/wizardApi";
 import { isScopedList } from "@/lib/wizardScopedList";
 import { lastPage, rangeText, readPage } from "@/lib/pagination";
@@ -100,7 +102,7 @@ if (Astro.request.method === "POST" && authToken && def && step) {
     if (deciding) {
       const decision = form.get("decision") === "deny" ? "deny" : "approve";
       const choice = String(form.get("choice") ?? "").trim() || null;
-      const asked = await decideApproval(deciding, decision, choice, String(form.get("note") ?? "").trim() || null, authToken);
+      const asked = await decideApproval(deciding, decision, choice, String(form.get("note") ?? "").trim() || null, authToken, fieldsFromForm(form));
       // A run step's own Redo (`redo`: the choice its workflow offers) runs the step again at once, and the page follows the new run.
       if (step.kind === "run" && step.redo && choice === step.redo && asked.workflow === step.workflow) {
         const again = await runStep(def, step, form, ctx, authToken, true);
@@ -761,10 +763,11 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       <div class="approval-message">{c.message}</div>
                       {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                       {c.imageUrl && <audio class="approval-audio" controls src={c.imageUrl}></audio>}
+                      <ApprovalBoxes fields={c.fields} />
                       <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                       <div class="actions">
                         {c.choices?.length
-                          ? c.choices.map((label: string, n: number) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label}>{label}</button>)
+                          ? c.choices.map((label: string, n: number) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label} data-redo={c.redo === label ? label : undefined}>{label}</button>)
                           : <button class="button" type="submit" name="decision" value="approve">Approve</button>}
                         <button class="button secondary" type="submit" name="decision" value="deny">Deny</button>
                       </div>
@@ -928,10 +931,11 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             <div class="approval-message">{c.message}</div>
                             {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                             {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
+                            <ApprovalBoxes fields={c.fields} />
                             <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                             <div class="actions">
                               {c.choices?.length
-                                ? c.choices.map((label: string, n: number) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label}>{label}</button>)
+                                ? c.choices.map((label: string, n: number) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label} data-redo={c.redo === label ? label : undefined}>{label}</button>)
                                 : <button class="button" type="submit" name="decision" value="approve">Approve</button>}
                               <button class="button secondary" type="submit" name="decision" value="deny">Deny</button>
                             </div>
@@ -1008,10 +1012,11 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   <div class="approval-message">{c.message}</div>
                   {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
                   {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
+                  <ApprovalBoxes fields={c.fields} />
                   <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                   <div class="actions">
                     {c.choices?.length
-                      ? c.choices.map((label, n) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label}>{label}</button>)
+                      ? c.choices.map((label, n) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label} data-redo={c.redo === label ? label : undefined}>{label}</button>)
                       : <button class="button" type="submit" name="decision" value="approve">Approve</button>}
                     <button class="button secondary" type="submit" name="decision" value="deny">Deny</button>
                   </div>
@@ -1311,6 +1316,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
       none.hidden = shown > 0;
     });
   }
+  // A card being answered (a box changed, a note being typed) is never drawn away under the person: the page waits to redraw.
+  const editing = (): boolean => {
+    if (document.querySelector("form.approval[data-changed]")) return true;
+    const focused = document.activeElement;
+    return !!focused?.closest("form.approval") && focused.matches("textarea, input:not([type=hidden])");
+  };
   // A run step with something going on (just started, or a card waiting): reload when the set of cards for it changes, for ten minutes at most.
   const run = document.querySelector<HTMLElement>(".run[data-watch], .gallery[data-watch]");
   if (run) {
@@ -1327,12 +1338,12 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
         // others wait. Counted by the rule the page drew them with, so the two can never disagree (and reload for ever).
         const lists = await Promise.all(slugs.map((slug) => listApprovals(undefined, "pending", { automation: slug })));
         const mine = slugs.flatMap((slug, i) => approvalsOf(lists[i], slug, entries, asked));
-        if (mine.length !== shown) return location.reload();
+        if (mine.length !== shown && !editing()) return location.reload();
         // A gallery's cards being made: drawn again when one moves on (made, kept, put back to draft), so its sound shows without a refresh.
         const ids = Object.keys(working);
         if (ids.length) {
           const found = await fetchApi<{ entries?: { id: string; dataJson?: Record<string, unknown> | null }[] }>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: { entries: ids }, limit: ids.length }) });
-          if (workingChanged(working, found.entries ?? [])) return location.reload();
+          if (workingChanged(working, found.entries ?? []) && !editing()) return location.reload();
         }
       } catch {
         /* a failed poll just tries again */
@@ -1353,7 +1364,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
       if (Date.now() - began > RUN_WATCH_MS) return;
       try {
         const now = await getRunState(live.dataset.run ?? "");
-        if (!now || runKey(now) !== live.dataset.key) {
+        if ((!now || runKey(now) !== live.dataset.key) && !editing()) {
           // Drawn again with the run in the address, so one found by its entry (a reload, another tab) still shows how it ended.
           const next = new URL(location.href);
           next.searchParams.set(RUN_PARAM, live.dataset.run ?? "");

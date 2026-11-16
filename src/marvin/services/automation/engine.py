@@ -1385,6 +1385,8 @@ def _run_retry_turn(session, group_id, row, automation, defn, *, logger, run_act
     step_log: list[dict] = []
     context["_step_log"] = step_log
     context["_approved"] = bool(snap.get("approved"))  # approved before it failed: still approved on the retry
+    if snap.get("approval") and context["_approved"]:
+        context["_approval"] = snap["approval"]
     context["_retry"] = {
         "id": str(row.id),
         "step_index": row.step_index,
@@ -1476,6 +1478,9 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
     if row.choices:  # an approval with choices: the one picked (None unless approved)
         output["choice"] = row.choice
         output["choice_index"] = row.choices.index(row.choice) if row.choice in row.choices else None
+    from .approvals import field_output
+
+    output.update(field_output(row))  # its boxes: `fields` as approved (else as asked), `edited`
     with _entry_turn(session, automation, row.entry_id, logger=logger):
         # An approved run may call integration actions that require approval (actions/integration.py) — only this one.
         user_id = row.decided_by or (row.snapshot or {}).get("event", {}).get("user_id")
@@ -1541,6 +1546,20 @@ def resume_after_wait(session, row, *, logger=None, run_action: Callable = _regi
             recorder=recorder,
             step_index=index,
         )
+
+
+def _approval_facts(row, output: dict) -> dict:
+    """The approval a resumed run goes on from, as what it makes records it: its id, who decided and when, and the boxes
+    they changed."""
+    facts = {
+        "approval_id": str(row.id),
+        "approved_by": output.get("decided_by"),
+        "approved_by_name": output.get("decided_by_name"),
+        "approved_at": row.decided_at.isoformat() if getattr(row, "decided_at", None) else None,
+        # changed on this approval, or carried from a Redo with changes: either way not the workflow's own text
+        "edited": list(output.get("edited") or []) + [f["name"] for f in getattr(row, "fields", None) or [] if f.get("carried")],
+    }
+    return {k: v for k, v in facts.items() if v not in (None, "")}
 
 
 def _parked_step(automation, row, kind: str) -> tuple[int, dict] | None:
@@ -1634,6 +1653,10 @@ def _resume_turn(
     event = context["event"]
     steps = context.pop("_steps")
     context["_approved"] = approved
+    if output.get("approval_id"):  # who approved, for what the steps after it make (actions/media.run_lineage)
+        context["_approval"] = _approval_facts(row, output)
+    elif (snap.get("approval") or None) and approved:
+        context["_approval"] = snap["approval"]
     step_log: list[dict] = []
     context["_step_log"] = step_log
     with correlation_scope(event.get("correlation_id")), _running_scope(automation):

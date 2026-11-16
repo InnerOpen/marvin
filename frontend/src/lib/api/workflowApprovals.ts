@@ -1,3 +1,4 @@
+import type { ApprovalField } from "@/lib/approvalFields";
 import type { CaptionResult } from "@/lib/captionCheck";
 /**
  * Workflow runs waiting at an Approval step (GET /api/automations/approvals) and deciding one
@@ -35,6 +36,13 @@ export interface WorkflowApproval {
   imageUrl?: string | null;
   /** Pending, and the next step posts: what it will post, checked for each network (lib/captionCheck.ts). */
   postPreview?: { text: string; results: CaptionResult[] } | null;
+  /** Boxes the approver may change before approving (the prompt a paid step sends), each with its text as asked. */
+  fields?: ApprovalField[] | null;
+  /** Once approved: the boxes' text as approved, and which were changed. */
+  fieldValues?: Record<string, string> | null;
+  editedFields?: string[];
+  /** The choice that makes it again: picked with a changed box, the next try starts from the change. */
+  redo?: string | null;
 }
 
 /** Waiting for you (`pending`, oldest first), or the latest settled ones (`decided`, newest first, with who, when and the note).
@@ -48,9 +56,11 @@ export async function decideApproval(
   decision: "approve" | "deny",
   note?: string,
   choice?: string | null,
+  fields?: Record<string, string> | null,
 ): Promise<WorkflowApproval> {
+  const changed = fields && Object.keys(fields).length ? { fields } : {};
   return fetchApi<WorkflowApproval>(`/api/automations/approvals/${encodeURIComponent(id)}/decide`, {
     method: "POST",
-    body: JSON.stringify({ decision, note: note || null, choice: choice ?? null }),
+    body: JSON.stringify({ decision, note: note || null, choice: choice ?? null, ...changed }),
   });
 }

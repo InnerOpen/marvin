@@ -47,7 +47,7 @@ ROLE_PREFIX = "role:"
 ASPECT = re.compile(r"^\s*([1-9]\d{0,2})\s*[:x/]\s*([1-9]\d{0,2})\s*$")
 DEFAULT_PALETTE_COLORS = 5
 SLUG_SOURCE_CHARS = 120  # the source's slug inside a derivative's, so the whole stays well under 200
-PROMPT_KEPT_CHARS = 2000  # a generated image's prompt, as its lineage keeps it
+PROMPT_KEPT_CHARS = 20_000  # a generated image's prompt (a sound's text), as its lineage keeps it: the whole of it
 DETECT_OPERATION = "detect-subject"  # the AI execution log's name for a subject-focus crop's vision call
 # Where a run keeps what subject detection found per source asset (its box, or None: no subject), so a run's square,
 # portrait and landscape crops of one picture make one vision call between them, not three.
@@ -505,15 +505,21 @@ def uploader(session, context: dict, user_id):
 
 
 def run_lineage(context: dict) -> dict:
-    """Which run made an asset: the workflow, the step and the event's correlation id."""
+    """Which run made an asset: the workflow, the step and the event's correlation id — and, in a run a person approved,
+    the approval (`approval_id`, `approved_by`, `approved_by_name`, `approved_at`) and `prompt_edited` when they changed
+    one of its boxes (the prompt) before approving."""
     from marvin.services.event_bus_service.correlation import current_correlation_id
 
     step = context.get("_step") or {}
+    approval = context.get("_approval") if context.get("_approved") else None
+    approval = approval if isinstance(approval, dict) else {}
     found = {
         "workflow_id": step.get("workflow"),
         "workflow_slug": step.get("workflow_slug"),
         "step": step.get("step_id") or (step.get("index") if step.get("index") is not None else None),
         "correlation_id": (context.get("event") or {}).get("correlation_id") or current_correlation_id.get(),
+        **{k: approval.get(k) for k in ("approval_id", "approved_by", "approved_by_name", "approved_at")},
+        "prompt_edited": True if approval.get("edited") else None,
     }
     return {k: v for k, v in found.items() if v not in (None, "")}
 

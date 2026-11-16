@@ -312,3 +312,43 @@ def test_every_paid_audio_capability_wants_an_approval_step_but_a_free_transcrib
     assert not [i for i in issues("listen", source="${asset.id}") if i.get("path") == "actions[0].source"]
     assert any(i.get("path") == "actions[0].attach_as" for i in issues("listen", source="${asset.id}", attach_as="x"))
     assert not [i for i in issues("sfx", attach_as="sound", args={"text": "x"}) if i.get("path") == "actions[0].attach_as"]
+
+
+def test_a_sound_made_after_an_approval_keeps_the_whole_prompt_who_approved_it_and_that_it_was_changed(narrator):
+    """The prompt a paid sound was made from stays with the sound, as approved — every character of a long one."""
+    from marvin.services.automation import approvals
+    from marvin.services.automation.authz import ROLE_EDITOR
+
+    entry = _entry(narrator, "Onions")
+    long_prompt = "knife chopping an onion, " * 200  # 5,000 characters: more than the 2,000 a lineage once kept
+    ask = {"kind": "approval", "id": "spend", "message": "Make it?", "fields": [{"name": "prompt", "value": "knife on a board"}]}
+    make = {"kind": "integration", "id": "chop", "integration": "narrator", "action": "sfx", "args": {"text": "${steps.spend.output.fields.prompt}"}}
+    _workflow(narrator, {"trigger": ON_PUBLISH, "actions": [ask, make]})
+    _publish(narrator, entry)
+    (waiting,) = approvals.pending(narrator.session, narrator.gid, ROLE_EDITOR)
+
+    approvals.decide(narrator.session, narrator.gid, waiting.id, "approve", user_id=narrator.uid, role=ROLE_EDITOR, fields={"prompt": long_prompt})
+
+    assert narrator.narrator.calls[-1] == ("sfx", {"text": long_prompt})
+    (sound,) = _kept(narrator)
+    meta = sound.metadata_json
+    assert meta["text"] == long_prompt and meta["prompt_edited"] is True
+    assert (meta["approval_id"], meta["approved_by"]) == (str(waiting.id), str(narrator.uid)) and meta["approved_at"]
+
+
+def test_a_sound_approved_unchanged_says_nothing_was_changed(narrator):
+    from marvin.services.automation import approvals
+    from marvin.services.automation.authz import ROLE_EDITOR
+
+    entry = _entry(narrator, "Leeks")
+    ask = {"kind": "approval", "id": "spend", "message": "Make it?", "fields": [{"name": "prompt", "value": "knife on a board"}]}
+    make = {"kind": "integration", "id": "chop", "integration": "narrator", "action": "sfx", "args": {"text": "${steps.spend.output.fields.prompt}"}}
+    _workflow(narrator, {"trigger": ON_PUBLISH, "actions": [ask, make]})
+    _publish(narrator, entry)
+    (waiting,) = approvals.pending(narrator.session, narrator.gid, ROLE_EDITOR)
+
+    approvals.decide(narrator.session, narrator.gid, waiting.id, "approve", user_id=narrator.uid, role=ROLE_EDITOR)
+
+    (sound,) = _kept(narrator)
+    assert sound.metadata_json["text"] == "knife on a board" and "prompt_edited" not in sound.metadata_json
+    assert sound.metadata_json["approval_id"] == str(waiting.id)

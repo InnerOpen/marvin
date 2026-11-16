@@ -1,0 +1,55 @@
+---
+// An approval's boxes (`fields`): the text a paid step will send, shown so it can be changed before approving. Each is posted
+// as `field.<name>` (a guided setup's form) and read back by Automation → Approvals from `[data-approval-field]`. A box left as
+// it is goes on as asked, byte for byte (lib/approvalFields.ts; the server checks the same). Changing one marks the card
+// `data-changed`, and its Redo button (`data-redo`) says "Redo with changes": the next try starts from the change.
+import { type ApprovalField, boxRows, fieldInputName } from "@/lib/approvalFields";
+
+interface Props {
+  fields?: ApprovalField[] | null;
+}
+const { fields } = Astro.props;
+---
+
+{fields && fields.length > 0 && (
+  <div class="approval-boxes">
+    {fields.map((f) => (
+      <label class="approval-box">
+        <span class="approval-box-label">
+          {f.label}
+          {f.carried && <span class="approval-box-note"> — as you changed it on Redo</span>}
+          <span class="approval-box-note"> · sent as written; change it before approving if you like</span>
+        </span>
+        {f.type === "text"
+          ? <input class="input" name={fieldInputName(f.name)} value={f.value} maxlength={f.maxLength ?? undefined} data-approval-field={f.name} />
+          : <textarea class="input" name={fieldInputName(f.name)} rows={boxRows(f.value)} maxlength={f.maxLength ?? undefined} data-approval-field={f.name}>{f.value}</textarea>}
+      </label>
+    ))}
+  </div>
+)}
+
+<script>
+  import { choiceLabel } from "@/lib/approvalFields";
+
+  // A changed box marks its card, and the card's Redo says it carries the change.
+  document.querySelectorAll<HTMLElement>(".approval-boxes").forEach((boxes) => {
+    const card = boxes.closest<HTMLElement>("form, article, .approval") ?? boxes;
+    const inputs = Array.from(boxes.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("[data-approval-field]"));
+    const redo = Array.from(card.querySelectorAll<HTMLButtonElement>("button[data-redo]"));
+    const sync = () => {
+      const changed = inputs.some((i) => i.value !== i.defaultValue);
+      card.toggleAttribute("data-changed", changed);
+      redo.forEach((b) => (b.textContent = choiceLabel(b.dataset.choiceLabel ?? b.textContent ?? "", b.dataset.redo, changed)));
+    };
+    redo.forEach((b) => (b.dataset.choiceLabel = b.textContent ?? ""));
+    inputs.forEach((i) => i.addEventListener("input", sync));
+  });
+</script>
+
+<style>
+  .approval-boxes { display: grid; gap: 10px; }
+  .approval-box { display: grid; gap: 4px; }
+  .approval-box-label { font-size: 13px; font-weight: 600; }
+  .approval-box-note { font-weight: 400; color: var(--muted); }
+  .approval-box textarea { width: 100%; font-size: 13.5px; line-height: 1.45; resize: vertical; white-space: pre-wrap; }
+</style>

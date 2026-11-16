@@ -140,7 +140,7 @@ A **webhook** or **integration** step can carry an `idempotency_key`, a template
 | `entry` (Entry action) | `op` (`publish`, `unpublish`, `archive`, `trash`, `restore`, `add_to_collection`, `remove_from_collection`, `set_metadata`, `set_data`, `request_review`, `create`, `attach_asset`), `entity_id` (default `$event.entry_id`), `entity_slug`, `entity_query` (the query above; must match exactly one entry — with `if_none: skip`, no match ends the step quietly with output `{skipped: true, reason: "no matching entry"}` instead of failing it; more than one match still fails; in the builder, **By query (find exactly one)** with **If no entry matches, skip this step instead of failing the run**), `collection_slug`/`collection_id`, `metadata`, `data`, `reason` | Status ops emit the matching lifecycle event (`unpublish` returns the entry to `draft`; `restore` returns an archived entry to `draft` and a trashed one to the status it had, a published one as a draft). **Move to Trash** (`trash`) sends `entry_updated` and `entry_trashed`; an entry already in the Trash is skipped (`{skipped: true}`), so a target of "all entries" + `trash` can be run again safely. `trash` and `restore` also act on an asset or a resource: with no `entity_type` (**Acts on**: *The current item*) they act on each row of an asset or resource target, or on the asset/resource an `asset_*` / `resource_*` event is about; with `entity_type: "asset"` / `"resource"` they act on one named by `entity_slug` or `entity_id` (default `$event.asset_id` / `$event.resource_id`); they send only `asset_trashed` / `asset_restored` (or the resource events), and one already where the op would put it is skipped. No other op takes an `entity_type`. There is no op to delete forever or empty the Trash — see [Trash](trash.md). A publish the publish gate refuses (a missing required field, a placeholder link, a passed expiration date) fails the step with that reason. **Set metadata** (`set_metadata`) merges templated keys into the entry's metadata. **Set fields** (`set_data`) merges into the entry type's own fields, converts typed text to the field's type (true/false for a checkbox, a number for a number field) and validates against the schema, so an unknown select option fails the step. Both drop values that resolve empty and fail if nothing is left. **Send to review** (`request_review`) moves the entry to Needs review; its optional templated `reason` is added to the entry's `metadata.review_reasons` (once — a repeat isn't listed twice), and the review queue's entry cards show it beside a flagged submission's own reasons. **Create an entry** (`create`) makes a new one: `entry_type` (a slug), `title`, optional `data` (that type's fields, typed and validated as **Set fields** does) and `metadata`, `status` `draft` (default) or `inbox` — publishing is a following **Publish** step with `entity_id: ${steps.<id>.output.entry_id}`, which checks the type's publish rules. Templates work in every value. Its output is `{entry_id, slug, created}`; it sends `entry_created`, and the same event handled twice (same correlation id, workflow and step) finds the entry it made instead of making a second (`created: false`; the key is kept in the new entry's `metadata.automation_created`). |
 | `webhook` (Call webhook) | `webhook_id` or raw `url`; `method` (raw URL only; default `POST`), `body`, `secret_ref`, `auth_scheme` (`Bearer` default, or `Token`) | A configured webhook's URL, method, `{{SLUG}}` headers and custom payload are used, with `${event…}` templates resolved. Timeout 15 s. A non-2xx response fails the step. Output: `status_code`, `ok`, `webhook_id`, `body` (parsed JSON or text). Deliveries appear in the webhook log. |
 | `integration` (Run integration) | `integration` (the connection's slug from its card, not the provider's), `action` (the provider action key) — or `capability` instead: `notify` with `args` `title` and `body` sends through whatever message action that integration has (Slack's `send_message`, Apprise's `notify`), so one workflow works with either — `args` (templated). On a `capability` step `integration` may be a template, `${event.integration}`, so a run that starts on a [new comment](#new-comment-trigger) acts on the connection the comment came through | Runs one action of an enabled [integration](integrations.md) with its stored credentials; the provider's result is the step output. An action that requires approval runs only after a [Wait for approval](#wait-for-approval) step, and only when it was approved. An action that makes images (an `image.*` capability, such as OpenAI Images' **Generate image**) keeps each one as an asset — see [Generated images are kept](#generated-images-are-kept). A top-level arg whose whole value is `{{SLUG}}` is replaced by that workspace secret for the call only (the stored workflow keeps the reference); a secret that does not exist fails the step. A provider may give its error a stable code (Buttondown: `blocked`, `suppressed`, `spammy`, `unknown`), which on-failure steps read as `${error.code}`. An input the provider links to one of its read actions gets a searchable picker above the arguments (see [Pick a value from the service](integrations.md#pick-a-value-from-the-service)). `social.post` posts to social networks, and without an `integration` to every connected one — see [Post to social networks](#post-to-social-networks). |
-| `approval` (Wait for approval) | `message` (what is asked; templates allowed), `detail` (the long part of the question, shown folded under it; templates allowed), `approvers` (`editor`, the default, or `admin`), `expires_in_hours` (1–720; default the workspace's **Approvals wait**, else 72) | The run waits here for a person — see [Wait for approval](#wait-for-approval). |
+| `approval` (Wait for approval) | `message` (what is asked; templates allowed), `detail` (the long part of the question, shown folded under it; templates allowed), `approvers` (`editor`, the default, or `admin`), `expires_in_hours` (1–720; default the workspace's **Approvals wait**, else 72), `choices`, `image`, `fields` (boxes to change before approving, e.g. a prompt), `redo`, `approved_when` | The run waits here for a person — see [Wait for approval](#wait-for-approval). |
 | `agent` (Run an agent) | `agent` (a persona agent's slug), `message` (the job; templates allowed), `playbooks` (up to 3 published names), `max_steps` (1–15; default 8), `on_entry` (default true) | Hands a job to one of the workspace's agents and waits for its answer — see [Run an agent](#run-an-agent). |
 | `collect` (Gather items) | `entity` (`entry`, `asset`, `resource`), `query` (a target's keys), `fields`, `limit` (default 25, at most 250) | Gathers a set into one output so the steps after it see them all — see [Gather items](#gather-items-many-one). |
 | `wait` (Wait) | `for` (a span) or `until` (a date) with `offset` and `at` | Keeps the run and goes on later — see [Wait](#wait). |
@@ -674,7 +674,8 @@ A **Run integration** step whose action makes images (an `image.*` capability �
 keeps each picture as an asset before the result reaches the run: the output's `images` become
 `[{"asset": {"id", "slug", "url", …}}]` (an edit or upscale action's single image becomes `asset`). The asset is named
 after the step's `name` argument, else "<workflow> — <entry title>", and records how it was made: `generated_by`
-(`<provider>.<action>`), the `prompt`, the `model`, the entry it was made for, and the run. Its page says so in one
+(`<provider>.<action>`), the whole `prompt`, the `model`, the entry it was made for, and the run (and, after an
+approval, who approved it and whether they changed the prompt: see [Wait for approval](#wait-for-approval)). Its page says so in one
 line — **Generated by … (model) · for the entry … · by the workflow …** — with the entry and the workflow linked, and
 the same ids in its File Metadata link there too. A picture returned as a
 link is fetched through Marvin's guarded client (public hosts only, 20 MB at most); the upload size and type limits
@@ -980,6 +981,42 @@ one sets `${steps.<id>.output.choice}` (the label) and `.choice_index` (from 0),
 (`"role": "thumbnail-option-${steps.pick.output.choice_index}"`); denying picks none. The API takes `choice` (the
 label or its index) on `decide`, and refuses an approval with choices that names none (422). In the builder, **Choices**
 on the Wait for approval step.
+
+**Change the text before approving** — `fields`: up to 4 boxes the approver may change before approving, each
+`{"name": "prompt", "label": "Prompt", "value": "<template>"}` (`type` `textarea`, the default, or `text`;
+`max_length` up to 20,000; `required`, the default, refuses a blank change). Each box shows its `value` resolved,
+exactly as the step after it would send it; the Approvals page and a guided setup's card show the boxes above
+Approve/Deny. The run reads `${steps.<id>.output.fields.<name>}`: the text as approved, or as asked when nobody changed
+it (so an unchanged prompt goes out byte for byte), or when it was denied or expired; `.edited` lists the boxes
+changed. Give the paid step that text, so what is shown and what is sent can't drift:
+
+```json
+{"kind": "approval", "id": "spend", "message": "Make the sound “${entry.title}”? It uses sound-effect credit.",
+ "fields": [{"name": "prompt", "label": "Prompt", "value": "${entry.data.prompt}"}]},
+{"kind": "integration", "integration": "elevenlabs", "action": "sound_effect",
+ "args": {"text": "${steps.spend.output.fields.prompt}"},
+ "when": {"field": "steps.spend.output.decision", "op": "eq", "value": "approved"}}
+```
+
+- A changed text is data: it is sent as written and never filled in. A change that brings in a Secret reference
+  (`{{NAME}}`) or a template (`${…}`) the asked text did not have is refused (422), as is an unknown box, a blank
+  required one, or one over its `max_length`.
+- The approval keeps both texts: the one asked and the one approved (`GET /api/automations/approvals` has `fields` with
+  each box's asked `value`, `fieldValues` and `editedFields`; *Recently decided* shows "Prompt (changed)" with the
+  original folded under it). The `workflow_approval_decided` event names the boxes changed (`edited_fields`), never their text.
+- **Redo with changes:** `redo` names the choice that makes it again (`"choices": ["Keep", "Redo"], "redo": "Redo"`, and
+  the same box, `"value": "${steps.spend.output.fields.prompt}"`, on the Keep/Redo question). Picked with a changed box
+  (the button reads "Redo with changes"), the change is kept, and the next approval on the same entry with a box of
+  that name starts from it ("as you changed it on Redo"), once. Keep with a change carries nothing.
+- **Asked already:** `approved_when` (conditions, like `when`): when they hold, the step asks nobody and goes on at
+  once as `approved` (`.auto` true, nobody decided) with the boxes as they are, e.g. when a page has already had the
+  spend approved (`entry.data.spend_approved` is `yes`). It is not a person's approval: an action that requires one
+  still refuses. A step's `when` keeps its meaning: a skipped approval gives no output.
+- **What a paid step made remembers it:** a picture or a sound made in a run a person approved keeps, on the asset,
+  the whole prompt it was made from (`prompt`, or `text` for a sound; up to 20,000 characters), the approval
+  (`approval_id`, `approved_by`, `approved_by_name`, `approved_at`) and `prompt_edited: true` when a box was changed.
+- API: `POST /api/automations/approvals/{id}/decide` with `"fields": {"prompt": "…"}` (a box left out, or unchanged,
+  stays as asked; ignored on a deny).
 
 ### One run per entry at a time
 

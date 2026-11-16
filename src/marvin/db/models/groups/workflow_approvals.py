@@ -58,6 +58,13 @@ class WorkflowApprovalModel(SqlAlchemyBase, BaseMixins):
     choice: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
     # A picture shown with the question (an asset URL the step named — a generated cover, the entry's main picture).
     image_url: Mapped[str | None] = mapped_column(sa.String(2000), nullable=True)
+    # Boxes the approver may change before approving (the step's `fields`): [{name, label, type, value, max_length,
+    # required}], `value` the text as it was asked (the prefill); `field_values` {name: text} what was approved.
+    fields: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
+    field_values: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    # A step with a `redo` choice: {"redo": <the choice>}, and once approved with it and a changed box, "values": {name:
+    # text} that the next approval on the same entry with a box of that name starts from (taken once, then removed).
+    carry: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:
