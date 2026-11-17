@@ -414,9 +414,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   // Pieces that overlap in time (two sound effects at one moment) stack on rows instead of sitting on top of each other.
                   const lanePieces = track.items.flatMap((item) => item.lanes[lane.id] ?? []);
                   const laneRows = stackRows(lanePieces);
-                  // Beds that run together (the story's ambience under a scene's) stack the same way; a beat's own bed on a row below the scenes'.
+                  // Beds that run together (the story's ambience under a scene's) stack the same way; with a beat's own bed, like a mixer:
+                  // the beat's on top, the scene's below it, the story's at the bottom, each named so the rows read apart.
                   const bedList = lane.bed ? bedsIn(lane, track) : [];
-                  const bedRows = stackBeds(bedList.map((b) => ({ start: clip(b, track).from, seconds: clip(b, track).seconds, over: b.over })));
+                  const bedRows = stackBeds(bedList.map((b) => ({ start: clip(b, track).from, seconds: clip(b, track).seconds, over: b.over, whole: b.whole })));
+                  const layered = bedList.some((b) => b.over);
                   // A bed is taller than a piece: its title on top and the level labels in a band of their own below, so one never sits on the other.
                   const laneHeight = (lane.bed ? 62 : 44) + Math.max(0, ...laneRows, ...bedRows) * (lane.bed ? 44 : 28);
                   return (
@@ -462,7 +464,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                             </>
                           ))}
                           <span>{b.title}</span>
-                          <small>{b.steps.some((st) => st.source) ? setBySummary(b) : b.steps.some((st) => st.volume === 0) ? "dips to silence" : b.steps.length ? `${Math.round(b.volume * 100)}%, changes` : `${Math.round(b.volume * 100)}%`}{b.muffled ? " · muffled" : ""}{b.over ? " · over the scene" : ""}{b.audio ? "" : " · no take yet"}</small>
+                          <small>{b.steps.some((st) => st.source) ? setBySummary(b) : b.steps.some((st) => st.volume === 0) ? "dips to silence" : b.steps.length ? `${Math.round(b.volume * 100)}%, changes` : `${Math.round(b.volume * 100)}%`}{b.muffled ? " · muffled" : ""}{b.over ? " · over the scene" : layered ? (b.whole ? " · the story's bed" : " · the scene's bed") : ""}{b.audio ? "" : " · no take yet"}</small>
                         </a>
                       ))}
                     {lane.cover &&
@@ -1259,7 +1261,6 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-mark.inherited { border-style: dashed; background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
   .tl-mark.custom { background: color-mix(in srgb, var(--accent) 30%, var(--panel)); }
   .tl-bed.silent { border-style: dotted; background: var(--panel); }
-  .tl-bed.over { border-left: 3px solid var(--accent); } /* a beat's own bed, laid over its scene's (which runs on unbroken in a row of its own) */
   .tl-bed.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-piece:hover { z-index: 1; min-width: max-content; }
 
