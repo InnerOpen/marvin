@@ -6,6 +6,1779 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.97 (2026-11-17)
+
+### Bug Fixes
+
+- Checking a workflow whose when is a group (all, any, not) no longer recurses forever
+  ([#144](https://github.com/InnerOpen/marvin/pull/144),
+  [`f8fa821`](https://github.com/InnerOpen/marvin/commit/f8fa8217aa0a06ef88d116e4ea0b5e1ec7cb0d68))
+
+- Close the merged hold test and re-wrap the lane docs after merging develop
+  ([#216](https://github.com/InnerOpen/marvin/pull/216),
+  [`116cc2a`](https://github.com/InnerOpen/marvin/commit/116cc2ac9782b070d689c03db3d279148c98b7ac))
+
+- Drop a stray blank line ([#217](https://github.com/InnerOpen/marvin/pull/217),
+  [`bfb7489`](https://github.com/InnerOpen/marvin/commit/bfb7489acb1eeed72c7440096a9543d9c3817c01))
+
+- Number fields take decimals; a throttled asset is retried before a backup is called partial
+  ([#44](https://github.com/InnerOpen/marvin/pull/44),
+  [`c685dc5`](https://github.com/InnerOpen/marvin/commit/c685dc5c15e647efd60f705319b178e8fa6984ce))
+
+- Re-wrap the lane docs after merging develop ([#216](https://github.com/InnerOpen/marvin/pull/216),
+  [`116cc2a`](https://github.com/InnerOpen/marvin/commit/116cc2ac9782b070d689c03db3d279148c98b7ac))
+
+- **ai**: A revise stages only what it changes ([#71](https://github.com/InnerOpen/marvin/pull/71),
+  [`a1c145f`](https://github.com/InnerOpen/marvin/commit/a1c145fdd33f8d1bbae3927ee79700975b372094))
+
+- **ai**: An image generator's row shows its tokens and estimated cost; only units-billed calls show
+  characters ([#85](https://github.com/InnerOpen/marvin/pull/85),
+  [`823952d`](https://github.com/InnerOpen/marvin/commit/823952db36ae323cb9a488ef600443db066befa9))
+
+- **ai**: Apply_preset is a writing tool (it makes treated pictures)
+  ([#241](https://github.com/InnerOpen/marvin/pull/241),
+  [`b7c731a`](https://github.com/InnerOpen/marvin/commit/b7c731aa14e61e65daf826be4175d4fe91311955))
+
+- **ai**: Apply_preset needs an EDITOR, as every assistant tool that writes
+  ([#241](https://github.com/InnerOpen/marvin/pull/241),
+  [`b7c731a`](https://github.com/InnerOpen/marvin/commit/b7c731aa14e61e65daf826be4175d4fe91311955))
+
+- **ai**: Assistants name entries after their pictures, use templates, and say a staged change is
+  proposed ([#240](https://github.com/InnerOpen/marvin/pull/240),
+  [`6a4c333`](https://github.com/InnerOpen/marvin/commit/6a4c3336c35f9e0eb2a169e73949b9d3369dea5d))
+
+- **ai**: The price feed prices an image model by its image-token rates (gpt-image-2 came out $5 in,
+  $0 out) ([#93](https://github.com/InnerOpen/marvin/pull/93),
+  [`646758a`](https://github.com/InnerOpen/marvin/commit/646758ad2e926de8d9e69391494d92d747802c98))
+
+- **approvals**: A person's answer starts the loop guard's hop count again, so a second Redo of the
+  same sound is made, not silently dropped ([#262](https://github.com/InnerOpen/marvin/pull/262),
+  [`b72d0a9`](https://github.com/InnerOpen/marvin/commit/b72d0a96a7e709fe1cf4062acec5ebba3d3f1275))
+
+- **approvals**: Approving records the decision and returns; the run goes on in the background
+  ([#26](https://github.com/InnerOpen/marvin/pull/26),
+  [`2abb4db`](https://github.com/InnerOpen/marvin/commit/2abb4db208d5019e75e2e7d0f7b3888b70cc9ed3))
+
+- **approvals**: The daily limit counts a batch that makes inside its repeat; one that only queues
+  entries is said not to count ([#268](https://github.com/InnerOpen/marvin/pull/268),
+  [`c318ab7`](https://github.com/InnerOpen/marvin/commit/c318ab7240b8face8f3830b71cece252a9db82d4))
+
+- **approvals**: The likely cost passes over an approval this run would not ask (an actor sheet's
+  person and animal spends) ([#266](https://github.com/InnerOpen/marvin/pull/266),
+  [`defa8e5`](https://github.com/InnerOpen/marvin/commit/defa8e5a9331569836510255bccdd42784ac1079))
+
+- **assets**: A preset's treated picture is stored with its metadata in one write (a later picture's
+  failure can't undo it), a misspelt grade name is refused when planned; a statement-count test for
+  a template with a preset ([#241](https://github.com/InnerOpen/marvin/pull/241),
+  [`b7c731a`](https://github.com/InnerOpen/marvin/commit/b7c731aa14e61e65daf826be4175d4fe91311955))
+
+- **assets**: An upload without a content type (a playbook's files, a photo link) still stores; only
+  a part that carries one gets to settle the type
+  ([#119](https://github.com/InnerOpen/marvin/pull/119),
+  [`953675c`](https://github.com/InnerOpen/marvin/commit/953675cb128d48ea3c8bc076e3a67bee22e911b3))
+
+- **assets**: File recorded and phone audio as audio
+  ([#119](https://github.com/InnerOpen/marvin/pull/119),
+  [`953675c`](https://github.com/InnerOpen/marvin/commit/953675cb128d48ea3c8bc076e3a67bee22e911b3))
+
+- **assets**: The Trash shows no versions count on a trashed original (its versions stay in the
+  library, so the badge linked to nothing) ([#238](https://github.com/InnerOpen/marvin/pull/238),
+  [`94d4ea8`](https://github.com/InnerOpen/marvin/commit/94d4ea8aac184308eeda209a3fa8a9e4fbe667b1))
+
+- **assets**: The upload page's AI naming is off unless ticked, and says what each choice does
+  ([#249](https://github.com/InnerOpen/marvin/pull/249),
+  [`9479a2e`](https://github.com/InnerOpen/marvin/commit/9479a2ea36662622c5b8c29782d243ba66002d3d))
+
+- **assets**: The upload page's AI naming option lines up (the form's full-width input rule
+  stretched its checkbox) and sits in its own box
+  ([#254](https://github.com/InnerOpen/marvin/pull/254),
+  [`8c15d25`](https://github.com/InnerOpen/marvin/commit/8c15d25ee122104001184168e7b3650c8e6fce8e))
+
+- **backup**: Try a throttled asset again before calling the run partial
+  ([#44](https://github.com/InnerOpen/marvin/pull/44),
+  [`c685dc5`](https://github.com/InnerOpen/marvin/commit/c685dc5c15e647efd60f705319b178e8fa6984ce))
+
+- **collections**: Saving a page's order reuses the positions its entries hold, the edit page asks
+  before leaving unsaved changes, and the dashboard doesn't call an empty system collection empty
+  ([#232](https://github.com/InnerOpen/marvin/pull/232),
+  [`5896e54`](https://github.com/InnerOpen/marvin/commit/5896e5489c0e422ca4964ac0e66010a7ac670632))
+
+- **deploy**: The smoke check prints a traceback's lines, not only the word Traceback
+  ([#36](https://github.com/InnerOpen/marvin/pull/36),
+  [`c2c32c2`](https://github.com/InnerOpen/marvin/commit/c2c32c2809c15f80d908d5fde51d248e29c3a933))
+
+- **entries**: Two pictures of one existing entry fill it once (the second row is left, naming the
+  first); a long comment ([#240](https://github.com/InnerOpen/marvin/pull/240),
+  [`6a4c333`](https://github.com/InnerOpen/marvin/commit/6a4c3336c35f9e0eb2a169e73949b9d3369dea5d))
+
+- **integrations**: A provider's refusal shows its message instead of a bare 502
+  ([#23](https://github.com/InnerOpen/marvin/pull/23),
+  [`fe12cf6`](https://github.com/InnerOpen/marvin/commit/fe12cf62454aae081cf13ecb787bce97796cf679))
+
+- **integrations**: Running an action a provider refuses returns its message, not a bare 502
+  ([#23](https://github.com/InnerOpen/marvin/pull/23),
+  [`fe12cf6`](https://github.com/InnerOpen/marvin/commit/fe12cf62454aae081cf13ecb787bce97796cf679))
+
+- **packages**: A wizard's entry and parent must name an entry an earlier step chose, not an option
+  ([#88](https://github.com/InnerOpen/marvin/pull/88),
+  [`87d3ce9`](https://github.com/InnerOpen/marvin/commit/87d3ce90776653947053f1e8de134536bef7cd44))
+
+- **recorder**: A recording nobody named is dated (recording-2026-11-16-1932.webm), not left as
+  recording.webm ([#257](https://github.com/InnerOpen/marvin/pull/257),
+  [`285b90a`](https://github.com/InnerOpen/marvin/commit/285b90a2d9ff43335fbf2f793fe5b8d56606e98e))
+
+- **setups**: A space between the came-from line and its link
+  ([#276](https://github.com/InnerOpen/marvin/pull/276),
+  [`4475d34`](https://github.com/InnerOpen/marvin/commit/4475d3491847cd95365bf88666d6b08b8802e35b))
+
+- **setups**: A tab opened before a run started cannot start a second one, a run left behind for six
+  hours lets go, and "again" is said only for this step's own run
+  ([#263](https://github.com/InnerOpen/marvin/pull/263),
+  [`4c48074`](https://github.com/InnerOpen/marvin/commit/4c48074768cca7281c562770acd5e3c687c5ee3e))
+
+- **setups**: The add form's fields are typed as the type's fields
+  ([#259](https://github.com/InnerOpen/marvin/pull/259),
+  [`08d57f1`](https://github.com/InnerOpen/marvin/commit/08d57f15c832d8826a953dcb62996665f857da6b))
+
+- **ui**: "Apply JSON to Form" on an entry writes a list or object into its JSON field as JSON text,
+  not "[object Object]" ([#122](https://github.com/InnerOpen/marvin/pull/122),
+  [`50ce8fb`](https://github.com/InnerOpen/marvin/commit/50ce8fbf1b757230a31b985d994e2def72774451))
+
+- **ui**: A beat on the timeline lasts until its last placed sound has finished, as the render does
+  (max of hold, speech and the sound's end) ([#171](https://github.com/InnerOpen/marvin/pull/171),
+  [`891b467`](https://github.com/InnerOpen/marvin/commit/891b467160602d8f53bc83c91f0e54fcc4e08aaa))
+
+- **ui**: A chapter band on the timeline is a link as a whole too (hover highlight, arrow, tooltip)
+  ([#164](https://github.com/InnerOpen/marvin/pull/164),
+  [`45f219e`](https://github.com/InnerOpen/marvin/commit/45f219eb99912ca72d65a1f69640faeedd2d4c05))
+
+- **ui**: A cue list saves as a list, and a cue between tenths still saves
+  ([#116](https://github.com/InnerOpen/marvin/pull/116),
+  [`74ad99b`](https://github.com/InnerOpen/marvin/commit/74ad99b0ec441d4198ae821df3a3044f2cc31798))
+
+- **ui**: A field's slider and its box stay together (at most 32rem), not at opposite ends of a wide
+  form ([#191](https://github.com/InnerOpen/marvin/pull/191),
+  [`2e5ab21`](https://github.com/InnerOpen/marvin/commit/2e5ab2178b01b189aef84aec254107b9d198b80b))
+
+- **ui**: A file over what one upload can carry (Cloudflare's 100 MB body limit) is refused at once
+  with what to do, on the Assets page and in an entry's asset field; a bare 413 reads as too big
+  ([#152](https://github.com/InnerOpen/marvin/pull/152),
+  [`7960bba`](https://github.com/InnerOpen/marvin/commit/7960bbae1f82a24b8495545f2512d9ba6b9dcbd3))
+
+- **ui**: A guided setup's full description shows on hover anywhere on its card (the title link
+  stretches over the card, so the tooltip rides on it)
+  ([#118](https://github.com/InnerOpen/marvin/pull/118),
+  [`e2d88be`](https://github.com/InnerOpen/marvin/commit/e2d88be159f307776c4cc800e6ec77d9f033f1f4))
+
+- **ui**: A JSON field (Word times, Sounds) is styled like the other fields: label above, full
+  width, monospace ([#137](https://github.com/InnerOpen/marvin/pull/137),
+  [`d85da39`](https://github.com/InnerOpen/marvin/commit/d85da393faf2a546c45d0bf4793e7c2f321c4238))
+
+- **ui**: A number field with no step takes decimals (0.175), not only whole numbers
+  ([#44](https://github.com/InnerOpen/marvin/pull/44),
+  [`c685dc5`](https://github.com/InnerOpen/marvin/commit/c685dc5c15e647efd60f705319b178e8fa6984ce))
+
+- **ui**: A recording made in a wizard upload takes the name typed beside it, and the asset carries
+  that name ([#124](https://github.com/InnerOpen/marvin/pull/124),
+  [`d032ee5`](https://github.com/InnerOpen/marvin/commit/d032ee57dc492b979a3e47f6129d782aa5237ee8))
+
+- **ui**: A related list shows the first entries as people count them (Beat 2 before Beat 10),
+  chosen from up to 200, not an arbitrary 30 sorted after the fact
+  ([#185](https://github.com/InnerOpen/marvin/pull/185),
+  [`b7da2bb`](https://github.com/InnerOpen/marvin/commit/b7da2bbc3d21a78d4fd7201f746f5336a7d831c8))
+
+- **ui**: A scene band on the timeline is a link as a whole (hover highlight, arrow, tooltip), so it
+  is clear it opens the scene ([#163](https://github.com/InnerOpen/marvin/pull/163),
+  [`5f7a13f`](https://github.com/InnerOpen/marvin/commit/5f7a13fc6eda50066400d511f4d01b6637c2f900))
+
+- **ui**: A text, JSON or PDF asset is no thumbnail: entries stop showing it as a broken picture
+  ([#82](https://github.com/InnerOpen/marvin/pull/82),
+  [`a2f4059`](https://github.com/InnerOpen/marvin/commit/a2f40596734bf50a7a22bcd14a6a0be6917c7a27))
+
+- **ui**: A timeline bed's level follows the render: the level where it is named replaces the
+  sound's own (not multiplied), and a lane can declare the default the render falls back to (0.12
+  music, 0.5 ambience) ([#151](https://github.com/InnerOpen/marvin/pull/151),
+  [`bf19690`](https://github.com/InnerOpen/marvin/commit/bf19690a5666c5c4ab70e7f520d4fef9e0a1e9d6))
+
+- **ui**: A wizard form no longer asks for a field the step fills itself (the parent's slug, its
+  create/add data), so the step's value is kept: an actor added to a world's troupe arrived with an
+  empty world ([#120](https://github.com/InnerOpen/marvin/pull/120),
+  [`324e636`](https://github.com/InnerOpen/marvin/commit/324e636d3285d8005bfe6e5d019899f0914850ba))
+
+- **ui**: A wizard list row asked to be added with no name or a required column says what is
+  missing, instead of skipping it ([#96](https://github.com/InnerOpen/marvin/pull/96),
+  [`a9a7955`](https://github.com/InnerOpen/marvin/commit/a9a795589c2def0dac02cb95c3b5ac32c218d957))
+
+- **ui**: A wizard step waits for the answers before it; a create fills the type's required fields
+  (a required slug takes the name) ([#91](https://github.com/InnerOpen/marvin/pull/91),
+  [`4b311c4`](https://github.com/InnerOpen/marvin/commit/4b311c477f5b3d65f16a67f33cc65dd220418529))
+
+- **ui**: A wizard upload asks before replacing what the field already holds (and the server checks
+  it) ([#89](https://github.com/InnerOpen/marvin/pull/89),
+  [`a226fa2`](https://github.com/InnerOpen/marvin/commit/a226fa2236962e0c4614d513496637b40deefee3))
+
+- **ui**: An asset field's upload dialog words itself by what the field takes: a sound field says
+  sound, offers recording and drops the picture wording (cropper, alt text); a picture field keeps
+  them ([#195](https://github.com/InnerOpen/marvin/pull/195),
+  [`be677e9`](https://github.com/InnerOpen/marvin/commit/be677e99e744de7ff9aa7a75f1a9d751b0dc93b2))
+
+- **ui**: An empty drop zone no longer shows the picked file's buttons
+  ([#121](https://github.com/InnerOpen/marvin/pull/121),
+  [`a5d2482`](https://github.com/InnerOpen/marvin/commit/a5d2482835b86371cef2913c74e644f41dd1cf8a))
+
+- **ui**: An off item's card dims only its words, not its switch and ⋯ menu, and a card with its
+  menu open sits above its neighbours, so a disabled workflow can be deleted
+  ([#160](https://github.com/InnerOpen/marvin/pull/160),
+  [`2608aa0`](https://github.com/InnerOpen/marvin/commit/2608aa03ad8a916c814d74bce55f201ded2e8337))
+
+- **ui**: Ask panel: a bubble is as tall as its text, not stretched to fill the panel
+  ([#90](https://github.com/InnerOpen/marvin/pull/90),
+  [`a8e28fd`](https://github.com/InnerOpen/marvin/commit/a8e28fdd9735ca80124ddc6c46e9075be01311b7))
+
+- **ui**: Beats numbered past 04z (04aa, 04ab) sit after 04z on the timeline, as the render orders
+  them ([#180](https://github.com/InnerOpen/marvin/pull/180),
+  [`b07f5a8`](https://github.com/InnerOpen/marvin/commit/b07f5a836ab32a2cbf00b7220d8b3f6726bbe024))
+
+- **ui**: Downloading a package no longer ends with 'Cannot set properties of null': the button is
+  taken before the await, not read from the finished event
+  ([#133](https://github.com/InnerOpen/marvin/pull/133),
+  [`43f9fb6`](https://github.com/InnerOpen/marvin/commit/43f9fb619f84b74d84ab7bc52536bfcff7f208f0))
+
+- **ui**: Dry run keeps the entry or event a workflow was last tested with
+  ([#69](https://github.com/InnerOpen/marvin/pull/69),
+  [`43553f8`](https://github.com/InnerOpen/marvin/commit/43553f859b7c62384ef78a9c01b5ec7f285f357b))
+
+- **ui**: Edit picture reads the file through the API client (fetchApiBlob), not a plain fetch
+  ([#129](https://github.com/InnerOpen/marvin/pull/129),
+  [`33553f5`](https://github.com/InnerOpen/marvin/commit/33553f5f16f27315dcc59adb5564b5ebd994b793))
+
+- **ui**: Edit picture works when files live on a storage domain without CORS: the picture is read
+  through a new /content endpoint of the API ([#127](https://github.com/InnerOpen/marvin/pull/127),
+  [`58aa3c0`](https://github.com/InnerOpen/marvin/commit/58aa3c0be0cdd370f6bee3bad6adefa6d1211b09))
+
+- **ui**: Every step type shares one look: pickable things (choices, tiles, gallery cards), checks
+  and sections are darker panels with no outline, the accent outline on hover and on the one picked,
+  and a legend is the section's title ([#168](https://github.com/InnerOpen/marvin/pull/168),
+  [`9b08440`](https://github.com/InnerOpen/marvin/commit/9b08440d3960702965fe00e22c12c89cb65c55f7))
+
+- **ui**: Guided setups: padded step card, labelled field rows instead of a squeezed table, choice
+  cards, spaced review ([#92](https://github.com/InnerOpen/marvin/pull/92),
+  [`a618509`](https://github.com/InnerOpen/marvin/commit/a6185093960cb0667717cf6d0b01f54787caf439))
+
+- **ui**: In a marks lane an item's own choice beats the numbers it also holds (it showed Custom
+  move beside a name it had chosen); its own numbers still beat the scene's and the story's
+  ([#211](https://github.com/InnerOpen/marvin/pull/211),
+  [`91016dd`](https://github.com/InnerOpen/marvin/commit/91016dd4f110458ccba269a0d2ce296869293ff9))
+
+- **ui**: In the Timeline's ambience lane a bed's level labels (story 20%) no longer sit on its
+  title: the block is taller, title on top, labels in a band beneath
+  ([#194](https://github.com/InnerOpen/marvin/pull/194),
+  [`6561528`](https://github.com/InnerOpen/marvin/commit/65615281531a255884293548581410837edf0d3f))
+
+- **ui**: Keeping the original is opt-in in the field's upload dialog (Jared: duplicates get messy)
+  ([#111](https://github.com/InnerOpen/marvin/pull/111),
+  [`5b1d42e`](https://github.com/InnerOpen/marvin/commit/5b1d42e7fc4128c4991e2a8e6d747b83d38e8dc7))
+
+- **ui**: On a phone the Timeline's clock and the fold button share a row (the button no longer
+  drops to a line of its own); the beat offset sits under the clock
+  ([#199](https://github.com/InnerOpen/marvin/pull/199),
+  [`755a7af`](https://github.com/InnerOpen/marvin/commit/755a7afc0a2dbb05c96c982c441d6a18a5d46004))
+
+- **ui**: Overlapping pieces in a timeline lane (two sound effects at once) stack on rows instead of
+  sitting on top of each other ([#149](https://github.com/InnerOpen/marvin/pull/149),
+  [`eb8f4fe`](https://github.com/InnerOpen/marvin/commit/eb8f4feae57bd1a5d30f4224f1295a7c89093f5f))
+
+- **ui**: Packages lives under Automation (a card there, /automation/packages); the old Settings
+  address redirects ([#40](https://github.com/InnerOpen/marvin/pull/40),
+  [`d41fb5e`](https://github.com/InnerOpen/marvin/commit/d41fb5e071683d5d790d524363c221bc9ef0c470))
+
+- **ui**: Packages page CSS: styled inputs, one readable checkbox list, preview set apart, 'Result'
+  label that fits a phone, no empty Details row ([#40](https://github.com/InnerOpen/marvin/pull/40),
+  [`d41fb5e`](https://github.com/InnerOpen/marvin/commit/d41fb5e071683d5d790d524363c221bc9ef0c470))
+
+- **ui**: Packages under Automation ([#40](https://github.com/InnerOpen/marvin/pull/40),
+  [`d41fb5e`](https://github.com/InnerOpen/marvin/commit/d41fb5e071683d5d790d524363c221bc9ef0c470))
+
+- **ui**: Packages: the file chooser is a styled drop area (click or drop a package file), like the
+  Assets upload ([#41](https://github.com/InnerOpen/marvin/pull/41),
+  [`5770736`](https://github.com/InnerOpen/marvin/commit/5770736c09a34a0c5e1ac52671769af6b719463c))
+
+- **ui**: Sections inside a setup step's card are a darker panel with no outline, as inside the
+  cards of the Workflows page ([#167](https://github.com/InnerOpen/marvin/pull/167),
+  [`8d5146e`](https://github.com/InnerOpen/marvin/commit/8d5146e378fc9f26ff38cda34ad39a881249cc63))
+
+- **ui**: Sort sits on the same line as the Cards / List switch on Entries, Assets, Resources and a
+  collection's page (one ListBar) ([#234](https://github.com/InnerOpen/marvin/pull/234),
+  [`945ce09`](https://github.com/InnerOpen/marvin/commit/945ce0999d570d4fb6aa313d5cf65234a5aa58df))
+
+- **ui**: The add form of a list step is a card of its own; a wizard narrows a pick list to the
+  story's own entries plus the shared ones when the field is optional (the shared Cicada sound was
+  shown as not found) ([#175](https://github.com/InnerOpen/marvin/pull/175),
+  [`636631c`](https://github.com/InnerOpen/marvin/commit/636631c01fe4f7f30e9dd1e6a9a08d0d1f25c01d))
+
+- **ui**: The add form says what each button needs: Save is off until there is a recording,
+  Make-with-ElevenLabs is off while one is attached (no more error)
+  ([#147](https://github.com/InnerOpen/marvin/pull/147),
+  [`d3bdb82`](https://github.com/InnerOpen/marvin/commit/d3bdb82019be169f3ee3af96d9598d93836dbe24))
+
+- **ui**: The add form's file box is optional (Make it with ElevenLabs no longer asks for audio); a
+  card's buttons and Remove share one row; a card shows its sound's length
+  ([#148](https://github.com/InnerOpen/marvin/pull/148),
+  [`8689f0d`](https://github.com/InnerOpen/marvin/commit/8689f0d2599d451669dc43496d68be9ecf9fd1a1))
+
+- **ui**: The add form's own file box offers Record: the page loads the recorder when add.file takes
+  audio, not only upload ([#146](https://github.com/InnerOpen/marvin/pull/146),
+  [`5873244`](https://github.com/InnerOpen/marvin/commit/58732449471e5d4ee7a415c75934553a880b4c61))
+
+- **ui**: The builder keeps a run input's required: true, default and description
+  ([#70](https://github.com/InnerOpen/marvin/pull/70),
+  [`4576756`](https://github.com/InnerOpen/marvin/commit/4576756dd6c1a0b5dccc57c4542adf29ff9f620b))
+
+- **ui**: The make-a-new-one section of a setup step has no outline round it: a title over a faint
+  rule and the fields on the card, like the AI settings' sections (the page's scoped style never
+  reached the component, so the browser's own fieldset border showed)
+  ([#170](https://github.com/InnerOpen/marvin/pull/170),
+  [`b1e7847`](https://github.com/InnerOpen/marvin/commit/b1e7847b8c42fa838d13338d220d1abb2a475ec8))
+
+- **ui**: The needs-a-look links show the count but no longer pin the list to Needs attention
+  ([#74](https://github.com/InnerOpen/marvin/pull/74),
+  [`9417dc1`](https://github.com/InnerOpen/marvin/commit/9417dc1c3d24d2cf5fa14c1149a10baa61be3b3d))
+
+- **ui**: The phone clock's type is smaller so the whole timestamp fits beside Play and the fold
+  button when folded (it was clipped at 84px) ([#202](https://github.com/InnerOpen/marvin/pull/202),
+  [`1d33f77`](https://github.com/InnerOpen/marvin/commit/1d33f771921e24f1b5a76b707e02572545ed16f4))
+
+- **ui**: The phone control bar is only about 205px wide: the clock's minimum is 8em so the fold
+  button shares its row (measured in a 390px frame, open and folded)
+  ([#200](https://github.com/InnerOpen/marvin/pull/200),
+  [`e7a6645`](https://github.com/InnerOpen/marvin/commit/e7a66454ebfe5bfeea28ea19e069f63fd2b5d87e))
+
+- **ui**: The phone's playback bar holds Play, zoom and layout only, inset from the app's floating
+  buttons; the page links stay in the header ([#112](https://github.com/InnerOpen/marvin/pull/112),
+  [`1f8f3bf`](https://github.com/InnerOpen/marvin/commit/1f8f3bf6feef88e629c0cf03ca52ce2c07c69334))
+
+- **ui**: The render progress note floats at the bottom of the timeline (with a dismiss button)
+  instead of sitting in the header, so the buttons no longer shift
+  ([#159](https://github.com/InnerOpen/marvin/pull/159),
+  [`1eb754e`](https://github.com/InnerOpen/marvin/commit/1eb754e07a5fce38616039030c772cdbdbde7d0b))
+
+- **ui**: The Set up workers card's text is the same size as the other Workers cards
+  ([#75](https://github.com/InnerOpen/marvin/pull/75),
+  [`30a0ceb`](https://github.com/InnerOpen/marvin/commit/30a0ceb9b4734b081fc8f2c4871513c0a11ecfce))
+
+- **ui**: The setup run step no longer says Running... forever: it says it started, that nothing
+  needs approval right now, and that you can go on
+  ([#147](https://github.com/InnerOpen/marvin/pull/147),
+  [`d3bdb82`](https://github.com/InnerOpen/marvin/commit/d3bdb82019be169f3ee3af96d9598d93836dbe24))
+
+- **ui**: The story timeline on a phone: no page-wide overflow, a playback bar at the bottom
+  ([#112](https://github.com/InnerOpen/marvin/pull/112),
+  [`1f8f3bf`](https://github.com/InnerOpen/marvin/commit/1f8f3bf6feef88e629c0cf03ca52ce2c07c69334))
+
+- **ui**: The timeline is the full width of the page: percent positions, a pixel floor that keeps
+  the shortest beat clickable, the layout no longer capped
+  ([#106](https://github.com/InnerOpen/marvin/pull/106),
+  [`9552064`](https://github.com/InnerOpen/marvin/commit/95520643db3738b33a12312d377dedb8b8bb76ac))
+
+- **ui**: The timeline on a phone: the strip scrolls inside its box instead of widening the page
+  (Play was off to the right); Play, zoom and layout sit in a bar at the bottom of the screen
+  ([#112](https://github.com/InnerOpen/marvin/pull/112),
+  [`1f8f3bf`](https://github.com/InnerOpen/marvin/commit/1f8f3bf6feef88e629c0cf03ca52ce2c07c69334))
+
+- **ui**: The Timeline's ambience levels are a strong fill with a bright edge (they were a faint
+  tint), and the phone transport buttons are one centered row that fits a 360px phone
+  ([#203](https://github.com/InnerOpen/marvin/pull/203),
+  [`944b142`](https://github.com/InnerOpen/marvin/commit/944b1422457633c9a489590d59a13d6eb215846b))
+
+- **ui**: The timeline's Guided setup button resumes the wizard: the entry, the choices it records
+  (its world) and the step after the one that picks it
+  ([#105](https://github.com/InnerOpen/marvin/pull/105),
+  [`01c3911`](https://github.com/InnerOpen/marvin/commit/01c39110f97f48f5672d4363f9b43006d3db779f))
+
+- **ui**: The timeline's no-take hint sits in the Lines heading, not inside each narrow block, so
+  the words show ([#105](https://github.com/InnerOpen/marvin/pull/105),
+  [`01c3911`](https://github.com/InnerOpen/marvin/commit/01c39110f97f48f5672d4363f9b43006d3db779f))
+
+- **ui**: The timeline's Overlay lane labels a block with the asset's title, not its file name (an
+  uploaded file's published name is an id) ([#161](https://github.com/InnerOpen/marvin/pull/161),
+  [`c3e77dc`](https://github.com/InnerOpen/marvin/commit/c3e77dce8b73605246e2f90aa0a1a7ff5dfff9db))
+
+- **ui**: The timeline's Overlay lane shows a PNG or GIF overlay as well as a video
+  ([#172](https://github.com/InnerOpen/marvin/pull/172),
+  [`a9176f5`](https://github.com/InnerOpen/marvin/commit/a9176f5bfc3003766a54dbdcac70430bab30c356))
+
+- **ui**: The timeline's Play follows the render: beds fade in and out over their blocks (and the
+  story's end fade) and the music dips under each spoken line (light/strong)
+  ([#155](https://github.com/InnerOpen/marvin/pull/155),
+  [`cb7d719`](https://github.com/InnerOpen/marvin/commit/cb7d719b3e9d9a7513db608846722bd435cc70a4))
+
+- **ui**: The timeline's progress line counts a bed lane's blocks with a take and says nothing for
+  an empty lane (no more '0 of 0 ambience recorded')
+  ([#108](https://github.com/InnerOpen/marvin/pull/108),
+  [`2a27c7d`](https://github.com/InnerOpen/marvin/commit/2a27c7d478fb36e43b4630edd6089cb4b10bee4b))
+
+- **ui**: The view page takes its place in the nav map (the pages-use-the-map test needs a crumb)
+  ([#105](https://github.com/InnerOpen/marvin/pull/105),
+  [`01c3911`](https://github.com/InnerOpen/marvin/commit/01c39110f97f48f5672d4363f9b43006d3db779f))
+
+- **ui**: The Workers tab opens its page; Workers lists runners and what each kind can do
+  ([#32](https://github.com/InnerOpen/marvin/pull/32),
+  [`df3a8d4`](https://github.com/InnerOpen/marvin/commit/df3a8d4c826b5ccd591e33d7e855683c535eb0dd))
+
+- **ui**: The workflow builder leaves an approval step's approvers and expiry unset unless they were
+  set ([#68](https://github.com/InnerOpen/marvin/pull/68),
+  [`d17bc0c`](https://github.com/InnerOpen/marvin/commit/d17bc0cdbe56b5d9558824fd3b177cec2d33a33f))
+
+- **ui**: Timeline rows with no order field sort by slug, the renderer's own fallback (a story's
+  lines are story-line-007) ([#105](https://github.com/InnerOpen/marvin/pull/105),
+  [`01c3911`](https://github.com/InnerOpen/marvin/commit/01c39110f97f48f5672d4363f9b43006d3db779f))
+
+- **ui**: Waiting approvals count on the Settings Automation tab and the Approvals card
+  ([#58](https://github.com/InnerOpen/marvin/pull/58),
+  [`95f27ee`](https://github.com/InnerOpen/marvin/commit/95f27ee32b4afb16106338f036c98111f2007b3c))
+
+- **ui**: Wizard forms keep the step's own fields (an actor's world); file uploads use the drop zone
+  ([#120](https://github.com/InnerOpen/marvin/pull/120),
+  [`324e636`](https://github.com/InnerOpen/marvin/commit/324e636d3285d8005bfe6e5d019899f0914850ba))
+
+- **ui**: Workers cards on a phone use the whole card
+  ([#35](https://github.com/InnerOpen/marvin/pull/35),
+  [`573c284`](https://github.com/InnerOpen/marvin/commit/573c284a7ecc4255856bda0cc9a0cc1c60f6a8bf))
+
+- **ui**: Workers cards on a phone: label left, value right; long text and logs take the whole card
+  ([#35](https://github.com/InnerOpen/marvin/pull/35),
+  [`573c284`](https://github.com/InnerOpen/marvin/commit/573c284a7ecc4255856bda0cc9a0cc1c60f6a8bf))
+
+- **ui**: Workers in the settings hub's tab bar ([#38](https://github.com/InnerOpen/marvin/pull/38),
+  [`fd66f81`](https://github.com/InnerOpen/marvin/commit/fd66f8115bf459eaf56e48d88972a244405e924e))
+
+- **ui**: Workers on a phone: room between fields, status under each worker's name, no stray divider
+  ([#35](https://github.com/InnerOpen/marvin/pull/35),
+  [`573c284`](https://github.com/InnerOpen/marvin/commit/573c284a7ecc4255856bda0cc9a0cc1c60f6a8bf))
+
+- **ui**: Workers page: a queued job for a kind a live worker advertises is not flagged 'no such
+  kind' (a runner announces its kinds in its heartbeat and writes no job-kind record)
+  ([#224](https://github.com/InnerOpen/marvin/pull/224),
+  [`7ccdedf`](https://github.com/InnerOpen/marvin/commit/7ccdedf6ea2c240a85a04889e5f20f25eaf7875b))
+
+- **ui**: Workers shows a stopped worker in grey, uses the app's colours, and each job's whole log
+  and result link ([#33](https://github.com/InnerOpen/marvin/pull/33),
+  [`6f1bda3`](https://github.com/InnerOpen/marvin/commit/6f1bda3d1e05767d0f2d57754085328ac0efb456))
+
+- **ui**: Workers tables stack into labelled cards on small screens
+  ([#34](https://github.com/InnerOpen/marvin/pull/34),
+  [`31b6754`](https://github.com/InnerOpen/marvin/commit/31b67542f3b76f9cfd33d58851351fb33fd85c2e))
+
+- **ui**: Workers: a job's long log opens across the whole card, as a code block
+  ([#42](https://github.com/InnerOpen/marvin/pull/42),
+  [`1b5b739`](https://github.com/InnerOpen/marvin/commit/1b5b739c9de0576039dee8546ee499c3836506c8))
+
+- **ui**: Workers: secondary text at the site's 13px, and the misfit list's field names
+  ([#42](https://github.com/InnerOpen/marvin/pull/42),
+  [`1b5b739`](https://github.com/InnerOpen/marvin/commit/1b5b739c9de0576039dee8546ee499c3836506c8))
+
+- **ui**: Workspace Settings tabs on one line: a wider page, tighter tabs, no icons at laptop widths
+  ([#47](https://github.com/InnerOpen/marvin/pull/47),
+  [`02cd690`](https://github.com/InnerOpen/marvin/commit/02cd69014715fb1a414a5f81a8e2cf9f4662fca4))
+
+- **ui): a batch upload with adjustments can keep each original too (opt-in**: The original goes up
+  once with its own slug and the adjusted copy is recorded as made from it; slug clashes are retried
+  on the copy only ([#113](https://github.com/InnerOpen/marvin/pull/113),
+  [`697ec44`](https://github.com/InnerOpen/marvin/commit/697ec447199108476d0c242b389a85b986a14b5b))
+
+- **ui): the Timeline ruler sizes its ticks by the strip's real width (a long story of short beats
+  is several pages wide**: Numbered every few seconds and a mark every second, not every 30 and 5
+  ([#225](https://github.com/InnerOpen/marvin/pull/225),
+  [`33c0297`](https://github.com/InnerOpen/marvin/commit/33c029713802022b6903d8a20c2b26eadb9c514e))
+
+- **ui,packages**: Guided setups hardening: a failed post keeps the page, a changed choice drops
+  later ones, the address is checked by type, notices are codes, Create beats a ticked radio, list
+  saves only what changed on the page, a run step needs its field and only runs its own package's
+  workflow, the validator reports instead of crashing
+  ([#99](https://github.com/InnerOpen/marvin/pull/99),
+  [`0f0a6c6`](https://github.com/InnerOpen/marvin/commit/0f0a6c6655f133f6ae59c86c50c1055354e10270))
+
+- **wizards**: A multi-select's list does not narrow a pick list's ref options (it is no one entry)
+  ([#239](https://github.com/InnerOpen/marvin/pull/239),
+  [`b0af477`](https://github.com/InnerOpen/marvin/commit/b0af477aaedace9dd8917a0596e264ed548b2eb4))
+
+- **wizards**: A scoped list decides what changed on the text the page drew, and says what was saved
+  when a save fails ([#242](https://github.com/InnerOpen/marvin/pull/242),
+  [`7d7168d`](https://github.com/InnerOpen/marvin/commit/7d7168dc575f25f79868bd1fb999bcedc40726ac))
+
+- **wizards**: A setup's opening question is not its last step: Continue, no step count and no
+  go-again button until it is answered ([#250](https://github.com/InnerOpen/marvin/pull/250),
+  [`12f9689`](https://github.com/InnerOpen/marvin/commit/12f9689cff1c70dcb3059823a9c3d33829b0004d))
+
+- **wizards**: A step's selection shows each pick's picture under the role its own step reads (the
+  type's picture field and role) ([#239](https://github.com/InnerOpen/marvin/pull/239),
+  [`b0af477`](https://github.com/InnerOpen/marvin/commit/b0af477aaedace9dd8917a0596e264ed548b2eb4))
+
+- **wizards**: Every setup step answered 500: the page lost two imports in the #228/#229 merge
+  ([#230](https://github.com/InnerOpen/marvin/pull/230),
+  [`fe61d10`](https://github.com/InnerOpen/marvin/commit/fe61d103fe0af46abf210a2b74946d2b25f75b00))
+
+- **wizards**: Ref options are narrowed by every choice so far, not only the entries chosen
+  ([#121](https://github.com/InnerOpen/marvin/pull/121),
+  [`a5d2482`](https://github.com/InnerOpen/marvin/commit/a5d2482835b86371cef2913c74e644f41dd1cf8a))
+
+- **wizards**: The again button shows on the last step, whatever its kind
+  ([#247](https://github.com/InnerOpen/marvin/pull/247),
+  [`81380fb`](https://github.com/InnerOpen/marvin/commit/81380fbed393ec5f7d3a4008b1cf662dc0c900a4))
+
+### Chores
+
+- Take the character-kit outputs out again (staged by mistake with the backup fix)
+  ([#44](https://github.com/InnerOpen/marvin/pull/44),
+  [`c685dc5`](https://github.com/InnerOpen/marvin/commit/c685dc5c15e647efd60f705319b178e8fa6984ce))
+
+- **deps**: Marvin-integration-openai-images 0.6.0 (a workflow step may set its own picture size)
+  ([#184](https://github.com/InnerOpen/marvin/pull/184),
+  [`36edca0`](https://github.com/InnerOpen/marvin/commit/36edca0df897db584efcb8f066dc99647226f1ac))
+
+- **deps**: Square integration 0.7.0 (a studio-pickup checkout link beside the shipped one)
+  ([#243](https://github.com/InnerOpen/marvin/pull/243),
+  [`cf81c05`](https://github.com/InnerOpen/marvin/commit/cf81c058f027301662720fee420f37b71090ded9))
+
+- **plugins**: ElevenLabs 0.1.1 (speech usage carries the model's character cost multiplier)
+  ([#72](https://github.com/InnerOpen/marvin/pull/72),
+  [`96ddf21`](https://github.com/InnerOpen/marvin/commit/96ddf21a4ce46cacf8c63e3627a955662b70246b))
+
+- **plugins**: ElevenLabs 0.2.0 (Audio recipes: speech, sound effects, music, transcription)
+  ([#76](https://github.com/InnerOpen/marvin/pull/76),
+  [`cc75618`](https://github.com/InnerOpen/marvin/commit/cc7561882df1b83d1af89f14259b831cba53a19f))
+
+- **plugins**: ElevenLabs 0.2.1 (Speak a text can pick the model; voice hint)
+  ([#78](https://github.com/InnerOpen/marvin/pull/78),
+  [`1d38fad`](https://github.com/InnerOpen/marvin/commit/1d38fad86d33dfc5034822c94e08ef5109094476))
+
+- **plugins**: ElevenLabs 0.3.0 (measured credits per paid call)
+  ([#84](https://github.com/InnerOpen/marvin/pull/84),
+  [`adedca1`](https://github.com/InnerOpen/marvin/commit/adedca114c28eeadac62ce966efcda6936c87e88))
+
+- **plugins**: OpenAI 0.3.1 (image models priced by their image-token rates)
+  ([#95](https://github.com/InnerOpen/marvin/pull/95),
+  [`5819df6`](https://github.com/InnerOpen/marvin/commit/5819df686ee0d6e7fce60fab315855be4feaae27))
+
+- **tasks**: See_also plan and review ([#276](https://github.com/InnerOpen/marvin/pull/276),
+  [`4475d34`](https://github.com/InnerOpen/marvin/commit/4475d3491847cd95365bf88666d6b08b8802e35b))
+
+- **ui**: Drop the old /workspace/wizards redirects; the Guided setups sidebar link always shows
+  ([#135](https://github.com/InnerOpen/marvin/pull/135),
+  [`cc63ebd`](https://github.com/InnerOpen/marvin/commit/cc63ebddb10b65caadfa29bba9e72aacab6d2761))
+
+### Code Style
+
+- Format the job events payloads and tests ([#59](https://github.com/InnerOpen/marvin/pull/59),
+  [`805e8e2`](https://github.com/InnerOpen/marvin/commit/805e8e20323271793135ad5f395c9e681048c039))
+
+- Ruff format and line length for the wizard wording keys
+  ([#174](https://github.com/InnerOpen/marvin/pull/174),
+  [`124f42d`](https://github.com/InnerOpen/marvin/commit/124f42dd359b3ddf48cf95928d48a7fbf28aaea6))
+
+- Ruff format the authoring docs string ([#221](https://github.com/InnerOpen/marvin/pull/221),
+  [`b27b43e`](https://github.com/InnerOpen/marvin/commit/b27b43e011dcaf9d8fe2d8d2b057c9a67030b5d7))
+
+- Ruff format views.py ([#182](https://github.com/InnerOpen/marvin/pull/182),
+  [`6ffc76d`](https://github.com/InnerOpen/marvin/commit/6ffc76db574fd7fd338b726ecdaabc0f32dd001b))
+
+- Shorten a docstring line ([#53](https://github.com/InnerOpen/marvin/pull/53),
+  [`d63e42c`](https://github.com/InnerOpen/marvin/commit/d63e42c2fd1ae57ca8895e40a75f687ffd5c8bd9))
+
+- Sort the estimate import in the approvals read
+  ([#266](https://github.com/InnerOpen/marvin/pull/266),
+  [`defa8e5`](https://github.com/InnerOpen/marvin/commit/defa8e5a9331569836510255bccdd42784ac1079))
+
+- Wrap the lane docs to the line length ([#215](https://github.com/InnerOpen/marvin/pull/215),
+  [`90a9aac`](https://github.com/InnerOpen/marvin/commit/90a9aac7cea852e3f9bbe6b6259aeb0d8ee9aa10))
+
+- Wrap the run-inputs docstring ([#73](https://github.com/InnerOpen/marvin/pull/73),
+  [`b4cc3d7`](https://github.com/InnerOpen/marvin/commit/b4cc3d74d5906327c97d527b399f78e9cd362d1b))
+
+- Wrap the wizard buttons check to the lint and format rules
+  ([#208](https://github.com/InnerOpen/marvin/pull/208),
+  [`1032985`](https://github.com/InnerOpen/marvin/commit/1032985530e923d158c3705af41692ac6b88e160))
+
+- Wrap the wizard listing line and format the button check
+  ([#140](https://github.com/InnerOpen/marvin/pull/140),
+  [`06fa8a1`](https://github.com/InnerOpen/marvin/commit/06fa8a19a3f1daaca821be7564dce51e27c091c2))
+
+- **ui**: Roomier guided-setup cards: more padding inside, more air between blocks and between cards
+  ([#118](https://github.com/InnerOpen/marvin/pull/118),
+  [`e2d88be`](https://github.com/InnerOpen/marvin/commit/e2d88be159f307776c4cc800e6ec77d9f033f1f4))
+
+- **ui**: The words in a blank frame grow with the picture size
+  ([#178](https://github.com/InnerOpen/marvin/pull/178),
+  [`4c24441`](https://github.com/InnerOpen/marvin/commit/4c244410b7d2bba851b1e2ea20b91609028c4332))
+
+### Continuous Integration
+
+- A develop push no longer cuts a release, and pull requests check the image's plugin resolution
+  [skip ci]
+  ([`78f5681`](https://github.com/InnerOpen/marvin/commit/78f5681c6d9772e844b9d085f8a3c4c067dc39b9))
+
+- The test result publisher does not comment on pull requests
+  ([#23](https://github.com/InnerOpen/marvin/pull/23),
+  [`fe12cf6`](https://github.com/InnerOpen/marvin/commit/fe12cf62454aae081cf13ecb787bce97796cf679))
+
+### Documentation
+
+- Drop the duplicate HTML preview bullet after the merge
+  ([#53](https://github.com/InnerOpen/marvin/pull/53),
+  [`d63e42c`](https://github.com/InnerOpen/marvin/commit/d63e42c2fd1ae57ca8895e40a75f687ffd5c8bd9))
+
+- Guided setups (where they are, how to get one, the step kinds) and workers; glossary entries; the
+  blueprint table lists all step kinds ([#136](https://github.com/InnerOpen/marvin/pull/136),
+  [`cbbeefc`](https://github.com/InnerOpen/marvin/commit/cbbeefce707ae2640ffd3f633c12d3a47f1b25a4))
+
+- The guided route for pictures you already have, now that multi-select cards are in
+  ([#241](https://github.com/InnerOpen/marvin/pull/241),
+  [`b7c731a`](https://github.com/InnerOpen/marvin/commit/b7c731aa14e61e65daf826be4175d4fe91311955))
+
+- Whats-new for core Workers setup, the Run a worker panel and Remove
+  ([#42](https://github.com/InnerOpen/marvin/pull/42),
+  [`1b5b739`](https://github.com/InnerOpen/marvin/commit/1b5b739c9de0576039dee8546ee499c3836506c8))
+
+- **wizards**: Picking several (multiple, assets, unused, selection, the list in the address),
+  moving around and the one skip; unused and ids in the asset query
+  ([#239](https://github.com/InnerOpen/marvin/pull/239),
+  [`b0af477`](https://github.com/InnerOpen/marvin/commit/b0af477aaedace9dd8917a0596e264ed548b2eb4))
+
+### Features
+
+- A choose step may sort naturally by title (2 before 10) so numbered lists run lowest to highest
+  ([#147](https://github.com/InnerOpen/marvin/pull/147),
+  [`d3bdb82`](https://github.com/InnerOpen/marvin/commit/d3bdb82019be169f3ee3af96d9598d93836dbe24))
+
+- A gallery can offer Remove on each card (moves the entry to the Trash after asking)
+  ([#147](https://github.com/InnerOpen/marvin/pull/147),
+  [`d3bdb82`](https://github.com/InnerOpen/marvin/commit/d3bdb82019be169f3ee3af96d9598d93836dbe24))
+
+- A gallery's add form can open by default, start from the chosen entry's values, hold a
+  Record/Upload box and offer several save buttons; a gallery shows the approvals of its workflows
+  so they are answered on the page ([#143](https://github.com/InnerOpen/marvin/pull/143),
+  [`91d61ca`](https://github.com/InnerOpen/marvin/commit/91d61caae380167a0e258fd2791c1202d2ae858c))
+
+- A gallery's add form opens, prefills, takes a recording and has several save buttons; approvals
+  answered on the step ([#143](https://github.com/InnerOpen/marvin/pull/143),
+  [`91d61ca`](https://github.com/InnerOpen/marvin/commit/91d61caae380167a0e258fd2791c1202d2ae858c))
+
+- A guided setup can put a button on an entry type's pages (Takes on a speech line): it opens the
+  setup with that entry chosen ([#140](https://github.com/InnerOpen/marvin/pull/140),
+  [`06fa8a1`](https://github.com/InnerOpen/marvin/commit/06fa8a19a3f1daaca821be7564dce51e27c091c2))
+
+- A guided setup can put a button on an entry's page
+  ([#140](https://github.com/InnerOpen/marvin/pull/140),
+  [`06fa8a1`](https://github.com/InnerOpen/marvin/commit/06fa8a19a3f1daaca821be7564dce51e27c091c2))
+
+- A timeline lane can open a guided setup on the piece clicked (a line opens its takes)
+  ([#145](https://github.com/InnerOpen/marvin/pull/145),
+  [`77e0745`](https://github.com/InnerOpen/marvin/commit/77e0745668d110a5bb449959462c529c828aa9de))
+
+- An add form's prefill may fall back across fields (line.delivery_text|line.text)
+  ([#143](https://github.com/InnerOpen/marvin/pull/143),
+  [`91d61ca`](https://github.com/InnerOpen/marvin/commit/91d61caae380167a0e258fd2791c1202d2ae858c))
+
+- An asset's page says which entries use it and as what role (GET /assets/{id}/usage)
+  ([#149](https://github.com/InnerOpen/marvin/pull/149),
+  [`eb8f4fe`](https://github.com/InnerOpen/marvin/commit/eb8f4feae57bd1a5d30f4224f1295a7c89093f5f))
+
+- Edit a picture from its asset page (crop, rotate, brightness, contrast, saturation) into a new
+  version made from it; an upload naming its source is recorded as that asset's version
+  ([#114](https://github.com/InnerOpen/marvin/pull/114),
+  [`0178d5d`](https://github.com/InnerOpen/marvin/commit/0178d5d272c5b854adbe90e20a90f0aee1abd82a))
+
+- Gallery card actions (Use this one), galleries sort naturally, and ref_via may be a list of tiers
+  (the speaker's voice, then the story's cast)
+  ([#147](https://github.com/InnerOpen/marvin/pull/147),
+  [`d3bdb82`](https://github.com/InnerOpen/marvin/commit/d3bdb82019be169f3ee3af96d9598d93836dbe24))
+
+- Guided-setup steps can show the entry they work on, a gallery can be a list that marks the one in
+  use, names what it makes and keeps a sound's length; the timeline no longer calls a take of
+  unknown length 'no take yet' ([#142](https://github.com/InnerOpen/marvin/pull/142),
+  [`9518d4e`](https://github.com/InnerOpen/marvin/commit/9518d4e167578ff622d0a109359ce8c637e85f25))
+
+- The timeline plays its sound effects and shows ambience and music beds
+  ([#108](https://github.com/InnerOpen/marvin/pull/108),
+  [`2a27c7d`](https://github.com/InnerOpen/marvin/commit/2a27c7d478fb36e43b4630edd6089cb4b10bee4b))
+
+- **ai**: An integration's paid calls are logged in AI Executions under the provider's name, outside
+  the AI spend ([#67](https://github.com/InnerOpen/marvin/pull/67),
+  [`5a0a18f`](https://github.com/InnerOpen/marvin/commit/5a0a18f4480c7f6b4d5cf9d75aaa09a7a4cc1d56))
+
+- **ai**: An integration's row in AI Executions shows its units, multiplier and what was sent
+  ([#79](https://github.com/InnerOpen/marvin/pull/79),
+  [`07ecf8d`](https://github.com/InnerOpen/marvin/commit/07ecf8d4e03d1c7ca791dc7ee124cb081e731724))
+
+- **ai**: Measured provider credits are kept on an integration row, summed in the monthly tally and
+  shown with what is left ([#83](https://github.com/InnerOpen/marvin/pull/83),
+  [`0335c64`](https://github.com/InnerOpen/marvin/commit/0335c64362ce3637134fcd66c0bb13b1a53cf7c3))
+
+- **api**: GET /groups/views takes spine_type (the views whose spine is that type, with definitions)
+  and include=definition, so an entry page makes one call, not one per view
+  ([#117](https://github.com/InnerOpen/marvin/pull/117),
+  [`bb9cc14`](https://github.com/InnerOpen/marvin/commit/bb9cc143981ee02924cd3d4502a80cbeb9f7e99b))
+
+- **api): a package can bring a view (a story's timeline**: A `view` blueprint kind kept in the
+  manifest, read at GET /groups/views; a wizard's open may name a view
+  ([#103](https://github.com/InnerOpen/marvin/pull/103),
+  [`fb1af25`](https://github.com/InnerOpen/marvin/commit/fb1af2564fd1b7a0866f09da46e38bfdcc7c9897))
+
+- **approvals**: A paid approval says what it is likely to cost, from this workspace's earlier
+  calls, or cost unknown ([#266](https://github.com/InnerOpen/marvin/pull/266),
+  [`defa8e5`](https://github.com/InnerOpen/marvin/commit/defa8e5a9331569836510255bccdd42784ac1079))
+
+- **approvals**: A paid approval says what it is likely to cost, from this workspace's own earlier
+  calls like it, or "cost unknown" ([#266](https://github.com/InnerOpen/marvin/pull/266),
+  [`defa8e5`](https://github.com/InnerOpen/marvin/commit/defa8e5a9331569836510255bccdd42784ac1079))
+
+- **approvals**: An approval can play a recorded take, so a voice line is heard before it is kept
+  ([#27](https://github.com/InnerOpen/marvin/pull/27),
+  [`7b74b11`](https://github.com/InnerOpen/marvin/commit/7b74b11cb316c2174bf57a92f2a7924a5e5a78ca))
+
+- **approvals**: An optional daily limit on paid approvals, set in Settings, refusing an approve
+  past it ([#268](https://github.com/InnerOpen/marvin/pull/268),
+  [`c318ab7`](https://github.com/InnerOpen/marvin/commit/c318ab7240b8face8f3830b71cece252a9db82d4))
+
+- **approvals**: Approve all N, when several approvals of one workflow wait, each keeping its own
+  prompt ([#267](https://github.com/InnerOpen/marvin/pull/267),
+  [`733a8eb`](https://github.com/InnerOpen/marvin/commit/733a8eb2abc44bb72ccf9933aeae06df101eadb0))
+
+- **approvals**: Change the prompt before a paid step sends it, Redo with changes, and the result
+  keeps the prompt it was made from ([#265](https://github.com/InnerOpen/marvin/pull/265),
+  [`a7505f5`](https://github.com/InnerOpen/marvin/commit/a7505f5dea685f9a1ff9fe27f364d59199f8e756))
+
+- **assets**: Apply_preset AI tool, per-picture titles on from-template, a short AI name from
+  generate-alt-text, a gallery upload may name a template; the step in the manual
+  ([#241](https://github.com/InnerOpen/marvin/pull/241),
+  [`b7c731a`](https://github.com/InnerOpen/marvin/commit/b7c731aa14e61e65daf826be4175d4fe91311955))
+
+- **assets**: Audio files show a play button in the library's list and grid
+  ([#31](https://github.com/InnerOpen/marvin/pull/31),
+  [`717b6d7`](https://github.com/InnerOpen/marvin/commit/717b6d78aa4914690b97c02b661496d20f5fba22))
+
+- **assets**: Picture presets (crop, size, grade, format in one pass) on an entry type, applied on
+  bulk upload with a template, to pictures and to entries
+  ([#241](https://github.com/InnerOpen/marvin/pull/241),
+  [`b7c731a`](https://github.com/InnerOpen/marvin/commit/b7c731aa14e61e65daf826be4175d4fe91311955))
+
+- **assets**: Picture presets on an entry type (crop, resize, grade with free settings, convert in
+  one pass), applied to pictures, entries and through a template, in the background
+  ([#241](https://github.com/InnerOpen/marvin/pull/241),
+  [`b7c731a`](https://github.com/InnerOpen/marvin/commit/b7c731aa14e61e65daf826be4175d4fe91311955))
+
+- **assets**: Record audio in both upload places
+  ([#119](https://github.com/InnerOpen/marvin/pull/119),
+  [`953675c`](https://github.com/InnerOpen/marvin/commit/953675cb128d48ea3c8bc076e3a67bee22e911b3))
+
+- **assets**: Record audio in both upload places (recording slice 1)
+  ([#119](https://github.com/InnerOpen/marvin/pull/119),
+  [`953675c`](https://github.com/InnerOpen/marvin/commit/953675cb128d48ea3c8bc076e3a67bee22e911b3))
+
+- **auth**: The API-token verification cache is configurable: SECURITY_TOKEN_VERIFY_CACHE_TTL (0
+  switches it off) and SECURITY_TOKEN_VERIFY_CACHE_SIZE
+  ([#237](https://github.com/InnerOpen/marvin/pull/237),
+  [`fb53516`](https://github.com/InnerOpen/marvin/commit/fb53516b12995d25fa58bdc15a0fbfc35ca75c9b))
+
+- **automation**: A manual run answers with its execution id and an editor can read where it stands
+  (running, waiting for approval, working on a job, done, failed); the approvals list narrows by
+  workflow, entries and run; an approval keeps a short message and a folded detail
+  ([#229](https://github.com/InnerOpen/marvin/pull/229),
+  [`ab583f4`](https://github.com/InnerOpen/marvin/commit/ab583f474abee2e8f70ad7a77ef6b5b741599fba))
+
+- **automation**: An image action's references may be a list whose items are lists or comma text,
+  flattened in order (a field's pictures, then one more)
+  ([#221](https://github.com/InnerOpen/marvin/pull/221),
+  [`b27b43e`](https://github.com/InnerOpen/marvin/commit/b27b43e011dcaf9d8fe2d8d2b057c9a67030b5d7))
+
+- **automation**: References on an image action may nest lists and comma text
+  ([#221](https://github.com/InnerOpen/marvin/pull/221),
+  [`b27b43e`](https://github.com/InnerOpen/marvin/commit/b27b43e011dcaf9d8fe2d8d2b057c9a67030b5d7))
+
+- **collections**: A collection's page is paged on the server (entries in the collection's order or
+  by the query engine, members of asset and resource collections), with the shared Pagination bar
+  ([#244](https://github.com/InnerOpen/marvin/pull/244),
+  [`6df57bf`](https://github.com/InnerOpen/marvin/commit/6df57bf086c217afc7d1a3543f5ffb08c5d8876c))
+
+- **entries**: A recording shows as a play button in the list and cards; attach_asset dry-runs when
+  its asset comes from an earlier step ([#28](https://github.com/InnerOpen/marvin/pull/28),
+  [`2fc5bfe`](https://github.com/InnerOpen/marvin/commit/2fc5bfe7b3acd00233d2b593c931e5f11d7eb955))
+
+- **entries**: A related list may name its own order (sort, as a guided step's), so a story's
+  chapters start at Opening ([#271](https://github.com/InnerOpen/marvin/pull/271),
+  [`3237691`](https://github.com/InnerOpen/marvin/commit/323769199dc9fd227ddbeb121e346cbab2a25f30))
+
+- **entries**: A text field sorts as people read it (beat-1001 before beat-10001), and a sort may
+  name a second field (then) ([#264](https://github.com/InnerOpen/marvin/pull/264),
+  [`382cb6f`](https://github.com/InnerOpen/marvin/commit/382cb6f3a983b0043eec4d173258b11a1dc2368f))
+
+- **entries**: Delete many entries at once (preview by type, then the Trash or for good, in chunks,
+  one summary event; REST + delete_entries step)
+  ([#235](https://github.com/InnerOpen/marvin/pull/235),
+  [`e1ce132`](https://github.com/InnerOpen/marvin/commit/e1ce1321a0c5088f3bfd528abc884905ee3fa798))
+
+- **entries**: Delete many entries at once: a preview by type, then the Trash (slugs set aside) or
+  for good, in chunks, with one summary event (REST + the delete_entries workflow step)
+  ([#235](https://github.com/InnerOpen/marvin/pull/235),
+  [`e1ce132`](https://github.com/InnerOpen/marvin/commit/e1ce1321a0c5088f3bfd528abc884905ee3fa798))
+
+- **entries**: Emptying the Trash takes what a bulk delete put there set-based, as it came
+  ([#235](https://github.com/InnerOpen/marvin/pull/235),
+  [`e1ce132`](https://github.com/InnerOpen/marvin/commit/e1ce1321a0c5088f3bfd528abc884905ee3fa798))
+
+- **entries**: Entry templates on the entry type, and entries made from pictures with one (REST +
+  workflow steps) ([#240](https://github.com/InnerOpen/marvin/pull/240),
+  [`6a4c333`](https://github.com/InnerOpen/marvin/commit/6a4c3336c35f9e0eb2a169e73949b9d3369dea5d))
+
+- **entries**: Entry templates, and entries made from pictures with one (REST, workflow steps,
+  settings, AI tools) ([#240](https://github.com/InnerOpen/marvin/pull/240),
+  [`6a4c333`](https://github.com/InnerOpen/marvin/commit/6a4c3336c35f9e0eb2a169e73949b9d3369dea5d))
+
+- **entries**: Select entries on the Entries page and apply one of their type's templates: the
+  preview first, empty fields only unless Replace is ticked
+  ([#253](https://github.com/InnerOpen/marvin/pull/253),
+  [`0cba823`](https://github.com/InnerOpen/marvin/commit/0cba8233c5f64aa5e1e406c1a3c303b25acbe4b7))
+
+- **entries**: The list plays an entry's latest take; test that one approval covers a gated action
+  in a repeat ([#29](https://github.com/InnerOpen/marvin/pull/29),
+  [`dd51d0a`](https://github.com/InnerOpen/marvin/commit/dd51d0ae1370ac82ea94717e6800b6786dd846b1))
+
+- **events**: A worker job's life is five events (queued, picked up, started, done, failed)
+  ([#59](https://github.com/InnerOpen/marvin/pull/59),
+  [`805e8e2`](https://github.com/InnerOpen/marvin/commit/805e8e20323271793135ad5f395c9e681048c039))
+
+- **events**: A worker job's life is five events: queued, picked up, started, done, failed
+  ([#59](https://github.com/InnerOpen/marvin/pull/59),
+  [`805e8e2`](https://github.com/InnerOpen/marvin/commit/805e8e20323271793135ad5f395c9e681048c039))
+
+- **events**: A worker that goes quiet is worker_offline, and back is worker_online
+  ([#60](https://github.com/InnerOpen/marvin/pull/60),
+  [`e54a2e5`](https://github.com/InnerOpen/marvin/commit/e54a2e576ae9b8cb76406c36a5f90116d2442bd5))
+
+- **forms**: A chosen file or link in a file field opens on its own page (the story's Fountain file,
+  a recording) ([#270](https://github.com/InnerOpen/marvin/pull/270),
+  [`6ee7519`](https://github.com/InnerOpen/marvin/commit/6ee751983eff30e0861bcced0896515cd84ee33d))
+
+- **forms**: A read-only text field can show a job's report as the guided steps do
+  ([#272](https://github.com/InnerOpen/marvin/pull/272),
+  [`5145de9`](https://github.com/InnerOpen/marvin/commit/5145de9f180d9075fdd1e1fa329aaa39a1edcdb0))
+
+- **forms**: Fields that take turns (exclusive_with) and a file field that reads as text (preview:
+  "text") ([#275](https://github.com/InnerOpen/marvin/pull/275),
+  [`580ed38`](https://github.com/InnerOpen/marvin/commit/580ed38890c21d9bb22632d3d485318bce4515fa))
+
+- **integrations**: Play or show what an action returns, and save it as an asset
+  ([#24](https://github.com/InnerOpen/marvin/pull/24),
+  [`ca297fd`](https://github.com/InnerOpen/marvin/commit/ca297fda5e38cb8953e156f5db4579a711288b8a))
+
+- **mcp**: Run_workflow names the worker job a run started and can wait for it (wait: seconds, up to
+  55), returning its status, result and log; a generic follow-the-job helper (watch)
+  ([#204](https://github.com/InnerOpen/marvin/pull/204),
+  [`763301a`](https://github.com/InnerOpen/marvin/commit/763301ac71d3340c297e288c4c382ccfa811ec4e))
+
+- **packages**: A guided setup may put a button on several types of entry
+  ([#208](https://github.com/InnerOpen/marvin/pull/208),
+  [`1032985`](https://github.com/InnerOpen/marvin/commit/1032985530e923d158c3705af41692ac6b88e160))
+
+- **packages**: A guided setup may put a button on several types of entry (button is one or a list
+  of up to three), each type gets its own ([#208](https://github.com/InnerOpen/marvin/pull/208),
+  [`1032985`](https://github.com/InnerOpen/marvin/commit/1032985530e923d158c3705af41692ac6b88e160))
+
+- **packages**: A labelled bundle of blueprints that installs, previews, exports, adopts, switches
+  on, downloads and removes ([#37](https://github.com/InnerOpen/marvin/pull/37),
+  [`73079d8`](https://github.com/InnerOpen/marvin/commit/73079d8f62b537be07a24af858372ea5eaa4dfef))
+
+- **packages**: A package can bring wizards, guided setups kept as data in its manifest and read by
+  slug ([#88](https://github.com/InnerOpen/marvin/pull/88),
+  [`87d3ce9`](https://github.com/InnerOpen/marvin/commit/87d3ce90776653947053f1e8de134536bef7cd44))
+
+- **packages**: A package can carry Playbooks (installed as drafts, previewed without being made)
+  ([#66](https://github.com/InnerOpen/marvin/pull/66),
+  [`fbfe074`](https://github.com/InnerOpen/marvin/commit/fbfe074696342099ffe2e393f8d2d15e5d37fb7c))
+
+- **packages**: An update also adds a setting an existing field lacks (a slider, a step), never
+  changing one it has ([#190](https://github.com/InnerOpen/marvin/pull/190),
+  [`a3e8d7b`](https://github.com/InnerOpen/marvin/commit/a3e8d7b616b7455af87545c80d2bef6768c67f65))
+
+- **packages**: Settings -> Packages, and a package as one collapsed section on the Workflows page
+  ([#39](https://github.com/InnerOpen/marvin/pull/39),
+  [`3dfe3d4`](https://github.com/InnerOpen/marvin/commit/3dfe3d44ea2efe64441ecef4e53f02465ea5de80))
+
+- **packages**: Update an installed package from a newer file: workflows and Playbooks it installed
+  are replaced (edited ones only on request), entry types gain the fields, options and lookups they
+  lack, what is missing is created; preview first
+  ([#183](https://github.com/InnerOpen/marvin/pull/183),
+  [`ab52608`](https://github.com/InnerOpen/marvin/commit/ab52608655105873d4f55aeef98bf44441e857d9))
+
+- **packages**: Wizards, guided setups a package brings (backend)
+  ([#88](https://github.com/InnerOpen/marvin/pull/88),
+  [`87d3ce9`](https://github.com/InnerOpen/marvin/commit/87d3ce90776653947053f1e8de134536bef7cd44))
+
+- **setups**: A gallery may keep only the cards that meet a where (a story's sounds of kind
+  ambience), on top of its parent ([#264](https://github.com/InnerOpen/marvin/pull/264),
+  [`382cb6f`](https://github.com/InnerOpen/marvin/commit/382cb6f3a983b0043eec4d173258b11a1dc2368f))
+
+- **setups**: A gallery's add form takes the order its step lists the fields in (a line's Direction
+  under its words) ([#259](https://github.com/InnerOpen/marvin/pull/259),
+  [`08d57f1`](https://github.com/InnerOpen/marvin/commit/08d57f15c832d8826a953dcb62996665f857da6b))
+
+- **setups**: A gallery's add form takes the order its step lists the fields in, those fields
+  outside their folded groups (a line's Direction under its words)
+  ([#259](https://github.com/InnerOpen/marvin/pull/259),
+  [`08d57f1`](https://github.com/InnerOpen/marvin/commit/08d57f15c832d8826a953dcb62996665f857da6b))
+
+- **setups**: A gallery's approve may name up to six workflows (a sound made by its button and by
+  its created event, music the same), asked at once
+  ([#261](https://github.com/InnerOpen/marvin/pull/261),
+  [`15d2d41`](https://github.com/InnerOpen/marvin/commit/15d2d41c87466d833f9d47fd42637b515bb8d304))
+
+- **setups**: A gallery's highlight can mark the cards another type points at (an actor cast in this
+  story: Cast as Granny), one query for the gallery
+  ([#258](https://github.com/InnerOpen/marvin/pull/258),
+  [`340358d`](https://github.com/InnerOpen/marvin/commit/340358d9105115386f116eb1a4853bde2cbf87d3))
+
+- **setups**: A gallery's where, a step's own order; the entries query sorts text naturally with a
+  then key ([#264](https://github.com/InnerOpen/marvin/pull/264),
+  [`382cb6f`](https://github.com/InnerOpen/marvin/commit/382cb6f3a983b0043eec4d173258b11a1dc2368f))
+
+- **setups**: A paid job shows on its page from the click to the result, through every Redo, and a
+  run button stays off while its run is going ([#263](https://github.com/InnerOpen/marvin/pull/263),
+  [`4c48074`](https://github.com/InnerOpen/marvin/commit/4c48074768cca7281c562770acd5e3c687c5ee3e))
+
+- **setups**: A paid job shows on its page from the click to the result: a gallery watches its cards
+  being made (`working`) and follows the run whose question was answered there; a run step's `redo`
+  starts it again ([#263](https://github.com/InnerOpen/marvin/pull/263),
+  [`4c48074`](https://github.com/InnerOpen/marvin/commit/4c48074768cca7281c562770acd5e3c687c5ee3e))
+
+- **setups**: A pick, a list or a gallery can keep only the entries another type points at
+  (only_with / only_without: a beat that has lines), done by the entries query in one go
+  (referenced_by / not_referenced_by) ([#260](https://github.com/InnerOpen/marvin/pull/260),
+  [`90fdec8`](https://github.com/InnerOpen/marvin/commit/90fdec852f0bf280f52193ec4f290ece5469c65f))
+
+- **setups**: A pick, a list or a gallery may name its own order (sort: {by, direction?}), asked of
+  the entries query ([#264](https://github.com/InnerOpen/marvin/pull/264),
+  [`382cb6f`](https://github.com/InnerOpen/marvin/commit/382cb6f3a983b0043eec4d173258b11a1dc2368f))
+
+- **setups**: A run step's button stays off while its run is going, after a reload and in another
+  tab too, and a button pressed twice posts once
+  ([#263](https://github.com/InnerOpen/marvin/pull/263),
+  [`4c48074`](https://github.com/InnerOpen/marvin/commit/4c48074768cca7281c562770acd5e3c687c5ee3e))
+
+- **setups**: A run step's log report says only what that run did
+  ([#274](https://github.com/InnerOpen/marvin/pull/274),
+  [`79bff36`](https://github.com/InnerOpen/marvin/commit/79bff3649cac60d9470c7ab516a36aab5170f1fd))
+
+- **setups**: A sheet log reads as a log: the newest run is the result, the rest under Earlier
+  ([#274](https://github.com/InnerOpen/marvin/pull/274),
+  [`79bff36`](https://github.com/InnerOpen/marvin/commit/79bff3649cac60d9470c7ab516a36aab5170f1fd))
+
+- **setups**: A step links to a step of another setup carrying its choices, and the way back stays
+  on that setup until used (see_also); a show card may state an empty field
+  ([#276](https://github.com/InnerOpen/marvin/pull/276),
+  [`4475d34`](https://github.com/InnerOpen/marvin/commit/4475d3491847cd95365bf88666d6b08b8802e35b))
+
+- **setups**: A step links to a step of another setup with its choices, and the way back stays until
+  used (see_also); show.empty ([#276](https://github.com/InnerOpen/marvin/pull/276),
+  [`4475d34`](https://github.com/InnerOpen/marvin/commit/4475d3491847cd95365bf88666d6b08b8802e35b))
+
+- **setups**: An empty step's link and a setup's next line can open another setup with the choices
+  and the way back, as see_also does ([#277](https://github.com/InnerOpen/marvin/pull/277),
+  [`474cd2d`](https://github.com/InnerOpen/marvin/commit/474cd2d0ae1879b76e2c75459fb239ecc5afe04d))
+
+- **setups**: One look for a job's result on every guided step
+  ([#269](https://github.com/InnerOpen/marvin/pull/269),
+  [`7360e0e`](https://github.com/InnerOpen/marvin/commit/7360e0e6c6c4b20b86ba98fc208c2887a2f7e42a))
+
+- **setups**: The chapter plan reads well in a narrow card; its setting line is a quiet note
+  ([#272](https://github.com/InnerOpen/marvin/pull/272),
+  [`5145de9`](https://github.com/InnerOpen/marvin/commit/5145de9f180d9075fdd1e1fa329aaa39a1edcdb0))
+
+- **timeline**: A beat's own ambience is drawn over its scene's bed, which runs on unbroken (as the
+  render, Studio v195) ([#278](https://github.com/InnerOpen/marvin/pull/278),
+  [`c384460`](https://github.com/InnerOpen/marvin/commit/c384460a749376cc31368eebdb2b7e21d3da345b))
+
+- **timeline**: Ambience rows layer like a mixer, the beat's own bed on top, and every bed is the
+  same box ([#279](https://github.com/InnerOpen/marvin/pull/279),
+  [`6b7399d`](https://github.com/InnerOpen/marvin/commit/6b7399d23d8075abef520536b0d6b89f4b2898ab))
+
+- **ui**: A bed that holds one level (a scene's ambience) draws that level in its block like a
+  changing one does, instead of a plain grey block
+  ([#222](https://github.com/InnerOpen/marvin/pull/222),
+  [`6028395`](https://github.com/InnerOpen/marvin/commit/60283955592e8a1f16b64e7d3df1f2427da86f6a))
+
+- **ui**: A cue editor for a beat's sound effects (any JSON field a timeline view places in time)
+  ([#116](https://github.com/InnerOpen/marvin/pull/116),
+  [`74ad99b`](https://github.com/InnerOpen/marvin/commit/74ad99b0ec441d4198ae821df3a3044f2cc31798))
+
+- **ui**: A Default box on each run input in the builder
+  ([#70](https://github.com/InnerOpen/marvin/pull/70),
+  [`4576756`](https://github.com/InnerOpen/marvin/commit/4576756dd6c1a0b5dccc57c4542adf29ff9f620b))
+
+- **ui**: A Draft button on each beat card (spine.run) renders just that beat; beats numbered 04a
+  sort between 04 and 05 as the render orders them
+  ([#158](https://github.com/InnerOpen/marvin/pull/158),
+  [`c4860e1`](https://github.com/InnerOpen/marvin/commit/c4860e134e9cb67843da3446ce7460bbb8f38ca8))
+
+- **ui**: A guided setup ends with a button that opens what it made (a wizard's open: the entry a
+  choose step set, and the button's label) ([#102](https://github.com/InnerOpen/marvin/pull/102),
+  [`c38f011`](https://github.com/InnerOpen/marvin/commit/c38f0118f83ff0ff08d773cfb4519a41a9921e68))
+
+- **ui**: A Guided setups link in the sidebar (under Content) when the workspace's packages bring
+  any ([#130](https://github.com/InnerOpen/marvin/pull/130),
+  [`86736f3`](https://github.com/InnerOpen/marvin/commit/86736f36249fb2a689cc0a0adadca0ae955f480e))
+
+- **ui**: A guided step's list draws every column with the shared field component (name, id and bare
+  options on the simple field types), and a step's upload takes its file types from the entry type's
+  field unless the step says otherwise ([#198](https://github.com/InnerOpen/marvin/pull/198),
+  [`7f21ea7`](https://github.com/InnerOpen/marvin/commit/7f21ea7f307afbd0b124330110792b04256dca0e))
+
+- **ui**: A guided step's pick list shows its subtitle under each title (it only showed on picture
+  tiles), a subtitle may name up to three fields, and a long line's words are not cut mid-word
+  ([#201](https://github.com/InnerOpen/marvin/pull/201),
+  [`d7e56f5`](https://github.com/InnerOpen/marvin/commit/d7e56f591adb5aa84901bbb43432aaf91a487ac5))
+
+- **ui**: A JSON field can offer presets that fill the box and a shape hint (a beat's camera move:
+  Slow push in, Pan left) ([#149](https://github.com/InnerOpen/marvin/pull/149),
+  [`eb8f4fe`](https://github.com/InnerOpen/marvin/commit/eb8f4feae57bd1a5d30f4224f1295a7c89093f5f))
+
+- **ui**: A json field can start from another field's choice (suggest); a marks lane's written-out
+  setting wins over a choice ([#217](https://github.com/InnerOpen/marvin/pull/217),
+  [`bfb7489`](https://github.com/InnerOpen/marvin/commit/bfb7489acb1eeed72c7440096a9543d9c3817c01))
+
+- **ui**: A lane's off field leaves an entry out of the Timeline
+  ([#215](https://github.com/InnerOpen/marvin/pull/215),
+  [`90a9aac`](https://github.com/InnerOpen/marvin/commit/90a9aac7cea852e3f9bbe6b6259aeb0d8ee9aa10))
+
+- **ui**: A lane's off field leaves an entry out of the Timeline (not timed, drawn or played), so a
+  line can be tried out and set aside; order is documented as numbers first, the rest by slug
+  ([#215](https://github.com/InnerOpen/marvin/pull/215),
+  [`90a9aac`](https://github.com/InnerOpen/marvin/commit/90a9aac7cea852e3f9bbe6b6259aeb0d8ee9aa10))
+
+- **ui**: A marks lane can run listed values together across items (rocking over a scene)
+  ([#216](https://github.com/InnerOpen/marvin/pull/216),
+  [`116cc2a`](https://github.com/InnerOpen/marvin/commit/116cc2ac9782b070d689c03db3d279148c98b7ac))
+
+- **ui**: A number field may ask for a drag slider beside its box (slider: true, with min and max);
+  empty still means not set, and a clear button goes back to it
+  ([#188](https://github.com/InnerOpen/marvin/pull/188),
+  [`f0b14de`](https://github.com/InnerOpen/marvin/commit/f0b14de862f0d797d1a3af4b409544612564b92a))
+
+- **ui**: A package's collections get a sidebar section named for the package
+  ([#53](https://github.com/InnerOpen/marvin/pull/53),
+  [`d63e42c`](https://github.com/InnerOpen/marvin/commit/d63e42c2fd1ae57ca8895e40a75f687ffd5c8bd9))
+
+- **ui**: A placed timeline piece with no take is drawn with a width estimated from its text
+  (hatched, wide enough to read its name) but never lengthens its item, since nothing plays
+  ([#179](https://github.com/InnerOpen/marvin/pull/179),
+  [`0550793`](https://github.com/InnerOpen/marvin/commit/05507931e25843f624150d493aa516549b429e61))
+
+- **ui**: A Recently decided row opens to show the whole question, note, audio or picture and the
+  details ([#81](https://github.com/InnerOpen/marvin/pull/81),
+  [`a5a5078`](https://github.com/InnerOpen/marvin/commit/a5a50786e088f45a2979e5066c297220052b60e0))
+
+- **ui**: A ref field can be filtered (ref_filter: only sounds of kind music) and can play what is
+  chosen (ref_listen: the asset role to hear), with a play button beside the pick list
+  ([#149](https://github.com/InnerOpen/marvin/pull/149),
+  [`eb8f4fe`](https://github.com/InnerOpen/marvin/commit/eb8f4feae57bd1a5d30f4224f1295a7c89093f5f))
+
+- **ui**: A ref field may narrow its pick list to the entries that belong with this entry's own
+  field (ref_match: {story: story}), live as the form is edited; the chosen option always stays,
+  marked when it belongs elsewhere ([#173](https://github.com/InnerOpen/marvin/pull/173),
+  [`373fea8`](https://github.com/InnerOpen/marvin/commit/373fea8aa83d940ea8c1b4c4cdf3f37929d481f7))
+
+- **ui**: A reference field links to the entry it points at (Open), the chosen option's id carried
+  through the options and followed when the choice changes
+  ([#207](https://github.com/InnerOpen/marvin/pull/207),
+  [`815b081`](https://github.com/InnerOpen/marvin/commit/815b081bfd54d4c9fae11402a904a7fe65edd839))
+
+- **ui**: A schema field can name a group; the form folds a group's fields into one collapsible
+  section ([#126](https://github.com/InnerOpen/marvin/pull/126),
+  [`963ffe4`](https://github.com/InnerOpen/marvin/commit/963ffe4e8a5bf391278f44e6049a2ab9d6f0ce75))
+
+- **ui**: A Simple / Detailed switch on the dashboard; Simple keeps Waiting on you, Pick up, Quick
+  create and Recent work ([#139](https://github.com/InnerOpen/marvin/pull/139),
+  [`67d14e1`](https://github.com/InnerOpen/marvin/commit/67d14e1f33451b6a89810746041de21f88e0c232))
+
+- **ui**: A sound cue in a beat's list has a level of its own (a slider and a box beside the sound
+  and its time); the lane names the key (placed.volume), the Timeline plays it, the render already
+  did ([#193](https://github.com/InnerOpen/marvin/pull/193),
+  [`da336fc`](https://github.com/InnerOpen/marvin/commit/da336fceb65af366787f590d44e1a2ec4bf5db90))
+
+- **ui**: A story-wide bed's level eases between steps over the lane's ramp or a beat's own fade
+  seconds, and the block draws the slope, as the render does
+  ([#220](https://github.com/InnerOpen/marvin/pull/220),
+  [`9a1beb6`](https://github.com/InnerOpen/marvin/commit/9a1beb6772084606c8d12300cfddbb3c29329763))
+
+- **ui**: A Templates section on an entry type's settings (list, add, edit, delete, live title
+  preview) ([#240](https://github.com/InnerOpen/marvin/pull/240),
+  [`6a4c333`](https://github.com/InnerOpen/marvin/commit/6a4c3336c35f9e0eb2a169e73949b9d3369dea5d))
+
+- **ui**: A text asset previews as text on its View page and in Edit Asset
+  ([#63](https://github.com/InnerOpen/marvin/pull/63),
+  [`e9d9582`](https://github.com/InnerOpen/marvin/commit/e9d95827b88cc5b870a76fa3b8c49e622ff82f87))
+
+- **ui**: A text field can be a screenplay: a Fountain preview
+  ([#209](https://github.com/InnerOpen/marvin/pull/209),
+  [`0501114`](https://github.com/InnerOpen/marvin/commit/0501114d484b04c81e7ab3e24451d43d4bba155f))
+
+- **ui**: A text field can be a screenplay: format fountain adds a Preview that draws the text as
+  Fountain (title page, scene headings, action, dialogue, transitions, sections, notes); the type
+  editor offers it ([#209](https://github.com/InnerOpen/marvin/pull/209),
+  [`0501114`](https://github.com/InnerOpen/marvin/commit/0501114d484b04c81e7ab3e24451d43d4bba155f))
+
+- **ui**: A text field with ref picks an entry of that type from a list
+  ([#121](https://github.com/InnerOpen/marvin/pull/121),
+  [`a5d2482`](https://github.com/InnerOpen/marvin/commit/a5d2482835b86371cef2913c74e644f41dd1cf8a))
+
+- **ui**: A timeline action can run a workflow in one click (run: {entry, inputs}) and shows the
+  job's progress and the finished video ([#157](https://github.com/InnerOpen/marvin/pull/157),
+  [`f530526`](https://github.com/InnerOpen/marvin/commit/f530526629689dc4496e7ade79da68d2a89bb26e))
+
+- **ui**: A timeline view may name the entry field holding the picture's shape (aspect); the strip
+  then draws each picture in that shape (a Short tall, a wide video wide) as a frame at the start of
+  its beat, with its words beside it ([#176](https://github.com/InnerOpen/marvin/pull/176),
+  [`94b466f`](https://github.com/InnerOpen/marvin/commit/94b466f0b2367f22c3eac1c9ef477bdc5e42661a))
+
+- **ui**: A timeline view may name the statuses that wait to be looked at (spine.review); each such
+  card gets Keep and Redo buttons that write the status the view names
+  ([#182](https://github.com/InnerOpen/marvin/pull/182),
+  [`6ffc76d`](https://github.com/InnerOpen/marvin/commit/6ffc76db574fd7fd338b726ecdaabc0f32dd001b))
+
+- **ui**: A toolbar over Fountain text fields writes the elements (scene heading, dialogue,
+  parenthetical, transition, centered, section, synopsis, lyrics, page break, note, bold, italic,
+  underline), keeping the format's blank lines and selecting the placeholder
+  ([#212](https://github.com/InnerOpen/marvin/pull/212),
+  [`3da3771`](https://github.com/InnerOpen/marvin/commit/3da3771a96ad8a9a508284c3360d8f2400638ace))
+
+- **ui**: A voice sample plays on the actor's card, list row and asset field
+  ([#55](https://github.com/InnerOpen/marvin/pull/55),
+  [`e386ef4`](https://github.com/InnerOpen/marvin/commit/e386ef480c783e7e619e4fb7112a868f6634b850))
+
+- **ui**: A web address in an approval's message is a link
+  ([#56](https://github.com/InnerOpen/marvin/pull/56),
+  [`4b606d7`](https://github.com/InnerOpen/marvin/commit/4b606d747137333ac126a385436dc8bd17e8d5d3))
+
+- **ui**: A web address in an approval's message is a link card
+  ([#62](https://github.com/InnerOpen/marvin/pull/62),
+  [`9d82404`](https://github.com/InnerOpen/marvin/commit/9d82404660f37a3b195ff19ddd1aa1a3c95bbe48))
+
+- **ui**: A wizard can start a workflow (run step); required fields are marked * in its forms
+  ([#94](https://github.com/InnerOpen/marvin/pull/94),
+  [`6fe29f4`](https://github.com/InnerOpen/marvin/commit/6fe29f4ff4a013da746e5f1fee2dab6eeb4afc48))
+
+- **ui**: A wizard can start from a picture: choose steps take create.upload, show the real picture
+  (a field's role), search long lists, put make-a-new-one on top; field keys may be camelCase
+  ([#128](https://github.com/InnerOpen/marvin/pull/128),
+  [`efe5a20`](https://github.com/InnerOpen/marvin/commit/efe5a20f791a34bd2b371359ef02464e02c621bf))
+
+- **ui**: A wizard pick with a picture is drawn as tiles (choose steps take picture and subtitle)
+  ([#123](https://github.com/InnerOpen/marvin/pull/123),
+  [`b94d32c`](https://github.com/InnerOpen/marvin/commit/b94d32c1c064ffce92bbee1beaea246521939e75))
+
+- **ui**: A wizard run step shows the approvals its workflow raises and takes the decision there;
+  the page refreshes itself while the run goes on
+  ([#97](https://github.com/InnerOpen/marvin/pull/97),
+  [`8a49310`](https://github.com/InnerOpen/marvin/commit/8a49310b5116020ec80f5a468644c3d5e11c2019))
+
+- **ui**: An entry page's action bar (views, guided setups, its filmstrip/video/script files, the
+  live page) above the form; a resource's page gets a right column with Used in (GET
+  /resources/{id}/usage), shared with assets ([#153](https://github.com/InnerOpen/marvin/pull/153),
+  [`74b1231`](https://github.com/InnerOpen/marvin/commit/74b123177e37ea524dad193d2575c386f50e457d))
+
+- **ui**: An entry says when a workflow is waiting for approval on it
+  ([#45](https://github.com/InnerOpen/marvin/pull/45),
+  [`fb58b4a`](https://github.com/InnerOpen/marvin/commit/fb58b4a56c2be67391c3483761df022a337151d7))
+
+- **ui**: An entry type may list up to ten related lookups on its page (was six), so a story shows
+  its characters, sounds and revisions too ([#181](https://github.com/InnerOpen/marvin/pull/181),
+  [`a7d2fe1`](https://github.com/InnerOpen/marvin/commit/a7d2fe1d5622841ed458f869ac4035ed6bb6563e))
+
+- **ui**: An entry's page lists what points at it (a story's beats, a beat's lines, a line's takes)
+  from its type's schema children ([#149](https://github.com/InnerOpen/marvin/pull/149),
+  [`eb8f4fe`](https://github.com/InnerOpen/marvin/commit/eb8f4feae57bd1a5d30f4224f1295a7c89093f5f))
+
+- **ui**: An HTML asset is previewed as a letter-width sheet, centred
+  ([#52](https://github.com/InnerOpen/marvin/pull/52),
+  [`38902e8`](https://github.com/InnerOpen/marvin/commit/38902e8436c9d24246c0f5d93e85a13eaaa5349d))
+
+- **ui**: An HTML asset previews on its page, in a sandboxed frame
+  ([#51](https://github.com/InnerOpen/marvin/pull/51),
+  [`6a2ce25`](https://github.com/InnerOpen/marvin/commit/6a2ce25c07144162aee2e0306115a36961bfa87a))
+
+- **ui**: An HTML preview runs its own page's scripts in isolation; an HTML file on an entry
+  previews in place ([#57](https://github.com/InnerOpen/marvin/pull/57),
+  [`351150f`](https://github.com/InnerOpen/marvin/commit/351150f967341b13137656d1340e5858a3b6e3e5))
+
+- **ui**: An item that sets its own hold lasts at least that long even with timed pieces in its
+  lanes, as the renderer plans it (a beat with speech and a hold of 8 showed 3 s)
+  ([#216](https://github.com/InnerOpen/marvin/pull/216),
+  [`116cc2a`](https://github.com/InnerOpen/marvin/commit/116cc2ac9782b070d689c03db3d279148c98b7ac))
+
+- **ui**: An item that sets its own hold lasts at least that long even with timed pieces in its
+  lanes, as the renderer plans it (a beat with speech and a hold of 8 showed 3 s)
+  ([#214](https://github.com/InnerOpen/marvin/pull/214),
+  [`d02a8bd`](https://github.com/InnerOpen/marvin/commit/d02a8bda7e15e7c1ab08342e1bdebcad635e4b42))
+
+- **ui**: Any attached asset can be made the entry's asset field (Use as Audio), with a player for
+  audio; no workspace-specific words in core examples
+  ([#46](https://github.com/InnerOpen/marvin/pull/46),
+  [`f223e51`](https://github.com/InnerOpen/marvin/commit/f223e516a0aa1484c00e2ccf21367b04cf9af7a6))
+
+- **ui**: Any number field with both ends gets a slider beside its box and arrows (slider: false
+  opts out); the type editor offers Step and Slider and lets a limit be cleared; a guided step's
+  list draws its number columns with the same control
+  ([#198](https://github.com/InnerOpen/marvin/pull/198),
+  [`7f21ea7`](https://github.com/InnerOpen/marvin/commit/7f21ea7f307afbd0b124330110792b04256dca0e))
+
+- **ui**: Ask is a top-bar button that opens a docked side panel on the right
+  ([#86](https://github.com/InnerOpen/marvin/pull/86),
+  [`63acabe`](https://github.com/InnerOpen/marvin/commit/63acabe8f4e1c3432f4802fc9b62a98877b7cee0))
+
+- **ui**: Bed fades cascade on the timeline: the sound's, then the story's (start/end fade and
+  ambience fade), then the beat's, as the render does
+  ([#165](https://github.com/InnerOpen/marvin/pull/165),
+  [`d2a1be1`](https://github.com/InnerOpen/marvin/commit/d2a1be137ab9305e6087bbf7a023a925f916c57f))
+
+- **ui**: Edit Asset plays audio and video in its preview
+  ([#54](https://github.com/InnerOpen/marvin/pull/54),
+  [`20db186`](https://github.com/InnerOpen/marvin/commit/20db186a07bb4d915544f790e9d531f2e1f9a406))
+
+- **ui**: Guided setups are tiles in the dashboard's Quick create (up to 3), not a panel of their
+  own ([#134](https://github.com/InnerOpen/marvin/pull/134),
+  [`62f6e8a`](https://github.com/InnerOpen/marvin/commit/62f6e8a5c425588c33c0b3a95382c1ee45dbcee5))
+
+- **ui**: Guided setups as cards like the workflow cards
+  ([#118](https://github.com/InnerOpen/marvin/pull/118),
+  [`e2d88be`](https://github.com/InnerOpen/marvin/commit/e2d88be159f307776c4cc800e6ec77d9f033f1f4))
+
+- **ui**: Guided setups as cards like the workflow cards: a mark, the name, the description, step
+  and package pills, the first steps as a trail and a Start button, the whole card clickable; an
+  empty state that points to Packages ([#118](https://github.com/InnerOpen/marvin/pull/118),
+  [`e2d88be`](https://github.com/InnerOpen/marvin/commit/e2d88be159f307776c4cc800e6ec77d9f033f1f4))
+
+- **ui**: Guided setups in the New menu and on the dashboard; the pages live at /workspace/setups
+  (the old /workspace/wizards address redirects)
+  ([#131](https://github.com/InnerOpen/marvin/pull/131),
+  [`3cc1aba`](https://github.com/InnerOpen/marvin/commit/3cc1aba64ff4872ec41ac122239fa0df1d7ebd8e))
+
+- **ui**: Guided setups, a page that walks a package's wizard (frontend)
+  ([#89](https://github.com/InnerOpen/marvin/pull/89),
+  [`a226fa2`](https://github.com/InnerOpen/marvin/commit/a226fa2236962e0c4614d513496637b40deefee3))
+
+- **ui**: Guided setups: a gallery step (picture cards with Add, Upload and Generate); errors inside
+  the card with the fields marked; a failing check links to the step that fixes it
+  ([#102](https://github.com/InnerOpen/marvin/pull/102),
+  [`c38f011`](https://github.com/InnerOpen/marvin/commit/c38f0118f83ff0ff08d773cfb4519a41a9921e68))
+
+- **ui**: Guided setups: a page that walks a package's wizard step by step (choose or create,
+  option, form, upload, list, review) ([#89](https://github.com/InnerOpen/marvin/pull/89),
+  [`a226fa2`](https://github.com/InnerOpen/marvin/commit/a226fa2236962e0c4614d513496637b40deefee3))
+
+- **ui**: Guided setups: a waiting card holds the later steps; done ticks and Step N of M; the end
+  lists what you made and what to do next (a wizard's next lines)
+  ([#100](https://github.com/InnerOpen/marvin/pull/100),
+  [`f45cd44`](https://github.com/InnerOpen/marvin/commit/f45cd4420b6482d35c483a7cc21738547f3ed44f))
+
+- **ui**: Guided setups: gallery step, errors in the card, fix-it links on checks
+  ([#102](https://github.com/InnerOpen/marvin/pull/102),
+  [`c38f011`](https://github.com/InnerOpen/marvin/commit/c38f0118f83ff0ff08d773cfb4519a41a9921e68))
+
+- **ui**: In a marks lane the item's own written-out setting (an exact camera move) wins over a
+  choice it also holds ([#217](https://github.com/InnerOpen/marvin/pull/217),
+  [`bfb7489`](https://github.com/InnerOpen/marvin/commit/bfb7489acb1eeed72c7440096a9543d9c3817c01))
+
+- **ui**: In a marks lane the values listed in merge (a ship's rocking, which carries on across a
+  cut) run together: consecutive items with the same one from the same scene or story are one block,
+  not a chip each ([#216](https://github.com/InnerOpen/marvin/pull/216),
+  [`116cc2a`](https://github.com/InnerOpen/marvin/commit/116cc2ac9782b070d689c03db3d279148c98b7ac))
+
+- **ui**: In the Ask side panel the agent and tone sit in a small card on top, the answers fill the
+  middle and the box is at the bottom; no Manage Agents or Search index there
+  ([#87](https://github.com/InnerOpen/marvin/pull/87),
+  [`506e083`](https://github.com/InnerOpen/marvin/commit/506e083327e8233e279ac3c421ffd257322b722f))
+
+- **ui**: Keep and Redo on a timeline card (spine.review)
+  ([#182](https://github.com/InnerOpen/marvin/pull/182),
+  [`6ffc76d`](https://github.com/InnerOpen/marvin/commit/6ffc76db574fd7fd338b726ecdaabc0f32dd001b))
+
+- **ui**: Listen to a finished audio job line by line; Settings -> Workers shows the job queue and
+  whether a dispatcher is running ([#30](https://github.com/InnerOpen/marvin/pull/30),
+  [`7c29522`](https://github.com/InnerOpen/marvin/commit/7c29522df51350f1f26a9414d464198c909c3b0e))
+
+- **ui**: Mute a timeline lane: a speaker button in each lane heading, remembered per view; a muted
+  lane's sounds run at level 0 so unmuting lands in the right place
+  ([#108](https://github.com/InnerOpen/marvin/pull/108),
+  [`2a27c7d`](https://github.com/InnerOpen/marvin/commit/2a27c7d478fb36e43b4630edd6089cb4b10bee4b))
+
+- **ui**: On a phone the Timeline's control bar folds down to Play and the clock (and a button to
+  open it again), remembered between visits ([#197](https://github.com/InnerOpen/marvin/pull/197),
+  [`a1a9872`](https://github.com/InnerOpen/marvin/commit/a1a9872f8760f1801e2b30f53d4a4ac11ea4df8e))
+
+- **ui**: On a timeline that names the picture's shape (aspect), a beat with no picture yet shows a
+  shaded frame in that shape holding the beat's words, in the theme's colours (light and dark)
+  ([#177](https://github.com/InnerOpen/marvin/pull/177),
+  [`7534196`](https://github.com/InnerOpen/marvin/commit/7534196b078db1f91e2de4df91595bdc32923dda))
+
+- **ui**: One Sort select, in the open under the search bar, on every page that shares it: Entries,
+  Assets, Resources and a collection (its own order first)
+  ([#115](https://github.com/InnerOpen/marvin/pull/115),
+  [`390e53d`](https://github.com/InnerOpen/marvin/commit/390e53ddf9a4fc4a0040cceaacef633f99df6819))
+
+- **ui**: Packages: says a package is a set of blueprints, and lists what integrations' blueprints
+  installed ([#43](https://github.com/InnerOpen/marvin/pull/43),
+  [`4821a0a`](https://github.com/InnerOpen/marvin/commit/4821a0a8d677d51ecaedfff94168d1992436d523))
+
+- **ui**: Pick beats on the Timeline in any order (checkbox, ctrl/cmd-click, shift-click for a
+  range) and draft them together ([#219](https://github.com/InnerOpen/marvin/pull/219),
+  [`933dc12`](https://github.com/InnerOpen/marvin/commit/933dc128c1d05d1b7545fe5bf959ede761582d73))
+
+- **ui**: Pick linked entries from a list (ref fields), sound in the wizard gallery, record a voice
+  in the drop zone ([#121](https://github.com/InnerOpen/marvin/pull/121),
+  [`a5d2482`](https://github.com/InnerOpen/marvin/commit/a5d2482835b86371cef2913c74e644f41dd1cf8a))
+
+- **ui**: Picture presets in an entry type's settings, a template's preset, and "Make an entry for
+  each" on the upload page ([#241](https://github.com/InnerOpen/marvin/pull/241),
+  [`b7c731a`](https://github.com/InnerOpen/marvin/commit/b7c731aa14e61e65daf826be4175d4fe91311955))
+
+- **ui**: Recently decided on Approvals is slim full-width rows, like the Events page
+  ([#77](https://github.com/InnerOpen/marvin/pull/77),
+  [`bfe8695`](https://github.com/InnerOpen/marvin/commit/bfe869586025791c10e8b4547c3fd518a4da72d9))
+
+- **ui**: Ref fields can narrow their pick list by this entry's own field (ref_match)
+  ([#173](https://github.com/InnerOpen/marvin/pull/173),
+  [`373fea8`](https://github.com/InnerOpen/marvin/commit/373fea8aa83d940ea8c1b4c4cdf3f37929d481f7))
+
+- **ui**: Settings -> Workers groups workers under the image they run
+  ([#65](https://github.com/InnerOpen/marvin/pull/65),
+  [`294dad5`](https://github.com/InnerOpen/marvin/commit/294dad547e2ee4b00bb0e646aa668c4e06ff250f))
+
+- **ui**: Settings -> Workers shows which image each worker runs
+  ([#64](https://github.com/InnerOpen/marvin/pull/64),
+  [`ce09644`](https://github.com/InnerOpen/marvin/commit/ce09644a493cd5cb335468badde987fbc3953aa1))
+
+- **ui**: Settings counts what needs a look on the Integrations and Workers tabs
+  ([#61](https://github.com/InnerOpen/marvin/pull/61),
+  [`a3c256c`](https://github.com/InnerOpen/marvin/commit/a3c256c46dab7f9e70a4e23735d7ecc1bcbdb836))
+
+- **ui**: Sliders for every bounded number field; guided-step lists and uploads use the entry type's
+  field definitions ([#198](https://github.com/InnerOpen/marvin/pull/198),
+  [`7f21ea7`](https://github.com/InnerOpen/marvin/commit/7f21ea7f307afbd0b124330110792b04256dca0e))
+
+- **ui**: Sort the Entries list (newest, oldest, recently updated, title), the same order for a
+  search; the editor's asset picker and sidebar list newest first
+  ([#110](https://github.com/InnerOpen/marvin/pull/110),
+  [`47dc24c`](https://github.com/InnerOpen/marvin/commit/47dc24c0f8394283548c681d7c338bb067af948b))
+
+- **ui**: The edit page's Preview has an audio and a video player
+  ([#54](https://github.com/InnerOpen/marvin/pull/54),
+  [`20db186`](https://github.com/InnerOpen/marvin/commit/20db186a07bb4d915544f790e9d531f2e1f9a406))
+
+- **ui**: The field's upload dialog takes a drag-and-drop zone (click, Enter or a drop); several
+  files for a list field, one for a single-asset field
+  ([#111](https://github.com/InnerOpen/marvin/pull/111),
+  [`5b1d42e`](https://github.com/InnerOpen/marvin/commit/5b1d42e7fc4128c4991e2a8e6d747b83d38e8dc7))
+
+- **ui**: The field's upload dialog takes a drag-and-drop zone; several files only for a list field
+  ([#111](https://github.com/InnerOpen/marvin/pull/111),
+  [`5b1d42e`](https://github.com/InnerOpen/marvin/commit/5b1d42e7fc4128c4991e2a8e6d747b83d38e8dc7))
+
+- **ui**: The Fountain preview draws a sung line (~) in italics without its tilde, draws dual
+  dialogue (a cue ending in ^) as two columns, and the toolbar gets Action (forced, !) and Dual
+  buttons ([#213](https://github.com/InnerOpen/marvin/pull/213),
+  [`b79b6e5`](https://github.com/InnerOpen/marvin/commit/b79b6e5f2ab8c9d84969ef9b2028b770f4aac392))
+
+- **ui**: The reading card's label drops the form label's bracketed hint
+  ([#186](https://github.com/InnerOpen/marvin/pull/186),
+  [`1d38741`](https://github.com/InnerOpen/marvin/commit/1d38741ab0e31d8d793fd82899a32ac431b27306))
+
+- **ui**: The recorder shows the words to read, large
+  ([#186](https://github.com/InnerOpen/marvin/pull/186),
+  [`1d38741`](https://github.com/InnerOpen/marvin/commit/1d38741ab0e31d8d793fd82899a32ac431b27306))
+
+- **ui**: The story timeline draws an overlay lane (a video over the pictures, beat > scene > story,
+  none switches off) and a music bed's level per beat as steps, silent ones hatched; playback
+  follows them ([#150](https://github.com/InnerOpen/marvin/pull/150),
+  [`5ab5f2c`](https://github.com/InnerOpen/marvin/commit/5ab5f2c0b3440dae438ea246fe3b805ddc7ebe4f))
+
+- **ui**: The story timeline zooms (Fit, 2×, 4×, 8×) and stacks by chapter
+  ([#107](https://github.com/InnerOpen/marvin/pull/107),
+  [`03b4dbc`](https://github.com/InnerOpen/marvin/commit/03b4dbc9c386d072bf0c3f871987d6c301426b07))
+
+- **ui**: The story timeline: a view page laying beats, lines and sounds out as time, with a player
+  ([#105](https://github.com/InnerOpen/marvin/pull/105),
+  [`01c3911`](https://github.com/InnerOpen/marvin/commit/01c39110f97f48f5672d4363f9b43006d3db779f))
+
+- **ui**: The timeline adds the pause where a scene ends (spine.scene_break), as the render does
+  ([#169](https://github.com/InnerOpen/marvin/pull/169),
+  [`b705aeb`](https://github.com/InnerOpen/marvin/commit/b705aeb66e0347baa007368180ad42341fab1f0b))
+
+- **ui**: The Timeline draws a recording's waveform in its block: a lane may name the field holding
+  the peaks (waveform), an array of peaks or audiowaveform JSON, either as text
+  ([#206](https://github.com/InnerOpen/marvin/pull/206),
+  [`7c0cb14`](https://github.com/InnerOpen/marvin/commit/7c0cb147fbc81a6cafd034b5fcbc1aaa5933cf93))
+
+- **ui**: The timeline lays out title and end cards (spine.cards) as real items, so every beat after
+  them starts when the render starts it ([#166](https://github.com/InnerOpen/marvin/pull/166),
+  [`ea32d7d`](https://github.com/InnerOpen/marvin/commit/ea32d7d64b3a757e3758f49a7c922ae7ee91eb62))
+
+- **ui**: The timeline zooms: Fit, 2×, 4×, 8× (and + / −), a ruler that gets finer as you zoom in,
+  chapter titles that stick while you scroll; the zoom is remembered per view
+  ([#107](https://github.com/InnerOpen/marvin/pull/107),
+  [`03b4dbc`](https://github.com/InnerOpen/marvin/commit/03b4dbc9c386d072bf0c3f871987d6c301426b07))
+
+- **ui**: The timeline's ambience lane layers as the render does (the story's bed under the film, a
+  beat's own over its scene's, blocks stacked on rows) and scene bands wrap the beats of a scene
+  (spine.bands) ([#162](https://github.com/InnerOpen/marvin/pull/162),
+  [`d89bc66`](https://github.com/InnerOpen/marvin/commit/d89bc664d710b7c04b2dad16609fb045c83554ce))
+
+- **ui**: The timeline's bed blocks slope where the render fades them (the sound's own fades, the
+  defaults, the story's end fade) ([#154](https://github.com/InnerOpen/marvin/pull/154),
+  [`3964bfc`](https://github.com/InnerOpen/marvin/commit/3964bfc07f36858429dbfe07b588baadb2a116cf))
+
+- **ui**: The Timeline's controls are pinned to the bottom of the window (centered in the timeline's
+  column), so Play and the clock stay in reach down a long chapter-by-chapter page; they were at the
+  top and scrolled away ([#205](https://github.com/InnerOpen/marvin/pull/205),
+  [`32dd95b`](https://github.com/InnerOpen/marvin/commit/32dd95bba8d46c9dcfd68839bdd15f721f1573b7))
+
+- **ui**: The timeline's Lines lane draws the quiet the renderer adds: lead-in, gaps between lines,
+  tail, and a beat's whole hold ([#138](https://github.com/InnerOpen/marvin/pull/138),
+  [`85a00b5`](https://github.com/InnerOpen/marvin/commit/85a00b5d5d3d8089b77f9c5f466691a3f26d8021))
+
+- **ui**: The timeline's pictures can be drawn small, medium or large (S/M/L); the strip takes the
+  height and a card the width the story's shape needs
+  ([#178](https://github.com/InnerOpen/marvin/pull/178),
+  [`4c24441`](https://github.com/InnerOpen/marvin/commit/4c244410b7d2bba851b1e2ea20b91609028c4332))
+
+- **ui**: The Timeline's Play has |<, <<, >> and >| beside it: the start, the previous beat (this
+  one's start first), the next beat and the end; Home, End and the arrow keys do the same
+  ([#187](https://github.com/InnerOpen/marvin/pull/187),
+  [`cf7c80a`](https://github.com/InnerOpen/marvin/commit/cf7c80a682cbedf402beff61712aa01f0db9ce4d))
+
+- **ui**: The Timeline's playhead has a precise clock (h:mm:ss.mmm) with how far into the beat it
+  is, takes a typed time to jump to, nudges with , and . (Shift: a second), and can be dragged by
+  its grip ([#192](https://github.com/InnerOpen/marvin/pull/192),
+  [`52f2685`](https://github.com/InnerOpen/marvin/commit/52f2685bebeb8e04180cea3e014622a3a9d127d9))
+
+- **ui**: The Timeline's ruler has unlabelled marks between its numbered ticks (every second, every
+  half second when zoomed in) ([#223](https://github.com/InnerOpen/marvin/pull/223),
+  [`f2165a5`](https://github.com/InnerOpen/marvin/commit/f2165a5b073fc67927b3be1bf24e75086d033759))
+
+- **ui**: The Timeline's story-bed block shows each stretch as a step that says who set its level
+  (the story, a scene or a beat) and marks muffled stretches; a view names the fields
+  (bed.entry_item_volume, entry_via_volume, entry_via_muffled)
+  ([#189](https://github.com/InnerOpen/marvin/pull/189),
+  [`54a2abf`](https://github.com/InnerOpen/marvin/commit/54a2abf22a0a2a7221edb27318a6e6cc41dd4447))
+
+- **ui**: The timeline: a view page that lays a story out as time (filmstrip of beats, lanes of
+  lines and sounds, a ruler, a player that walks the takes); a Timeline button on the entry and at a
+  wizard's end ([#105](https://github.com/InnerOpen/marvin/pull/105),
+  [`01c3911`](https://github.com/InnerOpen/marvin/commit/01c39110f97f48f5672d4363f9b43006d3db779f))
+
+- **ui**: The wizard's file uploads (an upload step, a gallery's "Upload a picture") use the same
+  drop zone as the Assets upload page and the asset field's dialog, not a bare file chooser
+  ([#120](https://github.com/InnerOpen/marvin/pull/120),
+  [`324e636`](https://github.com/InnerOpen/marvin/commit/324e636d3285d8005bfe6e5d019899f0914850ba))
+
+- **ui**: Timeline picture size S/M/L (stacked on #177)
+  ([#178](https://github.com/InnerOpen/marvin/pull/178),
+  [`4c24441`](https://github.com/InnerOpen/marvin/commit/4c244410b7d2bba851b1e2ea20b91609028c4332))
+
+- **ui**: Upload an asset from the field itself: a dialog next to Choose that sends a picture
+  through the cropper, keeps the original as the source of the crop, and chooses the result; the
+  cropper gains brightness, contrast, saturation and rotation, remembered for the next picture; a
+  batch can take the same look ([#109](https://github.com/InnerOpen/marvin/pull/109),
+  [`e21ed8c`](https://github.com/InnerOpen/marvin/commit/e21ed8cd33c8ab9f59a65e274e8b48f1418de3e9))
+
+- **ui**: Wizard picks with a picture are tiles (choose steps take picture and subtitle)
+  ([#123](https://github.com/InnerOpen/marvin/pull/123),
+  [`b94d32c`](https://github.com/InnerOpen/marvin/commit/b94d32c1c064ffce92bbee1beaea246521939e75))
+
+- **ui**: Wizard steps use the page width; picture tiles lead with larger art and a clear selected
+  state ([#123](https://github.com/InnerOpen/marvin/pull/123),
+  [`b94d32c`](https://github.com/InnerOpen/marvin/commit/b94d32c1c064ffce92bbee1beaea246521939e75))
+
+- **ui): a cue editor for a JSON field that places entries in time (a beat's sound effects**: Rows
+  of sound + seconds with a player, from the shape the timeline view declares; the JSON stays
+  underneath ([#116](https://github.com/InnerOpen/marvin/pull/116),
+  [`74ad99b`](https://github.com/InnerOpen/marvin/commit/74ad99b0ec441d4198ae821df3a3044f2cc31798))
+
+- **ui): a json field can start from another field's choice (suggest**: Shown, not saved, until the
+  person edits it ([#217](https://github.com/InnerOpen/marvin/pull/217),
+  [`bfb7489`](https://github.com/InnerOpen/marvin/commit/bfb7489acb1eeed72c7440096a9543d9c3817c01))
+
+- **ui): a marks lane in the Timeline writes one choice per beat (the camera's move**: Read from the
+  beat, else its scene, else the story, with labels, icons and an exact-setting override
+  ([#210](https://github.com/InnerOpen/marvin/pull/210),
+  [`ce3c2a7`](https://github.com/InnerOpen/marvin/commit/ce3c2a7b377fd6bf8ac0784dacfdd5847d23ab8e))
+
+- **ui): a number field may draw a meter bar for a measured value (meter: true, with min and max**:
+  Green, amber near the top, red at it, empty when nothing was measured
+  ([#196](https://github.com/InnerOpen/marvin/pull/196),
+  [`2bab808`](https://github.com/InnerOpen/marvin/commit/2bab8089867289c96d902717b270ffa9758691a7))
+
+- **ui): a placed lane can limit what the item's cue list offers (filter: {kind: effect}**: A beat's
+  Sound effects offers only effects ([#156](https://github.com/InnerOpen/marvin/pull/156),
+  [`bb1cd5f`](https://github.com/InnerOpen/marvin/commit/bb1cd5f7bd506f963c03fdafa9b5993625379e7f))
+
+- **ui): a recording box can be told which fields of its form to show large while recording
+  (add.file.script**: The recorder dialog widens and puts the take's words and direction above its
+  controls, with A- and A+ to size them ([#186](https://github.com/InnerOpen/marvin/pull/186),
+  [`1d38741`](https://github.com/InnerOpen/marvin/commit/1d38741ab0e31d8d793fd82899a32ac431b27306))
+
+- **ui): a ref field can prefer what other entries name (ref_via**: A take's voice lists the voices
+  cast in its story first, the rest under Other voices
+  ([#141](https://github.com/InnerOpen/marvin/pull/141),
+  [`24f4d16`](https://github.com/InnerOpen/marvin/commit/24f4d16b625a76326eb7ae959d7cb96ea381ee5e))
+
+- **ui): an asset field can take only some kinds of file (accept**: The picker lists those, with a
+  way to show the rest ([#125](https://github.com/InnerOpen/marvin/pull/125),
+  [`1ab0cd9`](https://github.com/InnerOpen/marvin/commit/1ab0cd9535ce549e5bbbfefb088eff3350c5602c))
+
+- **ui): an overlay lane can draw a card the item writes itself (an info card**: A block in after
+  its delay that takes the place of the overlay file for that item
+  ([#218](https://github.com/InnerOpen/marvin/pull/218),
+  [`aae44b2`](https://github.com/InnerOpen/marvin/commit/aae44b21c5c9dc870e50bd2a230bd6efc47cf03f))
+
+- **ui): the timeline stacks by chapter on request (?stack=chapters**: One track per chapter with
+  its own ruler, lanes and playhead, on a shared scale; zoom applies to every track
+  ([#107](https://github.com/InnerOpen/marvin/pull/107),
+  [`03b4dbc`](https://github.com/InnerOpen/marvin/commit/03b4dbc9c386d072bf0c3f871987d6c301426b07))
+
+- **ui,api**: The timeline plays its sounds: placed effects at their offset and beds (a scene's
+  ambience across its beats, a story's music) under the lines, at their levels; bed lanes in the
+  view spec; placed sounds found by slug ([#108](https://github.com/InnerOpen/marvin/pull/108),
+  [`2a27c7d`](https://github.com/InnerOpen/marvin/commit/2a27c7d478fb36e43b4630edd6089cb4b10bee4b))
+
+- **wizards**: A card action can take a file, upload or choose from assets
+  ([#226](https://github.com/InnerOpen/marvin/pull/226),
+  [`88dda45`](https://github.com/InnerOpen/marvin/commit/88dda4516e4849f917d625c23c86cc8d27123ab6))
+
+- **wizards**: A card's file action and the add form's file box use the entry's asset control
+  (choose with search, upload by drop, record)
+  ([#228](https://github.com/InnerOpen/marvin/pull/228),
+  [`5e73c79`](https://github.com/InnerOpen/marvin/commit/5e73c79050a4df8a43ff61d7f57294e91ddd0392))
+
+- **wizards**: A choose step can ask for tiles with cards: true, a letter standing for a type with
+  no picture (world, series, chapter) ([#245](https://github.com/InnerOpen/marvin/pull/245),
+  [`3cd8026`](https://github.com/InnerOpen/marvin/commit/3cd8026528d1fe98e5d2e25acd0e78888acc7d92))
+
+- **wizards**: A form step shows an entry's file fields with the asset control (choose, upload or
+  record), so a setup can ask for a picture beside the text
+  ([#246](https://github.com/InnerOpen/marvin/pull/246),
+  [`2c51b74`](https://github.com/InnerOpen/marvin/commit/2c51b7406807b94492992cbd51b74210a0427005))
+
+- **wizards**: A gallery add form's file box and name box may say what they mean (add.file
+  label/help/hint, name.placeholder); a take's wording stays the default
+  ([#174](https://github.com/InnerOpen/marvin/pull/174),
+  [`124f42d`](https://github.com/InnerOpen/marvin/commit/124f42dd359b3ddf48cf95928d48a7fbf28aaea6))
+
+- **wizards**: A gallery card action can ask for a file (upload or choose from the workspace's
+  assets) before it sets its fields, and an add form can offer the assets too (Use my own sound on a
+  card, skipping the make step) ([#226](https://github.com/InnerOpen/marvin/pull/226),
+  [`88dda45`](https://github.com/InnerOpen/marvin/commit/88dda4516e4849f917d625c23c86cc8d27123ab6))
+
+- **wizards**: A list step without a parent checks the entries a `where` finds: cards a page at a
+  time, columns edited in place, a "Looks right" check, flags, filters, a facet and a search
+  ([#242](https://github.com/InnerOpen/marvin/pull/242),
+  [`7d7168d`](https://github.com/InnerOpen/marvin/commit/7d7168dc575f25f79868bd1fb999bcedc40726ac))
+
+- **wizards**: A list step without a parent: check the entries a where finds, edit columns in place,
+  a Looks right check, flags, filters, facet, search (Art price check)
+  ([#242](https://github.com/InnerOpen/marvin/pull/242),
+  [`7d7168d`](https://github.com/InnerOpen/marvin/commit/7d7168dc575f25f79868bd1fb999bcedc40726ac))
+
+- **wizards**: A run says where it stands, and a long approval question folds its detail away
+  ([#229](https://github.com/InnerOpen/marvin/pull/229),
+  [`ab583f4`](https://github.com/InnerOpen/marvin/commit/ab583f474abee2e8f70ad7a77ef6b5b741599fba))
+
+- **wizards**: A run step lists what its workflow will work on (the workflow's own first collect,
+  read without running), counts it in its button, says what is left out and why, offers Continue
+  when there is nothing to do, shows the report the run wrote, and can be passed without running
+  ([#231](https://github.com/InnerOpen/marvin/pull/231),
+  [`f17a68d`](https://github.com/InnerOpen/marvin/commit/f17a68df1b45b3b5563f41231b0603e4dc450f6f))
+
+- **wizards**: A run step shows what a template would make before it runs, and an option step can
+  offer an entry type's templates ([#248](https://github.com/InnerOpen/marvin/pull/248),
+  [`eb099d4`](https://github.com/InnerOpen/marvin/commit/eb099d4aa39f9ba3f5d75981adb80100de1aa2b5))
+
+- **wizards**: A run step, a gallery's Generate and the Timeline's run button say where the run
+  stands (starting, running, waiting on you, working, done, failed) instead of an endless
+  "Running…"; a long approval question folds its detail away
+  ([#229](https://github.com/InnerOpen/marvin/pull/229),
+  [`ab583f4`](https://github.com/InnerOpen/marvin/commit/ab583f474abee2e8f70ad7a77ef6b5b741599fba))
+
+- **wizards**: A setup can end with an again button that goes back to a step it names, keeping the
+  earlier choices ([#247](https://github.com/InnerOpen/marvin/pull/247),
+  [`81380fb`](https://github.com/InnerOpen/marvin/commit/81380fbed393ec5f7d3a4008b1cf662dc0c900a4))
+
+- **wizards**: Add form file box and name box wording (label/help/hint, placeholder)
+  ([#174](https://github.com/InnerOpen/marvin/pull/174),
+  [`124f42d`](https://github.com/InnerOpen/marvin/commit/124f42dd359b3ddf48cf95928d48a7fbf28aaea6))
+
+- **wizards**: Again: a button at the end that goes round once more
+  ([#247](https://github.com/InnerOpen/marvin/pull/247),
+  [`81380fb`](https://github.com/InnerOpen/marvin/commit/81380fbed393ec5f7d3a4008b1cf662dc0c900a4))
+
+- **wizards**: An add button can skip the form's required fields (a person's own sound needs no
+  description of how to make one) ([#227](https://github.com/InnerOpen/marvin/pull/227),
+  [`4681b10`](https://github.com/InnerOpen/marvin/commit/4681b106021201d611449af6e344f5e2ac63d0ce))
+
+- **wizards**: An empty step says why and where to go: one empty line and empty_next on every kind
+  of step, and a run that lacks a field names the step that fills it
+  ([#251](https://github.com/InnerOpen/marvin/pull/251),
+  [`b8ae0c7`](https://github.com/InnerOpen/marvin/commit/b8ae0c730b320d64e86c6dff363027ffe2cb0427))
+
+- **wizards**: An option step may be optional (skipped: nothing set, later steps not held back);
+  list rows are stacked, a field to a line, and sorted as people count
+  ([#175](https://github.com/InnerOpen/marvin/pull/175),
+  [`636631c`](https://github.com/InnerOpen/marvin/commit/636631c01fe4f7f30e9dd1e6a9a08d0d1f25c01d))
+
+- **wizards**: Multi-select card steps (choose with multiple: true), assets with no entry yet, the
+  picks in later steps; one skip, a steps list you can jump through, picture cards for picks
+  ([#239](https://github.com/InnerOpen/marvin/pull/239),
+  [`b0af477`](https://github.com/InnerOpen/marvin/commit/b0af477aaedace9dd8917a0596e264ed548b2eb4))
+
+- **wizards**: One skip on every step (a "Skip without saving →" link at the bottom; no Skip this
+  button), every step in the steps list is a link (a step that needs an earlier answer opens on that
+  one and says why), and a pick shows its entries as picture cards when their type has a picture
+  field and they have pictures in it ([#239](https://github.com/InnerOpen/marvin/pull/239),
+  [`b0af477`](https://github.com/InnerOpen/marvin/commit/b0af477aaedace9dd8917a0596e264ed548b2eb4))
+
+- **wizards**: Optional option steps, stacked sorted list rows, an add card, shared sounds stay in
+  pick lists ([#175](https://github.com/InnerOpen/marvin/pull/175),
+  [`636631c`](https://github.com/InnerOpen/marvin/commit/636631c01fe4f7f30e9dd1e6a9a08d0d1f25c01d))
+
+- **wizards**: Paid actions say so: paid on a run, a generate, a card action or an add button shows
+  a marked notice with the text that will be sent, warns when a needed field is empty, and keeps the
+  button apart from the add form ([#252](https://github.com/InnerOpen/marvin/pull/252),
+  [`cc38114`](https://github.com/InnerOpen/marvin/commit/cc381140f6a6c0ef0df9786ad1cfa5b07b8d42e9))
+
+- **wizards**: Ref pick lists narrowed to the wizard's choices, sound on gallery cards, audio
+  uploads and a Record button ([#121](https://github.com/InnerOpen/marvin/pull/121),
+  [`a5d2482`](https://github.com/InnerOpen/marvin/commit/a5d2482835b86371cef2913c74e644f41dd1cf8a))
+
+- **wizards**: Up to four buttons on a gallery card
+  ([#226](https://github.com/InnerOpen/marvin/pull/226),
+  [`88dda45`](https://github.com/InnerOpen/marvin/commit/88dda4516e4849f917d625c23c86cc8d27123ab6))
+
+- **wizards): a choose step can pick several (multiple: true**: Checkbox cards a page at a time,
+  Select all on this page / Clear, a live count, the picks kept in the address as one
+  comma-separated list (at most 100) that survives page moves and going back; cards of the
+  workspace's assets with the library's filters, `unused` for the files no entry uses yet;
+  `selection` shows the picks on a later step and `${key}` hands them to a run
+  ([#239](https://github.com/InnerOpen/marvin/pull/239),
+  [`b0af477`](https://github.com/InnerOpen/marvin/commit/b0af477aaedace9dd8917a0596e264ed548b2eb4))
+
+- **workers**: A Run a worker panel: the commands for a process, Docker, Podman and
+  Kubernetes/OpenShift, with this Marvin and workspace filled in
+  ([#42](https://github.com/InnerOpen/marvin/pull/42),
+  [`1b5b739`](https://github.com/InnerOpen/marvin/commit/1b5b739c9de0576039dee8546ee499c3836506c8))
+
+- **workers**: Core Workers blueprints (job, job-kind, worker), a fit check, and a Set up workers
+  card ([#42](https://github.com/InnerOpen/marvin/pull/42),
+  [`1b5b739`](https://github.com/InnerOpen/marvin/commit/1b5b739c9de0576039dee8546ee499c3836506c8))
+
+- **workers**: Core Workers blueprints, a fit check, Set up workers, Run a worker, and a readable
+  job log ([#42](https://github.com/InnerOpen/marvin/pull/42),
+  [`1b5b739`](https://github.com/InnerOpen/marvin/commit/1b5b739c9de0576039dee8546ee499c3836506c8))
+
+- **workers**: Create the Workers types internal (listed=false, publishable=false)
+  ([#48](https://github.com/InnerOpen/marvin/pull/48),
+  [`e053705`](https://github.com/InnerOpen/marvin/commit/e0537058a5e9209b069055bde6485de861453d74))
+
+- **workers**: The Workers record types are internal (unlisted, never published)
+  ([#48](https://github.com/InnerOpen/marvin/pull/48),
+  [`e053705`](https://github.com/InnerOpen/marvin/commit/e0537058a5e9209b069055bde6485de861453d74))
+
+- **workers**: The Workers record types are internal: unlisted and never published
+  ([#48](https://github.com/InnerOpen/marvin/pull/48),
+  [`e053705`](https://github.com/InnerOpen/marvin/commit/e0537058a5e9209b069055bde6485de861453d74))
+
+- **workflows**: A picture drop zone: a Library recipe makes a template's Inbox entry for every
+  picture uploaded into an asset collection, and a workflow can ask which collections an asset is in
+  ([#255](https://github.com/InnerOpen/marvin/pull/255),
+  [`ca3ea70`](https://github.com/InnerOpen/marvin/commit/ca3ea70360ca794bafadea66f038191f2cd347a3))
+
+- **workflows**: A runner that is online offers a Library recipe for each kind of job it can do
+  ([#80](https://github.com/InnerOpen/marvin/pull/80),
+  [`9de2124`](https://github.com/InnerOpen/marvin/commit/9de21245080c124a6f76916314e580c4e797b0ac))
+
+- **workflows**: A speech asset keeps its word timings in its metadata
+  ([#50](https://github.com/InnerOpen/marvin/pull/50),
+  [`dce8c83`](https://github.com/InnerOpen/marvin/commit/dce8c8345684ad4b85d799fe2594e4a31610c58c))
+
+- **workflows**: An image step's references can be one template, so a beat picks its own cast
+  masters ([#25](https://github.com/InnerOpen/marvin/pull/25),
+  [`20a68d1`](https://github.com/InnerOpen/marvin/commit/20a68d15ba2def6f8423773833a94b9046097e3d))
+
+- **workflows**: Long-text and asset run inputs; Approvals lists the recent decisions with their
+  notes ([#73](https://github.com/InnerOpen/marvin/pull/73),
+  [`b4cc3d7`](https://github.com/InnerOpen/marvin/commit/b4cc3d74d5906327c97d527b399f78e9cd362d1b))
+
+- **workflows**: Long-text and asset run inputs; Approvals shows recent decisions with notes
+  ([#73](https://github.com/InnerOpen/marvin/pull/73),
+  [`b4cc3d7`](https://github.com/InnerOpen/marvin/commit/b4cc3d74d5906327c97d527b399f78e9cd362d1b))
+
+### Performance Improvements
+
+- **assets,resources**: The Assets and Resources pages are paged on the server (filter, sort and
+  page in SQL), with the Trash, the counts and the "not searchable" pictures asked of the API
+  ([#238](https://github.com/InnerOpen/marvin/pull/238),
+  [`94d4ea8`](https://github.com/InnerOpen/marvin/commit/94d4ea8aac184308eeda209a3fa8a9e4fbe667b1))
+
+- **auth**: An API token is bcrypt-checked once, then remembered, instead of on every request
+  ([#233](https://github.com/InnerOpen/marvin/pull/233),
+  [`c9dedd7`](https://github.com/InnerOpen/marvin/commit/c9dedd7c6572886f85b9df09dee1d83a1768f6d2))
+
+- **backup**: A remote target skips the per-asset request for assets it already has
+  ([#49](https://github.com/InnerOpen/marvin/pull/49),
+  [`2597a31`](https://github.com/InnerOpen/marvin/commit/2597a315b5c47eddbe61ee40021217d8dfed6d9a))
+
+- **entries**: Records lists filter and page in SQL, read each page in a few queries, and the pages
+  ask only for what they show ([#232](https://github.com/InnerOpen/marvin/pull/232),
+  [`5896e54`](https://github.com/InnerOpen/marvin/commit/5896e5489c0e422ca4964ac0e66010a7ac670632))
+
+- **entries**: The entry list filters the Trash and internal types in SQL, pages with limit/offset
+  (total in X-Total-Count), and reads each page in a fixed handful of queries
+  ([#232](https://github.com/InnerOpen/marvin/pull/232),
+  [`5896e54`](https://github.com/InnerOpen/marvin/commit/5896e5489c0e422ca4964ac0e66010a7ac670632))
+
+- **frontend**: A page view asks the API for each thing once, and the layout's reads go out together
+  ([#236](https://github.com/InnerOpen/marvin/pull/236),
+  [`e9a6de2`](https://github.com/InnerOpen/marvin/commit/e9a6de2db5bf56bb925d5092106f05a411244656))
+
+- **frontend**: The Entries list and a collection's edit page show one page at a time, and the
+  dashboard, settings and entry types count instead of loading every entry
+  ([#232](https://github.com/InnerOpen/marvin/pull/232),
+  [`5896e54`](https://github.com/InnerOpen/marvin/commit/5896e5489c0e422ca4964ac0e66010a7ac670632))
+
+- **ui**: The entry page loads the cue specs with one views call (spine_type filter, definitions
+  included) instead of one call per view ([#116](https://github.com/InnerOpen/marvin/pull/116),
+  [`74ad99b`](https://github.com/InnerOpen/marvin/commit/74ad99b0ec441d4198ae821df3a3044f2cc31798))
+
+### Testing
+
+- A PDF, not a PNG, is the file that is no overlay
+  ([#173](https://github.com/InnerOpen/marvin/pull/173),
+  [`373fea8`](https://github.com/InnerOpen/marvin/commit/373fea8aa83d940ea8c1b4c4cdf3f37929d481f7))
+
+- **entries**: The statement-count test counts only its own thread's statements (a background writer
+  made two equal runs differ by one in CI) ([#256](https://github.com/InnerOpen/marvin/pull/256),
+  [`4e3cb11`](https://github.com/InnerOpen/marvin/commit/4e3cb11f5504df5da704e58cb8dfdd5d2ac87639))
+
+- **packages**: An update that only names a list's order is an update in the preview and after, then
+  current ([#273](https://github.com/InnerOpen/marvin/pull/273),
+  [`f9c65d9`](https://github.com/InnerOpen/marvin/commit/f9c65d93da1f6c5bdf2d8e30b6ee403508b410bf))
+
+- **ui**: Check escaping with plain string tests (CodeQL's bad tag filter)
+  ([#209](https://github.com/InnerOpen/marvin/pull/209),
+  [`0501114`](https://github.com/InnerOpen/marvin/commit/0501114d484b04c81e7ab3e24451d43d4bba155f))
+
+- **ui**: The progress expectation lists the picture count first
+  ([#108](https://github.com/InnerOpen/marvin/pull/108),
+  [`2a27c7d`](https://github.com/InnerOpen/marvin/commit/2a27c7d478fb36e43b4630edd6089cb4b10bee4b))
+
+
 ## v1.1.0-rc.96 (2026-11-03)
 
 ### Bug Fixes
