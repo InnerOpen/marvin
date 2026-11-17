@@ -85,10 +85,12 @@ export interface BedSpec {
   ramp?: number;
   item_ramp_in?: string;
   item_ramp_out?: string;
-  /** A bed that layers, as the render plays ambience: `item_field` on each spine item names its own sound (it wins over the `via` entry's
-   * `field`: a beat's own over its scene's), and `entry_field` on the view's entry names a sound under the whole film (the story's), which
-   * plays together with those, its level in `entry_volume`. */
+  /** A bed that layers, as the render plays ambience: `item_field` on each spine item names its own sound, a second bed laid over the `via`
+   * entry's (a beat's cheer over its scene's tavern, which runs on unbroken under it), and `entry_field` on the view's entry names a sound under
+   * the whole film (the story's), which plays together with those, its level in `entry_volume`. `item_heard` on the spine item says how its own
+   * bed is heard (`muffled` or `clear`); empty follows the `via` entry's muffling. */
   item_field?: string;
+  item_heard?: string;
   entry_field?: string;
   entry_volume?: string;
   /** Where the story's bed is turned down or muffled (`entry_field` above): a field on each spine item (a beat's level for the story's bed), and fields
@@ -235,6 +237,8 @@ export interface Bed {
   fadeOut: number;
   /** How far the bed goes down under speech, as a share of its level (0.12: down to an eighth), or null for none. */
   duck: number | null;
+  /** A spine item's own bed, laid over the bed of the entry it names (a beat's over its scene's). Missing on every other bed. */
+  over?: true;
 }
 
 export interface BedStep {
@@ -650,35 +654,56 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
     whole.steps = stepsOf(spec, items, rows, whole.volume);
     return [whole];
   }
-  const out: Bed[] = [];
   // The story's own bed under the whole film, which plays together with the beds of items and scenes (the render layers them).
   const storySound = spec.entry_field && rows.entry ? sounds.get(str(field(rows.entry, spec.entry_field))) : undefined;
   const everywhere = storySound && total > 0 ? [make(storySound, 0, total, level(field(rows.entry!, spec.entry_volume)), false, items.map((i) => i.id))] : [];
   if (everywhere[0]) everywhere[0].steps = storyBedSteps(spec, items, spine, via, everywhere[0].volume);
-  for (const item of items) {
-    const row = spine.get(item.id);
-    if (!row) continue;
-    const named = spec.via ? via.get(str(field(row, spec.via))) : row;
-    // a beat's own sound wins over its scene's; each is a bed of its own level
-    const own = spec.item_field ? sounds.get(str(field(row, spec.item_field))) : undefined;
-    const sound = own ?? (named ? sounds.get(str(field(named, spec.field))) : undefined);
-    if (!sound) continue;
-    const at = level(field(row, spec.item_volume)) ?? (own ? null : level(named ? field(named, spec.volume) : null));
-    const muffled = !own && !!(named && spec.muffled && field(named, spec.muffled) === true);
-    const last = out[out.length - 1];
+  // The render's two layers: the scene's bed under every beat of the scene, and a beat's own sound as a second bed over it for that beat.
+  const out: Bed[] = [];
+  const over: Bed[] = [];
+  const lay = (list: Bed[], item: Item, sound: Row, at: number | null, muffled: boolean) => {
+    const last = list[list.length - 1];
     if (last && last.slug === sound.slug && last.volume === bedLevel(lane, sound, at) && last.muffled === muffled && last.start + last.seconds >= item.start - 1e-6) {
       last.seconds = item.start + item.seconds - last.start;
       last.items.push(item.id);
     } else {
-      out.push(make(sound, item.start, item.seconds, at, muffled, [item.id]));
+      list.push(make(sound, item.start, item.seconds, at, muffled, [item.id]));
     }
+  };
+  const namedOf = (row: Row) => (spec.via ? via.get(str(field(row, spec.via))) : row);
+  const sceneSound = (row: Row) => str(field(namedOf(row) ?? ({} as Row), spec.field));
+  // The beat's own sound when it names one other than its scene's (naming the scene's own is the scene's bed, never the same sound twice).
+  const ownSound = (row: Row) => {
+    const own = spec.item_field ? str(field(row, spec.item_field)) : "";
+    return own && own !== sceneSound(row) ? own : "";
+  };
+  for (const item of items) {
+    const row = spine.get(item.id);
+    if (!row) continue;
+    const named = namedOf(row);
+    const own = ownSound(row);
+    const muffled = !!(named && spec.muffled && field(named, spec.muffled) === true);
+    const scene = named ? sounds.get(sceneSound(row)) : undefined;
+    // The beat's level is the scene bed's for that beat only when the beat has no sound of its own; else the scene's bed runs on at the scene's.
+    if (scene) lay(out, item, scene, (own ? null : level(field(row, spec.item_volume))) ?? level(field(named!, spec.volume)), muffled);
+    const mine = own ? sounds.get(own) : undefined;
+    const at = level(field(row, spec.item_volume));
+    const heard = HEARD.get(str(field(row, spec.item_heard)).trim().toLowerCase()) ?? muffled;
+    if (mine && bedLevel(lane, mine, at) > 0) lay(over, item, mine, at, heard); // a beat's bed at level 0 is not played
   }
-  for (const b of out) {
+  for (const b of over) b.over = true;
+  const ends = (b: Bed, under: boolean) => [b.items[0], b.items[b.items.length - 1]].map((id) => spine.get(id)).map((r) => (under && r && ownSound(r) ? undefined : r));
+  for (const b of [...out, ...over]) {
     const sound = sounds.get(b.slug);
-    if (sound) Object.assign(b, bedFades(spec, sound, b.start, b.seconds, total, rows.entry, spine.get(b.items[0]), spine.get(b.items[b.items.length - 1])));
+    // A beat's own fades are its own bed's: the scene's bed fades by the scene's sound and the story where the beat lays a sound over it.
+    const [first, last] = ends(b, !b.over);
+    if (sound) Object.assign(b, bedFades(spec, sound, b.start, b.seconds, total, rows.entry, first, last));
   }
-  return [...everywhere, ...out];
+  return [...everywhere, ...out, ...over];
 }
+
+/** How a beat's own bed is heard, from its `item_heard` field, as the render reads it (ScreenplayStudio marvin_pull.py: HEARD); empty follows its scene's. */
+const HEARD = new Map([["muffled", true], ["clear", false]]);
 
 /** The bands of one band spec: runs of consecutive items whose row holds the same non-empty value. */
 function bandsOf(spec: NonNullable<SpineSpec["bands"]>[number], items: Item[], rows: Rows, key: string): Band[] {
@@ -962,6 +987,20 @@ export function stackRows(pieces: { start: number; seconds: number }[], minSecon
       free[r] = p.start + Math.max(p.seconds, minSeconds);
       rows[i] = r;
     });
+  return rows;
+}
+
+/** The rows of a bed lane's blocks: the story's and the scenes' beds stack as `stackRows` does, and the beats' own beds (`over`) on rows below
+ * all of them, so a scene's bed keeps its row wherever a beat lays a sound over it. Without beat beds this is `stackRows(beds, 0)`. */
+export function stackBeds(beds: { start: number; seconds: number; over?: boolean }[]): number[] {
+  const under = [...beds.keys()].filter((i) => !beds[i].over);
+  const over = [...beds.keys()].filter((i) => beds[i].over);
+  const rows: number[] = [];
+  const underRows = stackRows(under.map((i) => beds[i]), 0);
+  const overRows = stackRows(over.map((i) => beds[i]), 0);
+  const below = under.length ? Math.max(...underRows) + 1 : 0;
+  for (const [n, i] of under.entries()) rows[i] = underRows[n];
+  for (const [n, i] of over.entries()) rows[i] = below + overRows[n];
   return rows;
 }
 

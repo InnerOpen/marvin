@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, wavePolygon, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
+import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -414,9 +414,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   // Pieces that overlap in time (two sound effects at one moment) stack on rows instead of sitting on top of each other.
                   const lanePieces = track.items.flatMap((item) => item.lanes[lane.id] ?? []);
                   const laneRows = stackRows(lanePieces);
-                  // Beds that run together (the story's ambience under a scene's) stack the same way.
+                  // Beds that run together (the story's ambience under a scene's) stack the same way; a beat's own bed on a row below the scenes'.
                   const bedList = lane.bed ? bedsIn(lane, track) : [];
-                  const bedRows = stackRows(bedList.map((b) => ({ start: clip(b, track).from, seconds: clip(b, track).seconds })), 0);
+                  const bedRows = stackBeds(bedList.map((b) => ({ start: clip(b, track).from, seconds: clip(b, track).seconds, over: b.over })));
                   // A bed is taller than a piece: its title on top and the level labels in a band of their own below, so one never sits on the other.
                   const laneHeight = (lane.bed ? 62 : 44) + Math.max(0, ...laneRows, ...bedRows) * (lane.bed ? 44 : 28);
                   return (
@@ -430,14 +430,14 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     {lane.bed &&
                       bedList.map((b, n) => (
                         <a
-                          class:list={["tl-bed", "has-levels", { silent: !b.audio }]}
+                          class:list={["tl-bed", "has-levels", { silent: !b.audio, over: b.over }]}
                           role="listitem"
                           href={open(b.id)}
                           data-bed={b.id}
                           data-start={b.start}
                           data-end={b.start + b.seconds}
                           style={`left:${pctIn(track, clip(b, track).from)};width:${pctIn(track, track.start + clip(b, track).seconds)}${bedRows[n] ? `;top:${18 + bedRows[n] * 44}px` : ""}`}
-                          title={`${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)} · level ${Math.round(b.volume * 100)}%${b.loop ? ", loops" : ""}${b.muffled ? ", muffled" : ""}${b.fadeIn > 0 ? `\nfades in over ${b.fadeIn.toFixed(1)} s` : ""}${b.fadeOut > 0 ? `\nfades out over ${b.fadeOut.toFixed(1)} s` : ""}${b.audio ? "" : "\nno take yet"}`}
+                          title={`${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)} · level ${Math.round(b.volume * 100)}%${b.loop ? ", loops" : ""}${b.muffled ? ", muffled" : ""}${b.over ? "\nthe beat's own, over its scene's bed" : ""}${b.fadeIn > 0 ? `\nfades in over ${b.fadeIn.toFixed(1)} s` : ""}${b.fadeOut > 0 ? `\nfades out over ${b.fadeOut.toFixed(1)} s` : ""}${b.audio ? "" : "\nno take yet"}`}
                         >
                           {fadeRamps(b, track).inPct > 0 && <i class="tl-fade in" aria-hidden="true" style={`width:${fadeRamps(b, track).inPct}%`} title={`fades in over ${b.fadeIn.toFixed(1).replace(/\.0$/, "")} s`} />}
                           {fadeRamps(b, track).outPct > 0 && <i class="tl-fade out" aria-hidden="true" style={`width:${fadeRamps(b, track).outPct}%`} title={`fades out over ${b.fadeOut.toFixed(1).replace(/\.0$/, "")} s`} />}
@@ -462,7 +462,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                             </>
                           ))}
                           <span>{b.title}</span>
-                          <small>{b.steps.some((st) => st.source) ? setBySummary(b) : b.steps.some((st) => st.volume === 0) ? "dips to silence" : b.steps.length ? `${Math.round(b.volume * 100)}%, changes` : `${Math.round(b.volume * 100)}%`}{b.muffled ? " · muffled" : ""}{b.audio ? "" : " · no take yet"}</small>
+                          <small>{b.steps.some((st) => st.source) ? setBySummary(b) : b.steps.some((st) => st.volume === 0) ? "dips to silence" : b.steps.length ? `${Math.round(b.volume * 100)}%, changes` : `${Math.round(b.volume * 100)}%`}{b.muffled ? " · muffled" : ""}{b.over ? " · over the scene" : ""}{b.audio ? "" : " · no take yet"}</small>
                         </a>
                       ))}
                     {lane.cover &&
@@ -1259,6 +1259,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-mark.inherited { border-style: dashed; background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
   .tl-mark.custom { background: color-mix(in srgb, var(--accent) 30%, var(--panel)); }
   .tl-bed.silent { border-style: dotted; background: var(--panel); }
+  .tl-bed.over { border-left: 3px solid var(--accent); } /* a beat's own bed, laid over its scene's (which runs on unbroken in a row of its own) */
   .tl-bed.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-piece:hover { z-index: 1; min-width: max-content; }
 

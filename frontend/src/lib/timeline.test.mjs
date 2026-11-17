@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aspectOf, canReview, clockText, jumpTo, parseClock, placeIn, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, minorTickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { aspectOf, canReview, clockText, jumpTo, parseClock, placeIn, cardMinPx, PICTURE_SIZES, cues, estimateSeconds, quiets, stackBeds, stackRows, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, minorTickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -571,9 +571,114 @@ test("layered ambience: the story's bed runs under the whole film and is its own
   assert.deepEqual(amb.slice(1).map((b) => b.slug), ["sea", "sea", "sea"]); // the scenes' blocks are still there, layered with it
 });
 
-test("layered ambience: a beat's own sound replaces its scene's for that beat, unmuffled, and stacks with the story's", () => {
+test("layered ambience: a beat's own sound lays over its scene's, which runs on unbroken at the scene's level, and stacks with the story's", () => {
   const amb = layered({ ambience: "hum" }, [undefined, undefined, { ambience: "gull" }]).beds.ambience;
-  assert.deepEqual(amb.map((b) => [b.slug, b.start, b.seconds, b.muffled]), [["hum", 0, 20, false], ["sea", 0, 8, false], ["gull", 8, 4, false], ["sea", 12, 4, true]]);
+  // b3 sets 0.2 for itself: that is its gull's level now, and the deck's sea runs on under it at the scene's 0.5 (as the render, v195)
+  assert.deepEqual(amb.map((b) => [b.slug, b.start, b.seconds, b.volume, b.muffled, b.over ?? false]), [
+    ["hum", 0, 20, 0.2, false, false],
+    ["sea", 0, 12, 0.5, false, false],
+    ["sea", 12, 4, 0.5, true, false],
+    ["gull", 8, 4, 0.2, false, true],
+  ]);
+});
+
+// ── a beat's own bed over its scene's (the render's two layers, Screenplay Studio v195) ─────────────────────────────────────────────────
+const overSpec = {
+  ...layerSpec,
+  lanes: layerSpec.lanes.map((l) => (l.id === "ambience" ? { ...l, bed: { ...l.bed, item_heard: "ambience_heard", item_fade_in: "ambience_fade_in", item_fade_out: "ambience_fade_out", default_fade_in: 0.6, default_fade_out: 0.6 } } : l)),
+};
+const cheer = { role: "audio", publicUrl: "https://cdn/cheer.mp3", mimeType: "audio/mpeg" };
+const tavernBeats = [1, 2, 3].map((n) => row(`t${n}`, { story: "s", number: n, scene: "tavern", chapter: "c1" }));
+const tavern = (beatData = [], sceneData = {}, spec = overSpec) =>
+  layout(spec, {
+    entry: row("s", {}),
+    spine: tavernBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, ...(beatData[i] ?? {}) } })),
+    groups: chapters,
+    lanes: { lines: [], sounds: [], ambience: [row("inn", { volume: 0.6, loop: true }, { assets: [sea] }), row("cheer", { volume: 0.9 }, { assets: [cheer] })], music: [] },
+    via: { ambience: [row("tavern", { ambience: "inn", ambience_volume: 0.4, ...sceneData })] },
+  }).beds.ambience;
+const drawn = (beds) => beds.map((b) => [b.slug, b.start, b.seconds, b.items.length, b.volume, b.muffled, b.over ?? false]);
+
+test("beat bed: a scene's tavern runs as one block across its 3 beats and the cheer on beat 2 is a second block over it, on a row of its own", () => {
+  const amb = tavern([undefined, { ambience: "cheer" }]);
+  assert.deepEqual(drawn(amb), [
+    ["inn", 0, 12, 3, 0.4, false, false],
+    ["cheer", 4, 4, 1, 0.9, false, true], // the cheer's own level: the beat sets none
+  ]);
+  assert.deepEqual(stackBeds(amb), [0, 1]);
+});
+
+test("beat bed rows: the beats' own beds go below every scene's and the story's, so a scene's bed keeps its row; without them, rows as before", () => {
+  // the story's bed, the tavern, the cellar from 12 s; a cheer over beat 2 and one over the cellar's first beat (starting with it)
+  const beds = [{ start: 0, seconds: 20 }, { start: 0, seconds: 12 }, { start: 12, seconds: 8 }, { start: 4, seconds: 4, over: true }, { start: 12, seconds: 4, over: true }];
+  assert.deepEqual(stackBeds(beds), [1, 0, 0, 2, 2]);
+  const plain = beds.slice(0, 3);
+  assert.deepEqual(stackBeds(plain), stackRows(plain, 0));
+  assert.deepEqual(stackBeds([{ start: 3, seconds: 2, over: true }]), [0]);
+  assert.deepEqual(stackBeds([]), []);
+});
+
+test("beat bed: a story without beat ambience draws exactly as before the layering", () => {
+  const before = layout(layerSpec, { entry: row("s", { music: "waltz" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } }).beds.ambience;
+  assert.deepEqual(before.map((b) => [b.slug, b.start, b.seconds, b.items, b.volume, b.muffled, b.fadeIn, b.fadeOut, "over" in b]), [
+    ["sea", 0, 8, ["id-b1", "id-b2"], 0.5, false, 0, 0, false],
+    ["sea", 8, 4, ["id-b3"], 0.2, false, 0, 0, false],
+    ["sea", 12, 4, ["id-b4"], 0.5, true, 0, 0, false],
+  ]);
+});
+
+test("beat bed: a beat's level is its own bed's, and the scene's runs on at the scene's level under it", () => {
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "cheer", ambience_volume: 0.3 }])), [
+    ["inn", 0, 12, 3, 0.4, false, false],
+    ["cheer", 4, 4, 1, 0.3, false, true],
+  ]);
+});
+
+test("beat bed: a beat naming its scene's own sound is the scene's bed, one block, at the beat's level for that beat", () => {
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "inn", ambience_volume: 0.1 }])), [
+    ["inn", 0, 4, 1, 0.4, false, false],
+    ["inn", 4, 4, 1, 0.1, false, false],
+    ["inn", 8, 4, 1, 0.4, false, false],
+  ]);
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "inn" }])), [["inn", 0, 12, 3, 0.4, false, false]]);
+});
+
+test("beat bed: a beat's bed at level 0 is not drawn, and does not silence the scene's", () => {
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "cheer", ambience_volume: 0 }])), [["inn", 0, 12, 3, 0.4, false, false]]);
+});
+
+test("beat bed: consecutive beats with the same sound of their own are one block over the scene's", () => {
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "cheer" }, { ambience: "cheer" }])), [
+    ["inn", 0, 12, 3, 0.4, false, false],
+    ["cheer", 4, 8, 2, 0.9, false, true],
+  ]);
+});
+
+test("beat bed: muffled when its scene's is, unless the beat says it is heard clear or muffled", () => {
+  const muffledScene = { ambience_muffled: true };
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "cheer" }], muffledScene)).map((b) => b[5]), [true, true]);
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "cheer", ambience_heard: "clear" }], muffledScene)).map((b) => b[5]), [true, false]);
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "cheer", ambience_heard: "Muffled" }])).map((b) => b[5]), [false, true]);
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "cheer", ambience_heard: "toString" }], muffledScene)).map((b) => b[5]), [true, true]); // anything else follows the scene
+  assert.deepEqual(drawn(tavern([undefined, { ambience: "cheer", ambience_heard: "clear" }], muffledScene, layerSpec)).map((b) => b[5]), [true, true]); // a lane without item_heard follows the scene
+});
+
+test("beat bed: a beat's own fades are its bed's; the scene's bed keeps its own where a beat lays a sound over it", () => {
+  const amb = tavern([{ ambience: "cheer", ambience_fade_in: 2 }, undefined, undefined]);
+  assert.deepEqual(amb.map((b) => [b.slug, b.fadeIn, b.fadeOut]), [["inn", 0.6, 0.6], ["cheer", 2, 0.6]]);
+  const plain = tavern([{ ambience_fade_in: 2 }]);
+  assert.deepEqual(plain.map((b) => [b.slug, b.fadeIn]), [["inn", 2]]); // with no sound of its own, the beat's fade is the scene bed's, as before
+});
+
+test("beat bed: Play plays both beds together over the beat", () => {
+  const laid = layout(overSpec, {
+    entry: row("s", {}),
+    spine: tavernBeats.map((b, i) => (i === 1 ? { ...b, dataJson: { ...b.dataJson, ambience: "cheer" } } : b)),
+    groups: chapters,
+    lanes: { lines: [], sounds: [], ambience: [row("inn", { volume: 0.6, loop: true }, { assets: [sea] }), row("cheer", { volume: 0.9 }, { assets: [cheer] })], music: [] },
+    via: { ambience: [row("tavern", { ambience: "inn", ambience_volume: 0.4 })] },
+  });
+  assert.deepEqual(overlays(laid, overSpec.lanes).map((o) => [o.audio, o.start, o.seconds, o.volume]), [["https://cdn/sea.mp3", 0, 12, 0.4], ["https://cdn/cheer.mp3", 4, 4, 0.9]]);
 });
 
 // ── the story's bed turned down or muffled by a scene or a beat, and who set each stretch ────────────────────────────────────────────

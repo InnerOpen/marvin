@@ -86,6 +86,7 @@ TIMELINE = {
                 "volume": "ambience_volume",
                 "item_volume": "ambience_volume",
                 "item_field": "ambience",
+                "item_heard": "ambience_heard",
                 "entry_field": "ambience",
                 "entry_volume": "ambience_volume",
                 "entry_item_volume": "story_ambience_volume",
@@ -480,7 +481,7 @@ def test_a_review_needs_the_field_that_holds_the_status():
     assert "spine needs `status`" in payload_problem(payload, "story-timeline")
 
 
-@pytest.mark.parametrize("key", ["entry_item_volume", "entry_via_volume", "entry_via_muffled"])
+@pytest.mark.parametrize("key", ["entry_item_volume", "entry_via_volume", "entry_via_muffled", "item_heard"])
 def test_a_wrong_story_bed_field_says_which_key(key):
     payload = copy.deepcopy(TIMELINE)
     ambience = next(lane for lane in payload["lanes"] if lane.get("bed", {}).get("entry_field"))
