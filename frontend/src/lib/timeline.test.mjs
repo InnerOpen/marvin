@@ -605,17 +605,31 @@ test("beat bed: a scene's tavern runs as one block across its 3 beats and the ch
     ["inn", 0, 12, 3, 0.4, false, false],
     ["cheer", 4, 4, 1, 0.9, false, true], // the cheer's own level: the beat sets none
   ]);
-  assert.deepEqual(stackBeds(amb), [0, 1]);
+  assert.deepEqual(stackBeds(amb), [1, 0]); // like a mixer: the beat's own on top, its scene's below
 });
 
-test("beat bed rows: the beats' own beds go below every scene's and the story's, so a scene's bed keeps its row; without them, rows as before", () => {
+test("beat bed rows: like a mixer, the beats' own beds on top, the scenes' below them, the story's at the bottom; each layer stacks in itself", () => {
   // the story's bed, the tavern, the cellar from 12 s; a cheer over beat 2 and one over the cellar's first beat (starting with it)
-  const beds = [{ start: 0, seconds: 20 }, { start: 0, seconds: 12 }, { start: 12, seconds: 8 }, { start: 4, seconds: 4, over: true }, { start: 12, seconds: 4, over: true }];
-  assert.deepEqual(stackBeds(beds), [1, 0, 0, 2, 2]);
-  const plain = beds.slice(0, 3);
-  assert.deepEqual(stackBeds(plain), stackRows(plain, 0));
+  const beds = [{ start: 0, seconds: 20, whole: true }, { start: 0, seconds: 12 }, { start: 12, seconds: 8 }, { start: 4, seconds: 4, over: true }, { start: 12, seconds: 4, over: true }];
+  assert.deepEqual(stackBeds(beds), [2, 1, 1, 0, 0]);
+  // two beat beds at once take two rows on top; no story bed: nothing under the scenes
+  assert.deepEqual(stackBeds([{ start: 0, seconds: 12 }, { start: 4, seconds: 4, over: true }, { start: 6, seconds: 4, over: true }]), [2, 0, 1]);
   assert.deepEqual(stackBeds([{ start: 3, seconds: 2, over: true }]), [0]);
   assert.deepEqual(stackBeds([]), []);
+});
+
+test("beat bed rows: a lane with no beat bed is laid out exactly as before (stackRows), the story's bed wherever it fell", () => {
+  const plain = [{ start: 0, seconds: 20, whole: true }, { start: 0, seconds: 12 }, { start: 12, seconds: 8 }];
+  assert.deepEqual(stackBeds(plain), stackRows(plain, 0));
+  assert.deepEqual(stackBeds(plain), [1, 0, 0]);
+  const amb = layered({ ambience: "hum", ambience_volume: 0.1 }).beds.ambience;
+  assert.deepEqual(stackBeds(amb), stackRows(amb, 0));
+});
+
+test("beat bed: the story's bed under the whole film is marked whole, and no other", () => {
+  const amb = layered({ ambience: "hum" }, [undefined, { ambience: "gull" }]).beds.ambience;
+  assert.deepEqual(amb.map((b) => [b.slug, b.whole ?? false, b.over ?? false]), [["hum", true, false], ["sea", false, false], ["sea", false, false], ["sea", false, false], ["gull", false, true]]);
+  assert.deepEqual(stackBeds(amb), [2, 1, 1, 1, 0]);
 });
 
 test("beat bed: a story without beat ambience draws exactly as before the layering", () => {

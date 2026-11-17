@@ -239,6 +239,8 @@ export interface Bed {
   duck: number | null;
   /** A spine item's own bed, laid over the bed of the entry it names (a beat's over its scene's). Missing on every other bed. */
   over?: true;
+  /** The bed under the whole film that the view's entry names (the story's own), laid under the scenes'. Missing on every other bed. */
+  whole?: true;
 }
 
 export interface BedStep {
@@ -657,7 +659,10 @@ function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds
   // The story's own bed under the whole film, which plays together with the beds of items and scenes (the render layers them).
   const storySound = spec.entry_field && rows.entry ? sounds.get(str(field(rows.entry, spec.entry_field))) : undefined;
   const everywhere = storySound && total > 0 ? [make(storySound, 0, total, level(field(rows.entry!, spec.entry_volume)), false, items.map((i) => i.id))] : [];
-  if (everywhere[0]) everywhere[0].steps = storyBedSteps(spec, items, spine, via, everywhere[0].volume);
+  if (everywhere[0]) {
+    everywhere[0].steps = storyBedSteps(spec, items, spine, via, everywhere[0].volume);
+    everywhere[0].whole = true;
+  }
   // The render's two layers: the scene's bed under every beat of the scene, and a beat's own sound as a second bed over it for that beat.
   const out: Bed[] = [];
   const over: Bed[] = [];
@@ -990,17 +995,20 @@ export function stackRows(pieces: { start: number; seconds: number }[], minSecon
   return rows;
 }
 
-/** The rows of a bed lane's blocks: the story's and the scenes' beds stack as `stackRows` does, and the beats' own beds (`over`) on rows below
- * all of them, so a scene's bed keeps its row wherever a beat lays a sound over it. Without beat beds this is `stackRows(beds, 0)`. */
-export function stackBeds(beds: { start: number; seconds: number; over?: boolean }[]): number[] {
-  const under = [...beds.keys()].filter((i) => !beds[i].over);
-  const over = [...beds.keys()].filter((i) => beds[i].over);
+/** The rows of a bed lane's blocks, layered like a mixer when a beat lays its own bed over its scene's: the most specific on top, the beats'
+ * own beds (`over`) on the top rows, the scenes' beds below them, the story's bed under the whole film (`whole`) at the bottom, each layer
+ * stacked in itself as `stackRows` does. A lane with no beat bed is laid out exactly as before: `stackRows(beds, 0)`. */
+export function stackBeds(beds: { start: number; seconds: number; over?: boolean; whole?: boolean }[]): number[] {
+  if (!beds.some((b) => b.over)) return stackRows(beds, 0);
+  const all = [...beds.keys()];
+  const layers = [all.filter((i) => beds[i].over), all.filter((i) => !beds[i].over && !beds[i].whole), all.filter((i) => beds[i].whole)];
   const rows: number[] = [];
-  const underRows = stackRows(under.map((i) => beds[i]), 0);
-  const overRows = stackRows(over.map((i) => beds[i]), 0);
-  const below = under.length ? Math.max(...underRows) + 1 : 0;
-  for (const [n, i] of under.entries()) rows[i] = underRows[n];
-  for (const [n, i] of over.entries()) rows[i] = below + overRows[n];
+  let top = 0;
+  for (const layer of layers) {
+    const inLayer = stackRows(layer.map((i) => beds[i]), 0);
+    for (const [n, i] of layer.entries()) rows[i] = top + inLayer[n];
+    top += layer.length ? Math.max(...inLayer) + 1 : 0;
+  }
   return rows;
 }
 
