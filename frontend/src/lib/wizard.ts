@@ -26,6 +26,10 @@ export interface Step {
 export interface NextLine {
   text: string;
   href?: string;
+  /** Or another setup, as a `see_also` opens it (`SetupLink`): with the choices it carries and the way back to this setup's end. */
+  setup?: string;
+  step?: string;
+  carry?: Record<string, string>;
 }
 
 export interface WizardDefinition {
@@ -661,6 +665,34 @@ export function backValue(slug: string, ctx: Ctx, stepId: string, lists: Set<str
 /** Where a `see_also` link goes: the other setup, on its step, with the carried choices and the way back here. */
 export function seeAlsoHref(item: SeeAlso, carried: Ctx, back: string): string {
   return stepHref(item.setup, carried, item.step && STEP_ID.test(item.step) ? item.step : null, { [BACK_PARAM]: back });
+}
+
+/** A link to another setup in an empty step's `empty_next` or a setup's `next` line, made as a `see_also` is: the words, the setup, the
+ *  step it opens on and the choices it carries; the way back rides along. */
+export interface SetupLink {
+  text: string;
+  setup: string;
+  step?: string;
+  carry?: Record<string, string>;
+}
+
+type EntriesByKey = Record<string, { dataJson?: Record<string, unknown> | null } | undefined>;
+
+/** Whether `empty_next` or a `next` line is a link to another setup (it names one), not a step here or a plain path. */
+export function isSetupLink(raw: unknown): raw is SetupLink {
+  const link = raw as Partial<SetupLink> | null | undefined;
+  return !!link && typeof link === "object" && typeof link.text === "string" && !!link.text.trim() && SETUP_SLUG.test(String(link.setup ?? ""));
+}
+
+/** Where such a link goes from a step of this setup: the other setup on its step, with the carried choices and the way back here. */
+export function setupLinkHref(link: SetupLink, from: { def: WizardDefinition; slug: string; step: string; ctx: Ctx; entries?: EntriesByKey }): string {
+  const back = backValue(from.slug, from.ctx, from.step, listKeys(from.def));
+  return seeAlsoHref({ label: link.text, setup: link.setup, step: link.step }, carriedCtx(link.carry, from.ctx, from.entries ?? {}), back);
+}
+
+/** A setup's `next` lines as its end shows them: the words, and where a line links to (a path, or another setup as `setupLinkHref`). */
+export function nextLines(def: WizardDefinition, from: { slug: string; step: string; ctx: Ctx; entries?: EntriesByKey }): { text: string; href?: string }[] {
+  return (def.next ?? []).map((n) => (isSetupLink(n) ? { text: n.text, href: setupLinkHref(n, { def, ...from }) } : { text: n.text, href: n.href }));
 }
 
 /** The way back, read from the address: a setup's slug, its step and its choices, and the address rebuilt from those alone. */

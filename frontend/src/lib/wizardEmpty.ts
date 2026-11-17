@@ -3,7 +3,7 @@
  * `empty`, or a default every kind of step shares), the place that fills it (`empty_next`), the earlier choices that narrow it, and, for
  * a run step whose `requires` is not met, which earlier step fills what is missing. Pure, so it runs under `node --test`: the page fetches.
  */
-import { type Ctx, type Step, type WizardDefinition, isShown, stepHref } from "./wizard.ts";
+import { type Ctx, type Step, type WizardDefinition, isSetupLink, isShown, setupLinkHref, stepHref } from "./wizard.ts";
 
 const REF = /\$\{([^}]*)\}/g;
 
@@ -61,14 +61,24 @@ export function emptyLine(step: Step, noun: string, about: { owner?: string | nu
 /** A path inside the app, never a full address (the definition is checked when its package is installed; this is the page's own check). */
 const inApp = (href: unknown): href is string => typeof href === "string" && href.startsWith("/") && !href.startsWith("//");
 
-/** Where an empty step points. First the place its package names (`empty_next`: `{step}`, an earlier step of the setup, or `{text, href}`,
- *  a path in the app such as another setup), then each earlier choice in `change`, to pick something else there. */
-export function emptyLinks(def: WizardDefinition, ctx: Ctx, step: Step, slug: string, change: Step[] = []): EmptyLink[] {
+/** Where an empty step points. First the place its package names (`empty_next`: `{step}`, an earlier step of the setup, `{text, setup,
+ *  step?, carry?}`, another setup opened with the choices it carries and the way back here, or `{text, href}`, a path in the app), then
+ *  each earlier choice in `change`, to pick something else there. `entries` are the chosen entries, for a carry of `key.field`. */
+export function emptyLinks(
+  def: WizardDefinition,
+  ctx: Ctx,
+  step: Step,
+  slug: string,
+  change: Step[] = [],
+  entries: Record<string, { dataJson?: Record<string, unknown> | null } | undefined> = {},
+): EmptyLink[] {
   const links: EmptyLink[] = [];
-  const next = step.empty_next as { step?: string; href?: string; text?: string } | undefined;
+  const next = step.empty_next as { step?: string; href?: string; text?: string; setup?: string } | undefined;
   const words = typeof next?.text === "string" ? next.text.trim() : "";
-  const to = next?.step ? stepsBefore(def, step).find((s) => s.id === next.step && isShown(s, ctx)) : undefined;
-  if (to) links.push({ label: words || `Go to “${to.title}”`, href: stepHref(slug, ctx, to.id) });
+  const elsewhere = isSetupLink(next) ? next : null;
+  const to = next?.step && !elsewhere ? stepsBefore(def, step).find((s) => s.id === next.step && isShown(s, ctx)) : undefined;
+  if (elsewhere) links.push({ label: words, href: setupLinkHref(elsewhere, { def, slug, step: step.id, ctx, entries }) });
+  else if (to) links.push({ label: words || `Go to “${to.title}”`, href: stepHref(slug, ctx, to.id) });
   else if (inApp(next?.href) && words) links.push({ label: words, href: next.href });
   for (const s of change) if (s.id !== to?.id) links.push({ label: `Change “${s.title}”`, href: stepHref(slug, ctx, s.id) });
   return links;
