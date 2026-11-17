@@ -860,6 +860,38 @@ def test_a_wrong_link_to_another_setup_says_what_is_wrong(at, see_also, words):
     assert problem is not None and words in problem
 
 
+@pytest.mark.parametrize("at", [1, 4, 5, 7])  # a choose, a run, a list, a gallery
+def test_an_empty_step_may_point_at_a_step_of_another_setup_carrying_its_choices(at):
+    link = {"text": "Bring the Fountain in", "setup": "narrate-a-story", "step": "details", "carry": {"story": "story", "world": "story.world"}}
+    assert _bad(lambda p: p["steps"][at].update(empty_next=link)) is None
+    assert _bad(lambda p: p["steps"][at].update(empty_next={"text": "Open call", "setup": "open-call"})) is None
+
+
+@pytest.mark.parametrize(
+    ("link", "words"),
+    [
+        ({"setup": "open-call"}, "empty_next.text"),
+        ({"text": "x" * 81, "setup": "open-call"}, "empty_next.text"),
+        ({"text": "Open call", "setup": "Open Call"}, "empty_next.setup"),
+        ({"text": "Open call", "setup": "open-call", "step": "Bad Step"}, "empty_next.step"),
+        ({"text": "Open call", "setup": "open-call", "href": "/workspace"}, "unknown keys href"),
+        ({"text": "Open call", "setup": "open-call", "carry": {"story": "nope"}}, "names no choice"),
+        ({"text": "Open call", "setup": "open-call", "carry": {"back": "story"}}, "not a choice name"),
+    ],
+)
+def test_a_wrong_empty_link_to_another_setup_says_what_is_wrong(link, words):
+    problem = _bad(lambda p: p["steps"][4].update(empty_next=link))
+    assert problem is not None and words in problem
+
+
+def test_a_next_line_may_open_another_setup_with_the_choices():
+    line = {"text": "Cast the roles: Casting call", "setup": "casting-call", "step": "roles", "carry": {"world": "world", "story": "story"}}
+    assert _bad(lambda p: p.update(next=[{"text": "Read the beats."}, line])) is None
+    assert "names no choice" in (_bad(lambda p: p.update(next=[{**line, "carry": {"story": "nope"}}])) or "")
+    assert "a next line.setup" in (_bad(lambda p: p.update(next=[{**line, "setup": "/workspace/setups/x"}])) or "")
+    assert "unknown keys href" in (_bad(lambda p: p.update(next=[{**line, "href": "/x"}])) or "")
+
+
 def test_back_is_the_pages_own_and_never_a_choice():
     assert "back" in (_bad(lambda p: p["steps"][0].update({"as": "back"})) or "")
 

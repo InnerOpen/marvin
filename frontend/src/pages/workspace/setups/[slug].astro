@@ -31,7 +31,7 @@ import {
 import { leftOutLine, listLine, nothingLine, previewCards, previewLine, previewProblem, runButton } from "@/lib/runList";
 import { runStep } from "@/lib/wizardActions";
 import { emptyLine, emptyLinks, lackingOf, narrowedBy } from "@/lib/wizardEmpty";
-import { BACK_PARAM, choicesOnly, withBack } from "@/lib/wizard";
+import { BACK_PARAM, choicesOnly, nextLines, withBack } from "@/lib/wizard";
 import { type Paid, type Sent, paidCardsLine, paidConfirm, paidFields, paidLine, paidOf, paidSent } from "@/lib/wizardPaid";
 import { getRunState, latestRunAbout, type SelectionCondition, type WorkflowRunState } from "@/lib/api/workflowRuns";
 import { busyLabel, runKey, runLine, shownRun } from "@/lib/runState";
@@ -461,8 +461,8 @@ const skipHref: string | null = (() => {
 // An empty step says why and where to go, the same on every kind (lib/wizardEmpty.ts): the place its package names (`empty_next`), and for
 // a pick with nothing to pick, the earlier choices that narrow it and, when the choice is optional and nothing can be made here, the way on.
 const narrowed = def && step ? narrowedBy(def, ctx, step) : [];
-const emptyNext = def && step ? emptyLinks(def, ctx, step, slug) : [];
-const emptyPick = def && step ? [...emptyLinks(def, ctx, step, slug, narrowed), ...(skipHref && !step.create ? [{ label: "Go on without choosing", href: skipHref, main: true }] : [])] : [];
+const emptyNext = def && step ? emptyLinks(def, ctx, step, slug, [], entries) : [];
+const emptyPick = def && step ? [...emptyLinks(def, ctx, step, slug, narrowed, entries), ...(skipHref && !step.create ? [{ label: "Go on without choosing", href: skipHref, main: true }] : [])] : [];
 // The step that picks the entry a form or an upload works on, to point at when nothing is chosen.
 const chooser = def && typeof step?.entry === "string" ? (def.steps.find((s) => s.kind === "choose" && s.as === step.entry) ?? null) : null;
 // A column heading is the field's label without its explanation in brackets (the full label stays as the hover text).
@@ -1104,7 +1104,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
             {def.next?.length ? (
               <div class="made">
                 <p class="label">What to do next</p>
-                <ol>{def.next.map((n) => <li>{n.href ? <a href={n.href}>{n.text}</a> : n.text}</li>)}</ol>
+                <ol>{nextLines(def, { slug, step: step.id, ctx, entries }).map((n) => <li>{n.href ? <a href={n.href}>{n.text}</a> : n.text}</li>)}</ol>
               </div>
             ) : null}
             </>

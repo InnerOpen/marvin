@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BACK_PARAM, backStep, backValue, carriedCtx, choicesOnly, nextStep, parseBack, readCtx, seeAlsoHref, seeAlsoOf, shownLines, stepHref, withBack, withoutFrom } from "./wizard.ts";
+import { BACK_PARAM, isSetupLink, nextLines, backStep, backValue, carriedCtx, choicesOnly, nextStep, parseBack, readCtx, seeAlsoHref, seeAlsoOf, shownLines, stepHref, withBack, withoutFrom } from "./wizard.ts";
 
 const narrate = {
   title: "Narrate a story",
@@ -96,4 +96,43 @@ test("a show card states an empty field when the step says what empty means", ()
   assert.deepEqual(shownLines({ import_part: " " }, schema, ["import_part", "title"], { import_part: "All the chapters" }), [{ key: "import_part", label: "Chapters to bring in", value: "All the chapters" }]);
   assert.deepEqual(shownLines({ import_part: "2-4" }, schema, ["import_part"], { import_part: "All the chapters" })[0].value, "2-4");
   assert.deepEqual(shownLines({}, schema, ["import_part", "title"], "Not set").map((l) => l.value), ["Not set", "Not set"]);
+});
+
+test("an empty step's link to another setup carries the choices and the way back, as see_also does", async () => {
+  const { emptyLinks } = await import("./wizardEmpty.ts");
+  const lines = {
+    title: "Lines of a beat",
+    steps: [
+      { id: "story", kind: "choose", title: "Story", as: "story", entry_type: "story" },
+      { id: "beat", kind: "choose", title: "Beat", as: "beat", entry_type: "beat", scope: { story: "${story}" },
+        empty_next: { text: "Bring the Fountain in: Narrate a story", setup: "narrate-a-story", step: "details", carry: { story: "story", world: "story.world" } } },
+    ],
+  };
+  const [link] = emptyLinks(lines, { story: "tin" }, lines.steps[1], "lines-in-a-beat", [], { story: { dataJson: { world: "w1" } } });
+  assert.equal(link.label, "Bring the Fountain in: Narrate a story");
+  const p = params(link.href);
+  assert.ok(link.href.startsWith("/workspace/setups/narrate-a-story?step=details&"));
+  assert.deepEqual(readCtx(p), { story: "tin", world: "w1" });
+  assert.equal(parseBack(p.get(BACK_PARAM))?.href, "/workspace/setups/lines-in-a-beat?step=beat&story=tin");
+  // The old forms are as they were: an earlier step, a plain path.
+  const old = { ...lines, steps: [lines.steps[0], { ...lines.steps[1], empty_next: { text: "Open call", href: "/workspace/setups/open-call" } }] };
+  assert.deepEqual(emptyLinks(old, {}, old.steps[1], "x"), [{ label: "Open call", href: "/workspace/setups/open-call" }]);
+  const back = { ...lines, steps: [lines.steps[0], { ...lines.steps[1], empty_next: { step: "story" } }] };
+  assert.equal(emptyLinks(back, { story: "tin" }, back.steps[1], "x")[0].href, "/workspace/setups/x?step=story&story=tin");
+});
+
+test("a setup's next lines: a plain one as it is, one to another setup with the choices and the way back to this end", () => {
+  const def = {
+    title: "Narrate",
+    steps: narrate.steps,
+    next: [{ text: "Read the beats." }, { text: "Workflows", href: "/automation/workflows" }, { text: "Cast the actors", setup: "casting-call", step: "roles", carry: { world: "world", story: "story" } }],
+  };
+  const out = nextLines(def, { slug: "narrate-a-story", step: "sounds", ctx: { world: "w1", story: "s", [BACK_PARAM]: "/workspace/setups/a" } });
+  assert.deepEqual(out.slice(0, 2), [{ text: "Read the beats.", href: undefined }, { text: "Workflows", href: "/automation/workflows" }]);
+  const p = params(out[2].href);
+  assert.equal(new URL(out[2].href, "http://x").pathname, "/workspace/setups/casting-call");
+  assert.deepEqual(readCtx(p), { world: "w1", story: "s" });
+  assert.equal(p.get(BACK_PARAM), "/workspace/setups/narrate-a-story?step=sounds&world=w1&story=s"); // never a chain
+  assert.equal(isSetupLink({ text: "x", setup: "Bad Slug" }), false);
+  assert.equal(isSetupLink({ text: " ", setup: "ok" }), false);
 });

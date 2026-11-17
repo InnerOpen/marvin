@@ -86,7 +86,7 @@ A step that comes up empty says why, in plain words, and where to go from there.
 | Key | What it does |
 |---|---|
 | `empty` | The step's own line for when there is nothing (*No lines in this beat yet.*), at most 300 characters. Without it the page says why itself: whose list it is (*The Tin Soldier has no cast member yet.*), which earlier choices narrow it (*No chapter belongs to what you chose in "Story" yet.*), that nothing fits what the step looks for, or that the workspace has none. Where the step can make one, it adds *Add the first one below.* |
-| `empty_next` | Where the empty step points, as a button under the line: `{step}`, an earlier step of the same setup (*Go to "The story"*; `text` says it otherwise), or `{text, href}`, a path in the app, such as another setup (`/workspace/setups/open-call`). |
+| `empty_next` | Where the empty step points, as a button under the line: `{step}`, an earlier step of the same setup (*Go to "The story"*; `text` says it otherwise), `{text, setup, step?, carry?}`, a step of another setup opened with the choices `carry` names and the way back (as `see_also`, below), or `{text, href}`, a path in the app. |
 
 A pick with nothing to pick also offers **Change "…"** for each earlier choice that narrows it, and, when the choice is optional and nothing can be made on the step, **Go on without choosing**. A list, a gallery and a run keep their Continue button.
 
@@ -127,9 +127,11 @@ A step can point at a step of another setup (`see_also`, up to three: `{label, s
 
 The other setup then says at its top *You came from Narrate a story, step 11 (“Sounds: are these read right?”). ← Back to it*, on every step, after a form is sent and after a reload, until the person leaves the setup or goes back. **Back to it** opens that very step with its choices as they were. The way back rides in the address (`back`, like `step`) and is only ever a guided setup's address in this app, rebuilt from its setup, step and choices; one that names a setup the person cannot open is ignored. `back` is the page's own, so no step may set a choice of that name.
 
+An empty step's `empty_next` and a setup's `next` lines link to another setup the same way: `{text, setup, step?, carry?}` in place of `{text, href}` opens that setup with the choices carried and the way back (to the empty step, or to the end of this setup for a `next` line), so *Bring the Fountain in: Narrate a story* opens Narrate a story with the story, and its world, already chosen. `{text, href}` still works as before, as a plain link. Unlike `see_also`, these links are drawn without asking whether the setup is there: one that is not opens a page that says so.
+
 A step's `show` card leaves out a field that is empty, unless `show.empty` says what empty means there: one line for every field, or one per field (`{import_part: "All the chapters"}`), so *Chapters to bring in: All the chapters* is said rather than missing.
 
-`${name}` reads a choice made earlier. A setup ends with `next` (what to do after, with links) and `open` (a button that opens what was made, or its view). Field keys may be camelCase (`sellOnline`). A picture field is read under its role, so a type whose `image` field has `role: "featured"` shows the pictures attached as *featured*. The format is validated when the package is previewed; see `services/blueprints/wizards.py` for the exact rules.
+`${name}` reads a choice made earlier. A setup ends with `next` (what to do after, with links: a path, or another setup as above) and `open` (a button that opens what was made, or its view). Field keys may be camelCase (`sellOnline`). A picture field is read under its role, so a type whose `image` field has `role: "featured"` shows the pictures attached as *featured*. The format is validated when the package is previewed; see `services/blueprints/wizards.py` for the exact rules.
 
 ## Workers
 

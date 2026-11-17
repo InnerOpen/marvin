@@ -86,6 +86,7 @@ from marvin.services.entries.query import WHERE_OPS
 
 MAX_STEPS = 40
 MAX_NEXT = 6  # lines of "what to do next" at the end
+MAX_NEXT_TEXT = 400  # a next line that links to another setup
 STEP_KINDS = ("option", "choose", "form", "upload", "list", "gallery", "run", "review")
 WHEN_OPS = ("eq", "neq", "set", "unset")
 CHECK_OPS = ("gt", "gte", "eq", "lte", "lt")
@@ -144,8 +145,6 @@ def payload_problem(payload: dict, slug: str) -> str | None:
     steps = payload.get("steps")
     if not isinstance(steps, list) or not steps:
         return f"wizard {slug!r} needs at least one step"
-    if problem := _check_next(payload.get("next"), slug):
-        return problem
     if len(steps) > MAX_STEPS:
         return f"wizard {slug!r} has more than {MAX_STEPS} steps"
     known: set[str] = set()  # context keys set by an earlier step
@@ -172,7 +171,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             or (problem := _check_step(step, kind, known, entries, label, seen - {sid}, lists))
             or (problem := _check_show(step.get("show"), entries, label))
             or (problem := _check_selection(step.get("selection"), lists, label))
-            or (problem := _check_empty(step, seen - {sid}, label))
+            or (problem := _check_empty(step, seen - {sid}, label, _own_keys(step, kind, known, entries)))
             or (problem := _check_see_also(step.get("see_also"), _own_keys(step, kind, known, entries), label))
         ):
             return problem
@@ -181,7 +180,8 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         if kind == "choose":
             (lists if step.get("multiple") is True else entries).add(step["as"])
     return (
-        _check_open(payload.get("open"), entries, slug)
+        _check_next(payload.get("next"), slug, (known, entries))
+        or _check_open(payload.get("open"), entries, slug)
         or _check_again(payload.get("again"), seen, slug)
         or _check_buttons(payload.get("button"), entries, seen, slug)
     )
@@ -300,7 +300,6 @@ def _check_see_also(items: Any, keys: tuple[set[str], set[str]], label: str) -> 
         return None
     if not isinstance(items, list) or not 1 <= len(items) <= MAX_SEE_ALSO:
         return f"{label}: see_also is a list of 1 to {MAX_SEE_ALSO} links to another setup, each {{label, setup, step?, carry?, text?}}"
-    known, entries = keys
     for item in items:
         if not isinstance(item, dict):
             return f"{label}: see_also has a link that is not {{label, setup, step?, carry?, text?}}"
@@ -316,33 +315,62 @@ def _check_see_also(items: Any, keys: tuple[set[str], set[str]], label: str) -> 
         text = item.get("text")
         if text is not None and not (isinstance(text, str) and text.strip() and len(text) <= MAX_SEE_ALSO_TEXT):
             return f"{label}: see_also.text is a line under the link (at most {MAX_SEE_ALSO_TEXT} characters)"
-        carry = item.get("carry")
-        if carry is None:
-            continue
-        if not isinstance(carry, dict) or not carry:
-            return f"{label}: see_also.carry is {{its key: this setup's key, or key.field}}"
-        for to, from_ in carry.items():
-            if not (isinstance(to, str) and _NAME.match(to)) or to in RESERVED_KEYS:
-                return f"{label}: see_also.carry key {to!r} is not a choice name (lowercase, not one of {', '.join(RESERVED_KEYS)})"
-            key, _, field = from_.partition(".") if isinstance(from_, str) else ("", "", "")
-            if field and not (key in entries and _is_field(field)):
-                return f"{label}: see_also.carry {from_!r} is key.field, a field of an entry a choose step here (or before) picks"
-            if not field and key not in known:
-                return f"{label}: see_also.carry {from_!r} names no choice made here or before"
+        if problem := _check_carry(item.get("carry"), keys, f"{label}: see_also"):
+            return problem
     return None
 
 
-def _check_empty(step: dict, earlier: set[str], label: str) -> str | None:
+def _check_carry(carry: Any, keys: tuple[set[str], set[str]], what: str) -> str | None:
+    """``carry`` of a link to another setup (``see_also``, ``empty_next``, ``next``): {its key: "key" | "key.field"}, a choice made here
+    or a field of an entry chosen here, handed on so the other setup opens with it chosen."""
+    if carry is None:
+        return None
+    if not isinstance(carry, dict) or not carry:
+        return f"{what}.carry is {{its key: this setup's key, or key.field}}"
+    known, entries = keys
+    for to, from_ in carry.items():
+        if not (isinstance(to, str) and _NAME.match(to)) or to in RESERVED_KEYS:
+            return f"{what}.carry key {to!r} is not a choice name (lowercase, not one of {', '.join(RESERVED_KEYS)})"
+        key, _, field = from_.partition(".") if isinstance(from_, str) else ("", "", "")
+        if field and not (key in entries and _is_field(field)):
+            return f"{what}.carry {from_!r} is key.field, a field of an entry a choose step here (or before) picks"
+        if not field and key not in known:
+            return f"{what}.carry {from_!r} names no choice made here or before"
+    return None
+
+
+SETUP_LINK_KEYS = frozenset({"text", "setup", "step", "carry"})
+
+
+def _check_setup_link(link: dict, keys: tuple[set[str], set[str]], what: str, max_text: int) -> str | None:
+    """A link that opens another setup, as ``see_also`` does, in ``empty_next`` or a ``next`` line: ``{text, setup, step?, carry?}``.
+    The page carries the choices and the way back here (``back``), so the other setup says where the person came from."""
+    if unknown := sorted(set(link) - SETUP_LINK_KEYS):
+        return f"{what} has unknown keys {', '.join(unknown)}; a link to another setup has text, setup, step and carry"
+    text = link.get("text")
+    if not (isinstance(text, str) and text.strip() and len(text) <= max_text):
+        return f"{what}.text is the link's words (at most {max_text} characters)"
+    if not (isinstance(link.get("setup"), str) and _SLUG.match(link["setup"])):
+        return f"{what}.setup is the slug of a guided setup (lowercase letters, digits, - or _)"
+    if link.get("step") is not None and not (isinstance(link["step"], str) and _STEP_ID.match(link["step"])):
+        return f"{what}.step is the id of a step of that setup"
+    return _check_carry(link.get("carry"), keys, what)
+
+
+def _check_empty(step: dict, earlier: set[str], label: str, keys: tuple[set[str], set[str]] = (set(), set())) -> str | None:
     """What a step says when it has nothing to show, the same on every kind (a pick, a list, a gallery, a run): ``empty`` is the line,
     in the package's words (the page has a plain default that says why), and ``empty_next`` where it points from there: ``{step}``, an
-    earlier step of the setup (the one that makes what is missing), or ``{text, href}``, a path in the app (another setup); a ``{step}``
-    may carry ``text`` too, to say it otherwise than *Go to "…"*."""
+    earlier step of the setup (the one that makes what is missing), ``{text, setup, step?, carry?}``, a step of another setup opened
+    with the choices it carries and the way back (as ``see_also``), or ``{text, href}``, a path in the app; a ``{step}`` may carry
+    ``text`` too, to say it otherwise than *Go to "…"*."""
     empty = step.get("empty")
     if empty is not None and not (isinstance(empty, str) and empty.strip() and len(empty) <= MAX_EMPTY):
         return f"{label}: empty is the line shown when the step has nothing to show or do (at most {MAX_EMPTY} characters)"
     go = step.get("empty_next")
     if go is None:
         return None
+    if isinstance(go, dict) and go.get("setup") is not None:
+        return _check_setup_link(go, keys, f"{label}: empty_next", MAX_EMPTY_NEXT)
     if not isinstance(go, dict) or (go.get("step") is None) == (go.get("href") is None):
         return f"{label}: empty_next is where an empty step points: {{step}}, an earlier step, or {{text, href}}, a path in the app"
     text, href = go.get("text"), go.get("href")
@@ -362,8 +390,9 @@ def _check_selection(key: Any, lists: set[str], label: str) -> str | None:
     return f"{label}: selection names {key!r}, which no earlier multi-select step (choose with multiple: true) sets"
 
 
-def _check_next(lines: Any, slug: str) -> str | None:
-    """``next``: what to do once the wizard is done, each ``{text, href?}``; an href is a path inside the app, never a full address."""
+def _check_next(lines: Any, slug: str, keys: tuple[set[str], set[str]] = (set(), set())) -> str | None:
+    """``next``: what to do once the wizard is done, each ``{text, href?}`` (an href is a path inside the app, never a full address), or
+    ``{text, setup, step?, carry?}``: another setup, opened with the choices it carries and the way back to this one's end."""
     if lines is None:
         return None
     if not isinstance(lines, list) or len(lines) > MAX_NEXT:
@@ -371,6 +400,10 @@ def _check_next(lines: Any, slug: str) -> str | None:
     for line in lines:
         if not isinstance(line, dict) or not isinstance(line.get("text"), str) or not line["text"].strip():
             return f"wizard {slug!r}: each next line needs text"
+        if line.get("setup") is not None:
+            if problem := _check_setup_link(line, keys, f"wizard {slug!r}: a next line", MAX_NEXT_TEXT):
+                return problem
+            continue
         href = line.get("href")
         if href is not None and (not isinstance(href, str) or not href.startswith("/") or href.startswith("//")):
             return f"wizard {slug!r}: a next line's href is a path in the app, starting with /"
