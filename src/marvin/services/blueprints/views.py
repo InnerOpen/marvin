@@ -52,9 +52,10 @@ A timeline definition::
   does when they are empty, and ``bed.end_fade`` a field on the view's entry for how long every bed fades out at the end of the film; the
   block draws them and Play follows them; ``bed.start_fade`` is the same for the start of the film, and ``bed.entry_fade_in`` /
   ``entry_fade_out`` (on the entry) and ``bed.item_fade_in`` / ``item_fade_out`` (on each item) make the lane's own fades cascade: the
-  sound's, then the entry's, then the item's. ``bed.item_field`` (a field on each spine item) names that item's own sound, winning over the
-  ``via`` entry's, and ``bed.entry_field`` / ``bed.entry_volume`` name a sound under the whole film and its level: it plays together with
-  the others, as the render layers them. ``bed.duck`` is a field on the view's entry holding none, light or strong: how far the bed goes
+  sound's, then the entry's, then the item's. ``bed.item_field`` (a field on each spine item) names that item's own sound, a second bed laid
+  over the ``via`` entry's (which runs on unbroken under it), heard as ``bed.item_heard`` on the item says (muffled or clear; empty follows
+  the ``via`` entry's muffling), and ``bed.entry_field`` / ``bed.entry_volume`` name a sound under the whole film and its level: it plays
+  together with the others, as the render layers them. ``bed.duck`` is a field on the view's entry holding none, light or strong: how far the bed goes
   down under each The story's bed can be turned down (or muffled) where the story is: ``bed.entry_item_volume`` is a field on each spine
   item (a beat's level for the story's bed), ``bed.entry_via_volume`` and ``bed.entry_via_muffled`` fields on the entry the item's ``via``
   names (a scene's level, and whether it is heard from inside). The item's level wins over the entry's, which wins over the story's; the
@@ -315,6 +316,7 @@ def _check_bed(bed: Any, label: str) -> str | None:
             "item_ramp_out",
             "duck",
             "item_field",
+            "item_heard",
             "entry_field",
             "entry_volume",
             "entry_item_volume",
