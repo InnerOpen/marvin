@@ -129,13 +129,37 @@ A timeline `view` can declare `spine.word_cues` (`{field, lane, sounds?}`): a JS
 Each row picks a line and the gap between two of its words (click a word to put the cue after it). Then it says what happens there:
 
 - **Sound**: one of the story's sounds, at its own level or the row's. It plays at the end of the word before the gap.
-- **Camera move**: *punch* (a quick zoom in), *shake*, *nudge* (drift toward a point), *whip pan* (left or right, and how far) and *sway* (how far and for how long), on top of the beat's own move.
+- **Camera move**: on top of the beat's own move.
+  - *punch*: a quick zoom in.
+  - *shake*.
+  - *nudge*: a drift toward a point.
+  - *whip pan*: a fast sweep left or right and back, by a share of the frame (0.05 to 0.5, default 0.35). It zooms in by 1 + 2 × that share to make room, so the default peaks at 1.7×.
+  - *sway*: a handheld sway that dies away (0.8% of the frame over 1.5 s unless set).
 - **Picture**: an overlay beat whose picture comes in at the start of the word after the gap.
-- **Look**: *flash* (how bright, white or black), *dip* (to black or white, and for how long), *tint* (sepia, mono, cold or warm, how strong, and for how long, which by default is to the end of the beat) or *vignette* (for how long).
-- **Mix**: *dead air* (ambience, music and effects go silent for a while) or *duck* (music and ambience dip to a level for a while). The voice is never touched.
+- **Look**: laid over the shot, never changing its length.
+  - *flash*: white, black, orange, red, gold or blue; 0.9 bright over 0.25 s unless set.
+  - *burn*: an orange flash, 0.35 s.
+  - *dip*: to black or white and back, 0.8 s.
+  - *freeze*: the camera's move holds still, 0.6 s.
+  - *tint*: sepia, mono, cold or warm, at full strength. It lasts to the end of the shot unless given seconds.
+  - *blur*: 0.6 strong over 0.8 s.
+  - *vignette*: 0.7 dark over 1 s.
+  - *glitch*: 0.2 s.
+- **Mix**: the voice is never touched.
+  - *dead air*: ambience, music and effects go silent, 1.5 s.
+  - *duck*: music and ambience dip to 0.3, 1.5 s.
+- **Emphasis**: the word after the gap is shown bigger in the captions, 1.3× unless set (1 to 2).
 
-Every number a kind takes shows its default as a placeholder; leave it empty to use the default. A cue's **nudge** (set by dragging its sound on the Timeline) moves its sound, camera move, look, mix and emphasis together, but not its picture.
+Every number a kind takes shows the render's default as a placeholder; leave it empty to use that default. Numbers are held to the render's ranges. A cue's **nudge** (set by dragging its sound on the Timeline) moves its sound, camera move, look, mix and emphasis together, but not its picture.
 
-On the Timeline, a look, a change to the mix and the newer camera moves each get a small labelled chip beside the cue's flag, such as *flash*, *whip pan* or *dead air 1.5 s*, with the details in its tooltip. Dead air and a duck are also drawn over every bed lane (ambience, music) for as long as they last: hatched where the lane goes silent, dimmed where it dips. A view without bed lanes skips this. None of these cues changes the Timeline's length, its picture cuts or the playhead.
+On the Timeline, a look, a change to the mix, emphasis and the newer camera moves each get a small labelled chip beside the cue's flag, such as *flash*, *whip pan* or *dead air 1.5 s*, with the details in its tooltip. Dead air and a duck are also drawn over every bed lane (ambience, music) for as long as they last: hatched where the lane goes silent, dimmed where it dips. A view without bed lanes skips this. None of these cues changes the Timeline's length, its picture cuts or the playhead.
 
-The editor doesn't offer *freeze*, *blur*, *glitch* or caption **emphasis** yet: they wait until the render is known to do them. A row that already holds one keeps it when saved, the editor shows it as kept as written, and the Timeline draws it in italics with "(not offered in the editor yet)" in its tooltip. A number a row already holds is never pulled into the editor's range unless the render holds it there too. A kind Marvin does not know at all, and any key a row carries that Marvin does not read, is kept the same way. The Timeline shows that kind by its own name with a "?". The list of kinds, their numbers and their defaults is in one file, `frontend/src/lib/cueKinds.ts`, and turning on a kind once the render does it is a one-line change there.
+A kind Marvin does not know, a colour a kind does not take (the render leaves such a cue out), and any key a row carries that Marvin does not read are all kept as written when the row is saved. The Timeline shows an unknown kind by its own name with a "?". The kinds, their numbers and their defaults are in one file, `frontend/src/lib/cueKinds.ts`, matching the render's own (Screenplay Studio v218 and v219). Each kind has an `enabled` switch there, so taking one out of the editor is a one-line change.
+
+### When a line moves to another beat
+
+A cue row is stored on a beat but names a line. If the line is moved to another beat, the row stays where it was. The render plays the cue in the beat that holds its line now, and Marvin does the same:
+
+- **On the beat that stores it**, the row says *This cue is for a line that is now in beat N*. **Move to beat N** moves it there, writing both beats' whole records and checking each one comes back as sent. **Delete** removes it from this beat when you save the page. If the line was deleted, the row says *a line that no longer exists*, and the render leaves the cue out.
+- **On the beat that holds the line**, the rows other beats store for its lines are listed under the cue rows, read only, each saying which beat stores it.
+- **On the Timeline**, the cue is drawn on its line in the beat it plays in. Its flag is dimmed and carries a *from beat M* chip, and dragging its sound still writes to the beat that stores it.

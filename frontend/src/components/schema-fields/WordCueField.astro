@@ -9,6 +9,7 @@
  */
 import type { CueOption } from "@/components/schema-fields/CueListField.astro";
 import { parseWordCues, serializeWordCues } from "@/lib/wordCues";
+import type { StrayData } from "@/lib/cueHomes";
 
 /** A line a cue may sit on: its words as the render counts them, and the take's timing of each when it has them. */
 export interface WordCueLine {
@@ -28,8 +29,9 @@ export interface WordCuePicture {
 }
 
 /** What the rows offer: the entry's lines, the sounds, the pictures, and the field on a picture's entry that says where it comes in
- * (`starts_during`), so a row can move it to the cue. */
-export interface WordCueData {
+ * (`starts_during`), so a row can move it to the cue; and for lines moved between beats (lib/cueHomes.ts): this entry, where each stray row's
+ * line is now, and the rows other beats store for this entry's lines. */
+export interface WordCueData extends Partial<StrayData> {
   lines: WordCueLine[];
   sounds: CueOption[];
   pictures: WordCuePicture[];
@@ -42,19 +44,19 @@ export interface Props extends WordCueData {
   error?: string;
 }
 
-const { field, value, lines, sounds, pictures, startsDuring, error } = Astro.props;
+const { field, value, lines, sounds, pictures, startsDuring, self, homes, adopted = [], error } = Astro.props;
 const cues = parseWordCues(value);
 const inputId = `field-${field.key}`;
 const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
 ---
 
-<div class="field-group word-cue-field" data-word-cues data-starts-during={startsDuring}>
+<div class="field-group word-cue-field" data-word-cues data-starts-during={startsDuring} data-field={field.key}>
   <label for={inputId}>
     {field.label}
     {field.required && <span class="required">*</span>}
   </label>
   <textarea id={inputId} name={`dataJson.${field.key}`} class="json-field" hidden data-wc-json>{serializeWordCues(cues)}</textarea>
-  <script type="application/json" data-wc-data set:html={json({ cues, lines, sounds, pictures })} />
+  <script type="application/json" data-wc-data set:html={json({ cues, lines, sounds, pictures, self, homes })} />
   <ol class="wc-rows" data-wc-rows></ol>
   <div class="wc-actions">
     <button type="button" class="button secondary" data-wc-add disabled={lines.length === 0}>Add a cue</button>
@@ -64,11 +66,26 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
     {field.helpText ||
       "A cue sits between two words of a line: click a word to put it after that word (or a gap). Its sound plays at the end of the word before it and its camera move, look and change to the mix start there; its picture comes in at the start of the word after it. The timeline shows each one on its line."}
   </p>
+  {adopted.length > 0 && (
+    <div class="wc-adopted">
+      <p class="field-help">Cues stored on other beats for this beat's lines (their lines were moved here). They play here; move or change them on the beat that stores them.</p>
+      <ul>
+        {adopted.map((a) => (
+          <li class="wc-row wc-adopted-row">
+            <span>{a.line}</span>
+            <span class="field-help">{a.text}</span>
+            <span class="field-help">stored on <a href={`/workspace/entries/${encodeURIComponent(a.from.id)}`}>{a.from.label}</a></span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )}
   {error && <p class="field-error">{error}</p>}
 </div>
 
 <script>
   import { type WordCue, serializeWordCues } from "@/lib/wordCues";
+  import { type CueHomeView, moveCueRow, patchedAsSent } from "@/lib/cueHomes";
   import { CUE_KINDS, type CueField, type CueGroup, EMPHASIS, type Effect, emphasisWords, kindOf } from "@/lib/cueKinds";
   import { fetchApi } from "@/lib/api/client";
 
@@ -105,7 +122,8 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
   document.querySelectorAll<HTMLElement>("[data-word-cues]").forEach((root) => {
     const jsonBox = root.querySelector<HTMLTextAreaElement>("[data-wc-json]")!;
     const rowsBox = root.querySelector<HTMLOListElement>("[data-wc-rows]")!;
-    const data = JSON.parse(root.querySelector("[data-wc-data]")?.textContent || "{}") as { cues: WordCue[]; lines: Line[]; sounds: Sound[]; pictures: Picture[] };
+    const data = JSON.parse(root.querySelector("[data-wc-data]")?.textContent || "{}") as { cues: WordCue[]; lines: Line[]; sounds: Sound[]; pictures: Picture[]; self?: { id: string; slug: string; label: string }; homes?: Record<string, CueHomeView> };
+    const fieldKey = root.dataset.field || "";
     const startsField = root.dataset.startsDuring || "";
     const lineOf = (slug: string) => data.lines.find((l) => l.slug === slug);
     const cues: WordCue[] = data.cues.map((c) => ({ ...c }));
@@ -129,11 +147,74 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
       return `${where} · sound, camera, look and mix at ${secs(end)}, a picture at ${secs(start)} into the take`;
     };
 
+    const removeCue = (cue: WordCue) => {
+      const li = rowsBox.children[cues.indexOf(cue)];
+      cues.splice(cues.indexOf(cue), 1);
+      li?.remove();
+      write();
+    };
+
+    /** A whole entry, as the entries API gives it (its title and slug go back with every PATCH, which replaces dataJson). */
+    type Whole = { title: string; slug: string; dataJson?: Record<string, unknown> | null };
+    const entryPath = (id: string) => `/api/platform/entries/${encodeURIComponent(id)}`;
+    /** Writes a whole record and reads it back: a reason when it did not come back as sent. */
+    const patchWhole = async (id: string, entry: Whole, dataJson: Record<string, unknown>) => {
+      await fetchApi(entryPath(id), { method: "PATCH", body: JSON.stringify({ title: entry.title, slug: entry.slug, dataJson }) });
+      const back = await fetchApi<Whole>(entryPath(id));
+      return patchedAsSent(dataJson, back.dataJson ?? null, fieldKey);
+    };
+
+    /**
+     * Moves a row to the beat that holds its line now: the row as shown here is added to that beat's list, then taken out of this beat's (each a
+     * whole record, read back and checked), so a failure half way leaves it on both beats, never on neither.
+     */
+    const moveTo = async (cue: WordCue, home: Extract<CueHomeView, { kind: "moved" }>, status: HTMLElement) => {
+      const self = data.self!;
+      const [here, there] = await Promise.all([fetchApi<Whole>(entryPath(self.id)), fetchApi<Whole>(entryPath(home.id))]);
+      const row = JSON.parse(serializeWordCues([cue]))[0];
+      const moved = moveCueRow(here.dataJson ?? {}, there.dataJson ?? {}, fieldKey, { position: cue.position, line: cue.line, word: cue.word }, row);
+      if (!moved) throw new Error("this cue is not saved on this beat yet (save the page first), or a cues list is not a list");
+      const added = await patchWhole(home.id, there, moved.target);
+      if (added) throw new Error(`${home.label} did not take it: ${added}`);
+      const removed = await patchWhole(self.id, here, moved.source);
+      if (removed) throw new Error(`it is on ${home.label} now, but this beat did not let it go (${removed}): delete it here`);
+      removeCue(cue);
+      status.textContent = `Moved to ${home.label}.`;
+    };
+
+    /** For a row whose line is not one of this beat's: where the line is now, a button that moves the row there, and one that deletes it. */
+    const strayNotice = (cue: WordCue) => {
+      const home = data.homes?.[cue.line];
+      if (!home || !data.self || !fieldKey) return null;
+      const box = el("div", { className: "wc-stray" });
+      const status = el("span", { className: "field-help", role: "status" });
+      const say = home.kind === "moved" ? `This cue is for a line that is now in ${home.label}.` : home.kind === "gone" ? "This cue is for a line that no longer exists." : "This cue is for a line that is in no beat now.";
+      box.append(el("strong", { textContent: say }));
+      if (home.kind === "moved") {
+        const move = el("button", { type: "button", className: "button secondary", textContent: `Move to ${home.label}`, title: `Moves this cue to ${home.label}'s cues (saved at once, on both beats)` });
+        move.onclick = async () => {
+          move.disabled = true;
+          status.textContent = "Moving…";
+          try {
+            await moveTo(cue, home, status);
+          } catch (e) {
+            move.disabled = false;
+            status.textContent = `Could not move it: ${e instanceof Error ? e.message : "it did not change"}`;
+          }
+        };
+        box.append(move);
+      }
+      const drop = el("button", { type: "button", className: "button secondary wc-delete", textContent: "Delete", title: "Removes this cue from this beat (saved with the page)" });
+      drop.onclick = () => removeCue(cue);
+      box.append(drop, status);
+      return box;
+    };
+
     const wordsOf = (cue: WordCue, repaint: () => void) => {
       const line = lineOf(cue.line);
       const box = el("div", { className: "wc-words", role: "group", ariaLabel: "Where among the words" });
       if (!line) {
-        box.append(el("span", { className: "field-help", textContent: cue.line ? `The line ${cue.line} is not one of this entry's lines.` : "Pick a line." }));
+        box.append(strayNotice(cue) ?? el("span", { className: "field-help", textContent: cue.line ? `The line ${cue.line} is not one of this entry's lines.` : "Pick a line." }));
         return box;
       }
       const gap = (k: number) =>
@@ -196,6 +277,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
       };
       box.append(kind);
       if (current && def?.enabled) box.append(...def.fields.map((f) => fieldInput(current, f)));
+      if (current && def?.enabled && def.help) box.append(el("span", { className: "field-help wc-note", textContent: def.help }));
       return box;
     };
 
@@ -367,4 +449,8 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
   .word-cue-field .wc-remove { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); cursor: pointer; }
   .word-cue-field .wc-remove:hover { color: var(--color-error); border-color: var(--color-error); }
   .word-cue-field .wc-actions { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  .word-cue-field .wc-stray { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border: 1px dashed var(--color-warning, var(--accent)); border-radius: 6px; }
+  .word-cue-field .wc-adopted { margin-top: 10px; }
+  .word-cue-field .wc-adopted ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .word-cue-field .wc-adopted-row { opacity: 0.85; border-style: dashed; }
 </style>

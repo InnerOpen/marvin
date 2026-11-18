@@ -21,6 +21,7 @@ import { relatedFor } from "@/lib/relatedApi";
 import { type CueSpec, cueSpecsFor, wordCueSpecsFor } from "@/lib/cueFields";
 import type { WordCueData } from "@/components/schema-fields/WordCueField.astro";
 import { chipsOf } from "@/lib/wordCues";
+import { strayHomes } from "@/lib/cueHomes";
 import { wordTimings } from "@/lib/timeline";
 import type { CueOption } from "@/components/schema-fields/CueListField.astro";
 import { listResources } from "@/lib/api/resources";
@@ -422,15 +423,20 @@ if (entry && entryType && authToken) {
           return { slug: r.slug, title: String(r.dataJson?.[ws.lines.text ?? ""] ?? "") || r.title, who: String(r.dataJson?.[ws.lines.who ?? ""] ?? ""), chips: chipsOf(String(r.dataJson?.[ws.lines.text ?? ""] ?? r.title), timed), timings: timed?.map((w) => ({ start: w.start, end: w.end })) ?? null };
         });
       const sounds = ws.sounds ? (cues[ws.sounds.field]?.options ?? []) : [];
+      const storyBeats = of ? await query({ entry_type: entryType.slug, fields: { [ws.of]: of } }) : [];
+      // A row whose line was moved to another beat stays here until moved: where each such line is now, and the rows other beats store for this one's lines.
+      const strays = await strayHomes({ ...ws, beatType: entryType.slug }, { id: String(entry.id), slug: entry.slug, title: entry.title, dataJson: (entry.dataJson ?? {}) as Record<string, unknown> }, lines, storyBeats, sounds, (spec) =>
+        fetchApi<{ entries?: Found[] }>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec, limit: 500 }) }, authToken).then((r) => r.entries ?? [], () => null),
+      );
       const pictures = ws.startsDuring && of
-        ? (await query({ entry_type: entryType.slug, fields: { [ws.of]: of } }))
+        ? storyBeats
             .filter((r) => r.dataJson?.[ws.startsDuring!] && typeof r.dataJson[ws.startsDuring!] === "object")
             .map((r) => {
               const at = r.dataJson![ws.startsDuring!] as { line?: unknown; word?: unknown };
               return { id: r.id, slug: r.slug, title: `${r.dataJson?.[ws.order ?? ""] ?? ""} ${r.title}`.trim(), startsDuring: typeof at.line === "string" ? { line: at.line, word: Number(at.word) || 0 } : null };
             })
         : [];
-      wordCues[ws.field] = { lines, sounds, pictures, startsDuring: ws.startsDuring };
+      wordCues[ws.field] = { lines, sounds, pictures, startsDuring: ws.startsDuring, ...strays };
     }
   } catch {
     /* the JSON box stays */
