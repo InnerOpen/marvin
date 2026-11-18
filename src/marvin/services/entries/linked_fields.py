@@ -10,7 +10,8 @@ role is the field's ``role`` (``hero``), or its key when none is set, and an att
 role, in their order (a list field all of them, a single field the first). So a picture given the field's role by hand in
 the sidebar appears in the field, and one whose role was changed away in the sidebar leaves the field. An id chosen in
 the field that is attached in another role takes the field's role; attachments with any other role, or none, are
-someone's own and are never touched.
+someone's own and are never touched. An entry attaches an asset once, so an asset two of its fields name (a recording that
+is both a beat's clip and its overlay) has the role of the field that chose it last, and the other field keeps it too.
 """
 
 from __future__ import annotations
@@ -49,7 +50,11 @@ def sync_linked_fields(session, entry, schema_json: Any, previous_data: Any = No
     attachments (see the module docstring). ``previous_data`` is the entry's ``data_json`` before this save: an id the
     field named then and not now is removed, an id it names now and didn't then takes over a link that had another role.
     Without it (a new entry) nothing is removed and every id named is new. Commits when anything changed; returns whether
-    it did."""
+    it did.
+
+    One asset named by two fields of the entry (a recording that is both a beat's clip and its overlay) has one attachment,
+    so one role: the field that chose it last. The other field keeps naming it all the same, and when the field holding
+    the role lets it go the role passes to the other instead of the attachment being removed."""
     from marvin.db.models.platform.assets import Assets
     from marvin.db.models.platform.entry_assets import EntryAssets
     from marvin.db.models.platform.entry_resources import EntryResources
@@ -60,20 +65,30 @@ def sync_linked_fields(session, entry, schema_json: Any, previous_data: Any = No
         return False
     data = getattr(entry, "data_json", None) or {}
     before = previous_data if isinstance(previous_data, dict) else None
-    changed = False
-    new_data: dict[str, Any] = {}
+    models = {True: (EntryAssets, "asset_id", Assets), False: (EntryResources, "resource_id", Resources)}
+    # What each role's field names now, per kind of link: an id another field still names is shared, not someone else's.
+    named: dict[bool, dict[str, list[uuid.UUID]]] = {True: {}, False: {}}
     for key, ftype, role in fields:
+        named[ftype in ASSET_TYPES].setdefault(role, []).extend(ids_named(data.get(key)))
+    changed = False
+    for key, ftype, role in fields:  # first the attachments, for every field...
         wanted = ids_named(data.get(key))
         was = ids_named(before.get(key)) if before is not None else None
         dropped = [i for i in was if i not in wanted] if was is not None else []
         added = [i for i in wanted if was is None or i not in was]
-        if ftype in ASSET_TYPES:
-            did, final = _sync(session, entry, role, wanted, dropped, added, EntryAssets, "asset_id", Assets)
-        else:
-            did, final = _sync(session, entry, role, wanted, dropped, added, EntryResources, "resource_id", Resources)
-        changed |= did
-        # The field is exactly the attachments in its role, in their order: a list field all of them, a single field
-        # the first. So a picture given the role by hand appears in the field, and one whose role was changed away leaves it.
+        others = {r: ids for r, ids in named[ftype in ASSET_TYPES].items() if r != role}
+        changed |= _sync(session, entry, role, wanted, dropped, added, *models[ftype in ASSET_TYPES], others)
+    session.flush()
+    new_data: dict[str, Any] = {}
+    for key, ftype, role in fields:  # ...then each field from them, once no later field can still move a role
+        link_model, fk, _ = models[ftype in ASSET_TYPES]
+        others = {r: ids for r, ids in named[ftype in ASSET_TYPES].items() if r != role}
+        final = _in_role(session, entry, role, link_model, fk)
+        roles = {getattr(r, fk): r.role for r in session.query(link_model).filter(link_model.entry_id == entry.id)}
+        final += [i for i in ids_named(data.get(key)) if i not in final and i in others.get(roles.get(i) or "", [])]
+        # The field is exactly the attachments in its role (and the ones it shares with another field), in their order: a list field all
+        # of them, a single field the first. So a picture given the role by hand appears in the field, and one whose role was changed away
+        # (to a role no other field of the entry names it in) leaves it.
         value: Any = [str(i) for i in final] if ftype.endswith("-list") else (str(final[0]) if final else None)
         if value != data.get(key) and not (value is None and not data.get(key)):
             new_data[key] = value
@@ -86,9 +101,11 @@ def sync_linked_fields(session, entry, schema_json: Any, previous_data: Any = No
 
 
 def _sync(
-    session, entry, role: str, wanted: list[uuid.UUID], dropped: list[uuid.UUID], added: list[uuid.UUID], link_model, fk: str, target_model
-) -> tuple[bool, list[uuid.UUID]]:
-    """Returns (changed, the ids attached in the field's role afterwards, in position order)."""
+    session, entry, role: str, wanted: list[uuid.UUID], dropped: list[uuid.UUID], added: list[uuid.UUID], link_model, fk: str, target_model,
+    others: dict[str, list[uuid.UUID]],
+) -> bool:  # fmt: skip
+    """The attachments in the field's role brought in line with what it names; whether anything changed. `others` is what each other
+    linked field's role names: an attachment this field lets go that another still names takes that field's role instead of going."""
     import sqlalchemy as sa
 
     rows = session.query(link_model).filter(link_model.entry_id == entry.id).all()
@@ -97,7 +114,11 @@ def _sync(
     changed = False
     for target_id, row in with_role.items():
         if target_id in dropped and target_id not in wanted:  # the field named it and no longer does
-            session.delete(row)
+            heir = next((r for r, ids in others.items() if target_id in ids), None)
+            if heir is not None:
+                row.role = heir  # another field names it still: it keeps the attachment, in its own role
+            else:
+                session.delete(row)
             changed = True
     # Only ids that exist in this workspace and aren't in the Trash become attachments; a stale id is dropped from the field.
     valid = set()
@@ -114,7 +135,7 @@ def _sync(
         row = by_id.get(target_id)
         if row is not None:
             # Attached already in another role (or none). A choice just made in the field wins; an older one doesn't —
-            # the sidebar changed the role since, and the field drops the picture below.
+            # the sidebar changed the role since, and the field drops the picture below (unless another field names it).
             if row.role is None or target_id in added:
                 row.role = role
                 changed = True
@@ -123,7 +144,14 @@ def _sync(
         pos += 1
         changed = True
     session.flush()
-    final = (
+    return changed
+
+
+def _in_role(session, entry, role: str, link_model, fk: str) -> list[uuid.UUID]:
+    """The ids attached in a role, in position order."""
+    import sqlalchemy as sa
+
+    rows = (
         session.query(link_model)
         .filter(link_model.entry_id == entry.id, link_model.role == role)
         .order_by(
@@ -131,4 +159,4 @@ def _sync(
         )
         .all()
     )
-    return changed, [getattr(r, fk) for r in final]
+    return [getattr(r, fk) for r in rows]

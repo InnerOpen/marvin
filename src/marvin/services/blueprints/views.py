@@ -57,6 +57,15 @@ A timeline definition::
   (lengthening the item as a placed sound does) and dead air or a duck over the bed lanes (changing no timing); the item's page edits the field
   as rows, keeping keys and kinds it does not know. A cue plays in the item that holds its line now: a row left on another item when its line
   was moved is drawn there, marked, and its own item's page offers to move it.
+- ``spine.clip`` ({field, lane?, look?, corner?, size?, shape?, audio?, volume?, start?, end?, seconds?, has_audio?, poster?, text?, words?,
+  width?, height?}) names the fields of a video of the author on each item (a webcam take), played in a corner of its picture from the moment
+  the picture comes in, with its own sound mixed in like a spoken line: ``field`` the video asset, ``start`` / ``end`` a trim (seconds into
+  the file), ``audio`` (on unless set off) and ``volume`` (0 to 1) its sound, ``corner`` / ``shape`` where and how it sits, and ``seconds``
+  (the file's measured length), ``has_audio``, ``poster`` (a frame, an image asset) and ``text`` (what is said) what a later job may fill in.
+  The item lasts at least as long as the clip plays, counted from where its sound starts, and an item with a clip has no default hold. Its
+  length is ``seconds``, else the length the browser's recorder saved on the asset, else drawn as a marked guess. The strip draws it as a
+  tile in its card; when it is heard, its sound is drawn in the ``in`` lane ``lane`` on a row of its own, lit by the playhead and played by
+  Play (the music dips under it). The render must play it the same way.
 - On an ``in`` lane, ``nudge`` is a field holding seconds a piece starts later (+) or earlier (-) than it falls (-10 to 10; the pieces after it
   follow it and the item lasts until its latest piece ends), ``simultaneous`` a boolean field that starts it with the piece before (dual
   dialogue), and ``words`` the key in the recording's asset metadata holding its word timings ([{text, start, end}]). The render must lay
@@ -191,6 +200,8 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             return problem
     if problem := _check_word_cues(spine.get("word_cues"), lanes, f"{label} spine"):
         return problem
+    if problem := _check_clip(spine.get("clip"), lanes, f"{label} spine"):
+        return problem
     return _check_actions(payload.get("actions"), label)
 
 
@@ -208,6 +219,25 @@ def _check_word_cues(spec: Any, lanes: list[dict], label: str) -> str | None:
         return f"{label}: word_cues.lane must be the id of a lane with `in` (the pieces the cues sit on)"
     if spec.get("sounds") is not None and shapes.get(spec.get("sounds")) != "placed":
         return f"{label}: word_cues.sounds must be the id of a lane with `placed` (the sounds a cue plays)"
+    return None
+
+
+CLIP_KEYS = (
+    *("field", "look", "corner", "size", "shape", "audio", "volume", "start", "end"),
+    *("seconds", "has_audio", "poster", "text", "words", "width", "height"),  # what a job that looks at the file fills in
+)
+
+
+def _check_clip(spec: Any, lanes: list[dict], label: str) -> str | None:
+    """`spine.clip`: {field, lane?, ...}: the fields of each item's clip, its sound drawn in the `in` lane `lane`."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict) or set(spec) - {*CLIP_KEYS, "lane"}:
+        return f"{label}: clip is {{field, lane?, {', '.join(f'{k}?' for k in CLIP_KEYS[1:])}}}"
+    if problem := _field(spec, "field", f"{label} clip", required=True) or _fields(spec, CLIP_KEYS[1:], f"{label} clip"):
+        return problem
+    if spec.get("lane") is not None and not any(lane.get("id") == spec["lane"] and lane.get("in") is not None for lane in lanes):
+        return f"{label}: clip.lane must be the id of a lane with `in` (where its sound is drawn)"
     return None
 
 

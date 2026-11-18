@@ -3,7 +3,7 @@
 // (render/tests/test_picture_lead.py, test_dual_dialogue.py, test_word_cues.py).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cues, layout, MIN_PICTURE, overlays, picturesOf, placeLines, quiets, secondsOf, wordAt } from "./timeline.ts";
+import { cues, layout, MIN_PICTURE, overlays, picturesOf, placeLines, quiets, secondsOf, speechWindows, wordAt } from "./timeline.ts";
 
 const close = (actual, expected, what = "") =>
   assert.ok(Math.abs(actual - expected) < 1e-9, `${what} ${actual} is not ${expected}`);
@@ -331,4 +331,111 @@ test("picturesOf: nothing moved, the pictures are the sound's windows to the las
     { start: 0, seconds: 2.65 },
     { start: 2.65, seconds: 1.65 },
   ]);
+});
+
+// ── a beat's clip (ScreenplayStudio v223 clip.py, manifest `plan`: `max(hold, speech, sounds, clip) + after`; build: its sound from the picture's start)
+const clipSpec = {
+  ...spec,
+  spine: {
+    ...spec.spine,
+    picture: "still",
+    clip: { field: "clip", lane: "lines", audio: "clip_audio", volume: "clip_volume", start: "clip_start", end: "clip_end", seconds: "clip_seconds", has_audio: "clip_has_audio", poster: "clip_poster", text: "clip_text", corner: "clip_corner", shape: "clip_shape", look: "clip_look" },
+  },
+};
+const video = (seconds, extra = {}) => ({ id: "vid-1", role: "clip", publicUrl: "https://cdn/me.mp4", mimeType: "video/mp4", name: "Recording", ...(seconds ? { metadataJson: { recording: { duration_seconds: seconds } } } : {}), ...extra });
+const clipBeat = (n, data = {}, assets = [video(6.4)]) => ({ ...beat(n, { still: `img-${n}`, clip: "vid-1", ...data }), assets });
+const layClip = (beats, lines = []) => layout(clipSpec, { entry: story(), spine: beats, lanes: { lines } });
+
+test("clip: a beat with a clip and nothing else lasts as long as the clip the recorder measured, not the default hold", () => {
+  const laid = layClip([clipBeat(1), beat(2)]);
+  close(laid.items[0].seconds, 6.4, "the clip's length");
+  assert.equal(laid.items[0].clip.measured, "recorded");
+  assert.equal(laid.items[0].estimated, false);
+  close(laid.items[1].start, 6.4, "the next beat starts after it");
+  close(laid.items[1].seconds, 4, "a beat with no clip keeps the default hold");
+});
+
+test("clip: it counts with the lines and the beat's own hold, whichever is longest", () => {
+  const short = layClip([clipBeat(1)], [line(1, 2)]); // 0.3 + 2 + 0.35 = 2.65 < 6.4
+  close(short.items[0].seconds, 6.4);
+  const long = layClip([clipBeat(1)], [line(1, 8)]); // 0.3 + 8 + 0.35
+  close(long.items[0].seconds, 8.65);
+  const held = layClip([clipBeat(1, { hold_seconds: 9 })]);
+  close(held.items[0].seconds, 9);
+});
+
+test("clip: the measured length on the beat wins, trimmed by its start and end; a trim past the file is what the render refuses", () => {
+  const trimmed = layClip([clipBeat(1, { clip_seconds: 10, clip_start: 2, clip_end: 5 })]);
+  close(trimmed.items[0].clip.seconds, 3);
+  assert.equal(trimmed.items[0].clip.measured, "described");
+  close(trimmed.items[0].seconds, 3, "only its own hold would hold it longer");
+  const fromTwo = layClip([clipBeat(1, { clip_start: 2 })]); // the recorder's 6.4, less 2
+  close(fromTwo.items[0].clip.seconds, 4.4);
+  const hair = layClip([clipBeat(1, { clip_seconds: 6, clip_end: 6.04 })]); // a hair past its end is its end
+  close(hair.items[0].clip.seconds, 6);
+  assert.equal(hair.items[0].clip.problem, null);
+  const past = layClip([clipBeat(1, { clip_seconds: 6, clip_end: 7 })]);
+  assert.match(past.items[0].clip.problem, /past the end/);
+  const backwards = layClip([clipBeat(1, { clip_start: 3, clip_end: 2 })]);
+  assert.match(backwards.items[0].clip.problem, /must come after/);
+});
+
+test("clip: with no length known it is a marked guess, unless its trim gives its length", () => {
+  const guessed = layClip([clipBeat(1, {}, [video(null)])]);
+  close(guessed.items[0].clip.seconds, 4);
+  assert.equal(guessed.items[0].clip.measured, "estimated");
+  assert.equal(guessed.items[0].estimated, true);
+  assert.equal(guessed.items[0].clip.sound.estimated, true);
+  const ends = layClip([clipBeat(1, { clip_start: 1, clip_end: 3.5 }, [video(null)])]);
+  close(ends.items[0].clip.seconds, 2.5);
+  assert.equal(ends.items[0].clip.measured, "trimmed");
+});
+
+test("clip: it plays from where its picture comes in, cut with its picture, its sound running to its end", () => {
+  // beat 2's picture comes in 1 s before its first word, over the end of beat 1 (2.65 s): at 2.65 + 0.3 - 1 = 1.95
+  const laid = layClip([beat(1), clipBeat(2, { picture_lead: 1 })], [line(1, 2), line(2, 1)]);
+  const [one, two] = laid.items;
+  close(one.seconds, 2.65);
+  close(two.seconds, 6.4, "its length counts from its sound");
+  close(two.onScreen.start, 1.95);
+  close(two.clip.start, 1.95, "the clip");
+  close(two.clip.sound.start, 1.95, "its sound");
+  close(two.clip.sound.seconds, 6.4);
+  close(two.onScreen.seconds, 7.1);
+  close(two.clip.shown, 6.4, "shown in full: its picture is up longer");
+  // the next picture brought 2 s before its first word (6.4 + 0.3 - 2 = 4.7) cuts the clip's picture; its sound plays on
+  const cut = layClip([clipBeat(1), beat(2, { picture_lead: 2 })], [line(2, 1)]);
+  close(cut.items[0].onScreen.seconds, 4.7);
+  close(cut.items[0].clip.shown, 4.7);
+  close(cut.items[0].clip.sound.seconds, 6.4);
+});
+
+test("clip: its sound is heard unless it is off, at 0 or the file has none; Play plays it from its trim and the music ducks under it", () => {
+  const heard = layClip([clipBeat(1, { clip_start: 1.5, clip_volume: 0.6 })]);
+  const sound = heard.items[0].clip.sound;
+  assert.equal(sound.audio, "https://cdn/me.mp4");
+  close(sound.volume, 0.6);
+  const [o] = overlays(heard, clipSpec.lanes);
+  assert.deepEqual([o.lane, o.start, o.audio, o.origin], ["lines", 0, "https://cdn/me.mp4", -1.5]);
+  close(o.seconds, 4.9);
+  assert.deepEqual(speechWindows(heard, clipSpec.lanes), [[0, 4.9]]);
+  for (const off of [{ clip_audio: false }, { clip_audio: "no" }, { clip_volume: 0 }, { clip_has_audio: false }]) {
+    const laid = layClip([clipBeat(1, off)]);
+    assert.equal(laid.items[0].clip.sound, null, JSON.stringify(off));
+    close(laid.items[0].seconds, 6.4, "its picture still plays");
+  }
+});
+
+test("clip: the poster, the text, the corner and the shape are read from the beat; an unknown corner is the render's default", () => {
+  const poster = { id: "img-p", role: "clip_poster", publicUrl: "https://cdn/p.jpg", mimeType: "image/jpeg" };
+  const laid = layClip([clipBeat(1, { clip_poster: "img-p", clip_text: "Hi there", clip_corner: "TOP-left", clip_shape: "square" }, [video(6.4), poster]), clipBeat(2, { clip_corner: "middle" })]);
+  const [a, b] = laid.items.map((i) => i.clip);
+  assert.deepEqual([a.poster, a.text, a.corner, a.shape], ["https://cdn/p.jpg", "Hi there", "top-left", "square"]);
+  assert.deepEqual([b.poster, b.corner, b.shape], [null, "bottom-right", "circle"]);
+});
+
+test("clip: a spec with no clip key lays a beat that names one as before", () => {
+  const laid = lay([clipBeat(1)]);
+  close(laid.items[0].seconds, 4);
+  assert.equal(laid.items[0].clip, undefined);
 });

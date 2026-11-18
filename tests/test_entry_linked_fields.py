@@ -210,3 +210,30 @@ def test_a_resource_list_field_attaches_resources_the_same_way(db_session, ws):
     entry = _create(db_session, ws, {"related": [str(ws["res"])]})
     rows = db_session.query(EntryResources).filter(EntryResources.entry_id == entry.id).all()
     assert [(str(r.resource_id), r.role) for r in rows] == [(str(ws["res"]), "related")]
+
+
+def test_one_asset_named_by_two_fields_stays_in_both_across_saves(db_session, ws):
+    """A beat's clip and its overlay were the same recording: the clip took the one attachment's role, and the next save emptied
+    the overlay field (the Timeline lost the overlay first, then the render). An asset an entry attaches once may fill two fields."""
+    svc = _svc(db_session, ws)
+    entry = _create(db_session, ws, {"heroImage": str(ws["a1"])})
+    svc.update(entry.id, {"data_json": {"heroImage": str(ws["a1"]), "gallery": [str(ws["a1"])]}})  # chosen in the second field too
+    assert _asset_links(db_session, entry.id) == {(str(ws["a1"]), "gallery")}  # one attachment, the role of the field that chose it last
+    for _ in range(2):  # saves that change nothing keep both
+        svc.update(entry.id, {"data_json": {"heroImage": str(ws["a1"]), "gallery": [str(ws["a1"])]}})
+        db_session.expire_all()
+        data = db_session.get(Entries, entry.id).data_json
+        assert (data["heroImage"], data["gallery"]) == (str(ws["a1"]), [str(ws["a1"])])
+
+
+def test_letting_go_of_a_shared_asset_hands_its_role_to_the_field_that_still_names_it(db_session, ws):
+    svc = _svc(db_session, ws)
+    entry = _create(db_session, ws, {"heroImage": str(ws["a1"])})
+    svc.update(entry.id, {"data_json": {"heroImage": str(ws["a1"]), "gallery": [str(ws["a1"])]}})
+    svc.update(entry.id, {"data_json": {"heroImage": str(ws["a1"]), "gallery": []}})  # the field holding the role lets it go
+    assert _asset_links(db_session, entry.id) == {(str(ws["a1"]), "hero")}
+    db_session.expire_all()
+    data = db_session.get(Entries, entry.id).data_json
+    assert (data["heroImage"], data["gallery"]) == (str(ws["a1"]), [])
+    svc.update(entry.id, {"data_json": {"heroImage": None, "gallery": []}})  # and once neither names it, it goes
+    assert _asset_links(db_session, entry.id) == set()
