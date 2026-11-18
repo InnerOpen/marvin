@@ -146,6 +146,17 @@ export function subtitleOf(subtitle: unknown, data: Record<string, unknown> | nu
     .join(" · ");
 }
 
+/** A pick's `marks`: the `text` of each `{field, text}` whose field holds something on this choice (a file attached, a number, words),
+ *  at most two, so a list can say what is already there. */
+export function marksOf(marks: unknown, data: Record<string, unknown> | null | undefined): string[] {
+  if (!Array.isArray(marks)) return [];
+  return marks
+    .slice(0, 2)
+    .filter((m) => m && typeof m === "object" && String(data?.[String((m as { field?: unknown }).field)] ?? "").trim() !== "")
+    .map((m) => String((m as { text?: unknown }).text ?? "").trim())
+    .filter(Boolean);
+}
+
 /** What a card being made says before its run does, when the step names no words for its status. */
 export const WORKING_LINE = "Being made…";
 
