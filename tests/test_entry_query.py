@@ -252,6 +252,32 @@ def test_a_text_field_sorts_as_people_read_it_and_then_breaks_ties(db_session, s
     assert _titles(backwards) == ["d", "e", "c", "b", "a", "z"]
 
 
+def test_a_beat_inserted_after_04_sorts_after_04_not_beside_it(db_session, shop):
+    # Beat numbers are numbers with letters for an inserted beat (04a after 04): alike numbers keep to the text, read naturally.
+    from marvin.db.models.platform import Entries, EntryTypes
+
+    beat = EntryTypes(session=db_session, group_id=shop, name="Beat", slug="beat", schema_json={})
+    db_session.add(beat)
+    db_session.flush()
+    for i, number in enumerate(["05", "04b", "10", "04a", "04", "03"]):
+        db_session.add(
+            Entries(
+                session=db_session, group_id=shop, entry_type_id=beat.id, title=number, slug=f"b-{i}-{shop.hex[:6]}", data_json={"number": number}
+            )
+        )
+    db_session.commit()
+
+    assert _titles(run(db_session, shop, {"entry_type": "beat", "sort": {"by": "number"}})) == ["03", "04", "04a", "04b", "05", "10"]
+    assert _titles(run(db_session, shop, {"entry_type": "beat", "sort": {"by": "number", "direction": "desc"}})) == [
+        "10",
+        "05",
+        "04b",
+        "04a",
+        "04",
+        "03",
+    ]
+
+
 def test_a_field_sort_may_break_ties_by_the_order_they_were_made(db_session, shop):
     # A story's takes: line by line in script order, a line's takes in the order recorded (created_at), never by title.
     from datetime import UTC, datetime, timedelta

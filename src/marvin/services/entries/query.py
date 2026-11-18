@@ -436,7 +436,13 @@ def _sort_key(entry, by: str, numeric: bool):
     empty = value is None or value == ""
     if numeric:
         n = number_like(value)
-        return (n is None, n or 0.0)
+        # alike numbers keep to the text, read naturally: a beat inserted after 04 is "04a", so 04 comes before 04a, not wherever it was found
+        text = (
+            tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in _DIGITS.split(str(value).lower()) if part)
+            if value is not None
+            else ()
+        )
+        return (n is None, n or 0.0, text)
     if empty:
         return (True, ())
     return (False, tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in _DIGITS.split(str(value).lower()) if part))
