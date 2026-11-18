@@ -59,6 +59,43 @@ export interface SpineSpec {
    * of the `in` lane `lane`; a cue's sound (an entry of the placed lane `sounds`) plays in that lane at the end of the word before it, as the render
    * plays it (marvin_pull `_cue_sounds`), and lengthens the item as a placed sound does (unless it rings over the next beats: RING). The entry page edits the field as rows. */
   word_cues?: { field: string; lane: string; sounds?: string };
+  /** A video of the author on each item, played picture-in-picture over its picture with its own sound (ScreenplayStudio v223 render: clip.py). */
+  clip?: ClipSpec;
+}
+
+/**
+ * The fields of an item's clip: a video (`field`, an asset) laid in a corner of its picture from the moment the picture comes in, with its own sound
+ * mixed in like a spoken line. The item lasts at least as long as the clip plays, from where its sound starts, as the render lays it (manifest `plan`:
+ * `max(hold, speech, sounds, clip) + pause`); a beat with a clip has no default hold. Every key but `field` is optional; the ones a later job
+ * fills in (`seconds`, `has_audio`, `poster`, `text`...) are read when they are there. Must match the render (ScreenplayStudio render: clip.py).
+ */
+export interface ClipSpec {
+  field: string;
+  /** The `in` lane its sound is drawn in (the lines): on a row of its own under them, lit by the playhead, played by Play. */
+  lane?: string;
+  look?: string;
+  corner?: string;
+  size?: string;
+  shape?: string;
+  /** Its own sound plays (default on). */
+  audio?: string;
+  /** Its sound's level, 0 to 1 (default 1). */
+  volume?: string;
+  /** Seconds into the file it starts and ends (a trim; empty for the whole file). */
+  start?: string;
+  end?: string;
+  /** The file's whole length in seconds, as measured. Without it, the length the browser's recorder saved on the asset; without that, an estimate. */
+  seconds?: string;
+  /** False when the file has no sound at all (nothing is heard, whatever `audio` says). */
+  has_audio?: string;
+  /** A frame of it (an image asset), drawn as its tile; else a camera. */
+  poster?: string;
+  /** What is said in it, written under its tile. */
+  text?: string;
+  /** Its word timings, its picture's width and height: not drawn yet. */
+  words?: string;
+  width?: string;
+  height?: string;
 }
 
 export interface CardSpec {
@@ -215,7 +252,7 @@ export interface Row {
   slug: string;
   title: string;
   dataJson?: Record<string, unknown> | null;
-  assets?: { role?: string | null; name?: string | null; publicUrl?: string | null; mimeType?: string | null; metadataJson?: Record<string, unknown> | null }[];
+  assets?: { id?: string | null; role?: string | null; name?: string | null; publicUrl?: string | null; mimeType?: string | null; metadataJson?: Record<string, unknown> | null }[];
 }
 
 /** A word of a recording, as the voice service times it (seconds into the take). */
@@ -438,6 +475,34 @@ export interface Item {
   /** Set on an item whose picture comes in at a word of a piece laid before it (`spine.starts_during`): that piece, the word, and where on the
    * film the picture comes in (`onScreen.start` unless the least picture length moved it); `estimated` when the place came from the text. */
   overlay?: { piece: string; title: string; word: number; text: string; at: number; estimated: boolean };
+  /** Its clip (`spine.clip`): a video of the author in a corner of its picture, with its own sound. */
+  clip?: ItemClip;
+}
+
+/** An item's clip, as the render plays it (ScreenplayStudio clip.py): from where its picture comes in, for `seconds`. */
+export interface ItemClip {
+  /** The video's address, and its title in the library (its file name when it has none). Null when the item names a file that is not attached. */
+  url: string | null;
+  name: string;
+  /** Seconds it plays: its part of the file (`start` to `end`, else the file's end). */
+  seconds: number;
+  /** Where that length came from: measured (`described`), saved by the recorder (`recorded`), its trim's two ends (`trimmed`) or a guess (`estimated`). */
+  measured: "described" | "recorded" | "trimmed" | "estimated";
+  /** Where on the film it starts (its picture's start) and how long it is in the picture (it is cut with its picture; its sound plays on). */
+  start: number;
+  shown: number;
+  /** Seconds into the file it starts. */
+  from: number;
+  corner: string;
+  shape: string;
+  look: string;
+  poster: string | null;
+  text: string;
+  /** Its sound, drawn in the lane `spine.clip.lane` names and played by Play; null when nothing is heard (its sound off, at 0, or none in the file). */
+  sound: Piece | null;
+  lane: string | null;
+  /** Why the render refuses it (a trim past the file's end), when it does. */
+  problem: string | null;
 }
 
 export interface Group {
@@ -500,11 +565,16 @@ export function assetUrl(row: Row, key: string | undefined, kind: "image/" | "au
   return assetOf(row, key, kind)?.publicUrl ?? null;
 }
 
-/** The asset attached in the field's role, with the title it was given in the library. */
-export function assetOf(row: Row, key: string | undefined, kind: "image/" | "audio/" | "video/"): { publicUrl: string; name: string | null } | null {
+/** The asset a field names, with the title it was given in the library: the attachment whose id the field holds, as the render fetches it, else
+ * the one attached in the field's role. An entry attaches an asset once, so one that two fields name (a beat's clip that is also its overlay)
+ * carries the role of only one of them: found by its id, it is drawn for both. */
+export function assetOf(row: Row, key: string | undefined, kind: "image/" | "audio/" | "video/"): { publicUrl: string; name: string | null; metadataJson?: Record<string, unknown> | null } | null {
   if (!key) return null;
-  const hit = (row.assets ?? []).find((a) => a.role === key && a.publicUrl && (a.mimeType ?? "").startsWith(kind));
-  return hit?.publicUrl ? { publicUrl: hit.publicUrl, name: hit.name?.trim() || null } : null;
+  const usable = (a: NonNullable<Row["assets"]>[number]) => !!a.publicUrl && (a.mimeType ?? "").startsWith(kind);
+  const named = field(row, key);
+  const id = typeof named === "string" ? named.trim() : "";
+  const hit = (id && (row.assets ?? []).find((a) => a.id === id && usable(a))) || (row.assets ?? []).find((a) => a.role === key && usable(a));
+  return hit?.publicUrl ? { publicUrl: hit.publicUrl, name: hit.name?.trim() || null, metadataJson: hit.metadataJson ?? null } : null;
 }
 
 /** A lane piece's seconds: the recording's duration when it has one, else an estimate from its text, else nothing (a sound with no file). */
@@ -829,11 +899,18 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
       const ownHold = num(field(row, spec.spine.seconds?.hold));
       // An overlay adds no time of its own; its hold keeps it up that long from its word, so only what runs past the item before counts.
       const spoken = timed.length ? itemSeconds(row, timed, spec.spine.seconds, rows.entry, placedLines.spoken ?? undefined) : 0;
-      item.seconds = overlay ? Math.max(ownHold !== null && ownHold > 0 ? Math.max(0, overlay.at + ownHold - clock) : 0, spoken) : itemSeconds(row, timed, spec.spine.seconds, rows.entry, placedLines.spoken ?? undefined);
+      // A clip plays to its end, counted from where the item's sound starts; an item with one has no default hold, only its own (the render's pull).
+      const clip = clipOf(row, spec.spine.clip);
+      const held = clip && !timed.length ? (ownHold !== null && ownHold > 0 ? ownHold : 0) : null;
+      item.seconds = overlay ? Math.max(ownHold !== null && ownHold > 0 ? Math.max(0, overlay.at + ownHold - clock) : 0, spoken) : (held ?? itemSeconds(row, timed, spec.spine.seconds, rows.entry, placedLines.spoken ?? undefined));
+      if (clip) {
+        item.seconds = Math.max(item.seconds, clip.seconds);
+        item.clip = clip;
+      }
       if (overlay) item.overlay = overlay;
       item.pause = pauseAfter(row);
       item.seconds += item.pause;
-      item.estimated = timed.some((p) => p.estimated);
+      item.estimated = timed.some((p) => p.estimated) || clip?.measured === "estimated";
       let reach = 0; // how far into the item its last placed sound runs: the render lets a beat last until that sound has finished (one that rings over the next beats aside)
       for (const lane of placedLanes) {
         const known = bySlug(lane);
@@ -889,6 +966,13 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   // The pictures are cut from the sound (a picture lead brings one in before its words); the chapters, beds, overlays, marks and bands follow them.
   picturesOf(cuts, clock).forEach((cut, k) => {
     items[k].onScreen = cut;
+    const clip = items[k].clip;
+    if (clip) {
+      // It plays from where its picture comes in (the render's `planned.start`), cut with its picture; its sound runs to its end.
+      clip.start = cut.start;
+      clip.shown = Math.min(clip.seconds, cut.seconds);
+      if (clip.sound) clip.sound.start = clip.sound.natural = cut.start;
+    }
   });
   for (const g of out) {
     const [first, last] = [g.items[0], g.items[g.items.length - 1]];
@@ -1199,6 +1283,8 @@ function coversOf(spec: CoverSpec, view: TimelineSpec, items: Item[], rows: Rows
         continue;
       }
     }
+    // A clip with no still plays on a plain card, and no overlay file falls on a plain card (the render's pull: only an info card does).
+    if (row && view.spine.clip && filled(field(row, view.spine.clip.field)) && !filled(field(row, view.spine.picture))) continue;
     const tiers: [Row | undefined, string][] = [
       [row, view.spine.entry_type],
       [named, spec.entry_type ?? ""],
@@ -1352,6 +1438,83 @@ function wordCuesOf(item: Item, held: readonly StoredCue[], rowBySlug: ReadonlyM
 /** An item that comes in at a word of a piece already laid (`spine.starts_during`), as the render places it (marvin_pull: _starts_during): at the
  * start of the word after `word` words. Undefined for any other item, and for one whose piece is not laid before it (left out, or not there): that
  * one is an ordinary item. A piece with no take is placed by its text, where the render would play the item as one of its own. */
+/** How long a clip whose length is not known yet is drawn (marked as a guess), as long as the render holds a beat whose clip cannot be read. */
+export const CLIP_GUESS_SECONDS = 4;
+/** An `end` this little past the file's length is its end (rounded timings), as the render reads it (clip.py TRIM_SLACK). */
+const CLIP_TRIM_SLACK = 0.05;
+export const CLIP_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
+export const CLIP_SHAPES = ["circle", "rounded", "square"] as const;
+
+/** A form's on/off as the render reads it: empty is `fallback`; "false", "no", "off" and "0" are off. */
+const flag = (v: unknown, fallback: boolean): boolean =>
+  v === null || v === undefined || v === "" ? fallback : typeof v === "string" ? !["false", "no", "off", "0"].includes(v.trim().toLowerCase()) : !!v;
+
+/**
+ * An item's clip (`spine.clip`), as the render plays it (ScreenplayStudio clip.py `load`): its length is its part of the file, from `start` to
+ * `end` (else the file's end). The file's length is the measured one on the item (`seconds`), else the one the browser's recorder saved on the asset
+ * (`recording.duration_seconds`), else one an automation saved (`duration_seconds`); with none, an `end` gives the part's length, and without that it
+ * is drawn as a marked guess. Its sound is heard when `audio` is on (the default), its level is above 0 and the file has a sound. Placed (`start`,
+ * `shown`) once the pictures are cut. Null when the item has no clip.
+ */
+export function clipOf(row: Row, spec: ClipSpec | undefined): ItemClip | null {
+  if (!spec || !str(field(row, spec.field)).trim()) return null;
+  const asset = assetOf(row, spec.field, "video/");
+  const recording = asset?.metadataJson?.recording;
+  const positive = (v: unknown): number | null => {
+    const n = num(v);
+    return n !== null && n > 0 ? n : null;
+  };
+  const described = positive(field(row, spec.seconds));
+  const recorded = recording && typeof recording === "object" ? positive((recording as Record<string, unknown>).duration_seconds) : null;
+  const saved = positive(asset?.metadataJson?.duration_seconds);
+  const total = described ?? recorded ?? saved;
+  const from = Math.max(0, num(field(row, spec.start)) ?? 0);
+  const end = num(field(row, spec.end));
+  let seconds: number;
+  let measured: ItemClip["measured"] = described !== null ? "described" : total !== null ? "recorded" : end !== null ? "trimmed" : "estimated";
+  let problem: string | null = null;
+  if (end !== null && end <= from) {
+    problem = `its end (${end} s) must come after its start (${from} s)`;
+    seconds = 0;
+  } else if (total !== null) {
+    if (from >= total) problem = `its start (${from} s) is past the end of the ${total.toFixed(2)} s clip`;
+    else if (end !== null && end > total + CLIP_TRIM_SLACK) problem = `its end (${end} s) is past the end of the ${total.toFixed(2)} s clip`;
+    seconds = problem ? 0 : (end !== null ? Math.min(end, total) : total) - from;
+  } else if (end !== null) seconds = end - from;
+  else {
+    seconds = CLIP_GUESS_SECONDS;
+    measured = "estimated";
+  }
+  const choice = <T extends string>(key: string | undefined, options: readonly T[], fallback: T): T => {
+    const v = str(field(row, key)).trim().toLowerCase() as T;
+    return options.includes(v) ? v : fallback;
+  };
+  const volume = level(field(row, spec.volume)) ?? 1;
+  const heard = !!asset && flag(field(row, spec.audio), true) && volume > 0 && seconds > 0 && field(row, spec.has_audio) !== false;
+  const name = asset?.name ?? (asset ? fileName(asset.publicUrl) : "Clip");
+  const text = str(field(row, spec.text)).trim();
+  const sound: Piece | null = heard
+    ? { id: `clip:${row.id}`, slug: row.slug, title: name, text: text || name, who: "Clip", status: "", start: 0, seconds, estimated: measured === "estimated", unmeasured: false, audio: asset!.publicUrl, wave: null, volume, at: null, nudge: 0, natural: 0, together: false, words: null }
+    : null;
+  return {
+    url: asset?.publicUrl ?? null,
+    name,
+    seconds,
+    measured,
+    start: 0,
+    shown: 0,
+    from,
+    corner: choice(spec.corner, CLIP_CORNERS, "bottom-right"),
+    shape: choice(spec.shape, CLIP_SHAPES, "circle"),
+    look: str(field(row, spec.look)).trim().toLowerCase() || "pip",
+    poster: assetUrl(row, spec.poster, "image/"),
+    text,
+    sound,
+    lane: spec.lane ?? null,
+    problem,
+  };
+}
+
 function overlayOf(row: Row, spine: SpineSpec, said: Map<string, Piece>): Item["overlay"] {
   const during = field(row, spine.starts_during);
   if (!during || typeof during !== "object") return undefined;
@@ -1654,6 +1817,7 @@ export function speechWindows(laid: Layout, lanes: LaneSpec[]): [number, number]
   const timed = lanes.filter((l) => l.in && (l.seconds || l.estimate_from)).map((l) => l.id);
   const spans = laid.items
     .flatMap((i) => timed.flatMap((id) => i.lanes[id] ?? []))
+    .concat(laid.items.flatMap((i) => (i.clip?.sound ? [i.clip.sound] : []))) // a clip's sound is a voice: the music ducks under it, as the render does
     .filter((p) => p.audio && p.seconds > 0)
     .map((p): [number, number] => [p.start, p.start + p.seconds])
     .sort((a, b) => a[0] - b[0]);
@@ -1688,6 +1852,11 @@ export function overlays(laid: Layout, lanes: LaneSpec[]): Overlay[] {
   // A piece laid over one that is still playing (a nudge, dual dialogue) plays over it, as a placed sound does: the cues walk one at a time.
   for (const { p, lane } of walk(laid, lanes).layered) {
     if (p.audio) out.push({ id: p.id, lane, start: p.start, seconds: p.seconds, audio: p.audio, volume: p.volume ?? 1, loop: false });
+  }
+  // A clip's sound plays over everything from where its picture comes in, from its trim's start in the file (in its lane, so its mute applies).
+  for (const i of laid.items) {
+    const c = i.clip;
+    if (c?.sound?.audio) out.push({ id: c.sound.id, lane: c.lane ?? "clip", start: c.start, seconds: c.seconds, audio: c.sound.audio, volume: c.sound.volume ?? 1, loop: false, origin: c.start - c.from });
   }
   let windows: [number, number][] | undefined; // the speech windows, found once and only when a bed ducks
   for (const lane of lanes.filter((l) => l.placed)) {

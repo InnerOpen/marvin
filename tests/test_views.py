@@ -552,3 +552,26 @@ def test_a_timeline_may_name_a_list_of_cues_on_words():
 )
 def test_a_wrong_word_cues_says_what_is_wrong(word_cues, words):
     assert words in (_bad(lambda p: p["spine"].update(word_cues=word_cues)) or "")
+
+
+CLIP = {"field": "clip", "lane": "lines", "audio": "clip_audio", "volume": "clip_volume", "start": "clip_start", "seconds": "clip_seconds"}
+
+
+def test_a_timeline_may_name_an_items_clip_and_older_ones_need_not():
+    assert _bad(lambda p: p["spine"].update(clip=CLIP)) is None
+    assert _bad(lambda p: p["spine"].update(clip={"field": "clip"})) is None  # its sound is then drawn nowhere, but the item is as long
+    assert _bad(lambda p: None) is None
+
+
+@pytest.mark.parametrize(
+    ("clip", "words"),
+    [
+        ("clip", "clip is {field, lane?,"),
+        ({**CLIP, "extra": "x"}, "clip is {field, lane?,"),
+        ({"lane": "lines"}, "clip needs field"),
+        ({**CLIP, "poster": "Clip Poster"}, "clip: poster must be a field key"),
+        ({**CLIP, "lane": "sounds"}, "clip.lane must be the id of a lane with `in`"),
+    ],
+)
+def test_a_wrong_clip_says_what_is_wrong(clip, words):
+    assert words in (_bad(lambda p: p["spine"].update(clip=clip)) or "")

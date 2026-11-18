@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type CueMark, type Ghost, type Group, type Item, type Piece, mixStretches, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ringSpan, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
+import { type Bed, type CueMark, type Ghost, type Group, type Item, type ItemClip, type Piece, CLIP_GUESS_SECONDS, mixStretches, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ringSpan, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 import { cameraWords, parseWordCues } from "@/lib/wordCues";
 import { cueChips, effectWords, emphasisWords } from "@/lib/cueKinds";
@@ -176,8 +176,28 @@ const itemTitle = (item: Item) => {
   const o = item.overlay;
   if (o) said.push(`Comes in during ${o.title} at word ${o.word + 1}${o.text ? ` (“${o.text}”)` : ""}${o.estimated ? ", placed by the text: no word timings yet" : ""}, over the picture before; it adds no time of its own`);
   else if (Math.abs(shown.start - item.start) > 0.005) said.push(`The picture comes ${Math.abs(item.start - shown.start).toFixed(2)} s ${shown.start < item.start ? "before" : "after"} its sound starts (${timecode(item.start)})`);
+  if (item.clip) said.push(clipTitle(item.clip));
   return said.join("\n");
 };
+// A beat's clip (a video of the author in a corner of its picture), as its tile says it: its length, and where that length came from.
+const clipLength = (c: ItemClip) => (c.problem ? "refused" : c.measured === "estimated" ? `~${c.seconds.toFixed(1)} s?` : `${c.seconds.toFixed(1)} s`);
+const MEASURED: Record<ItemClip["measured"], string> = {
+  described: "measured",
+  recorded: "as the recorder saved it",
+  trimmed: "from its start and end (the file's own length is not known yet)",
+  estimated: `its length is not known yet: drawn as a ${CLIP_GUESS_SECONDS} s guess; the render plays it to its end`,
+};
+const clipTitle = (c: ItemClip) =>
+  [
+    `Clip: ${c.name}${c.url ? "" : " (its file is not attached: the render plays the beat without it)"}`,
+    `${timecode(c.start)} → ${timecode(c.start + c.seconds)} (${c.seconds.toFixed(1)} s, ${MEASURED[c.measured]})${c.from > 0 ? `, from ${c.from} s into the file` : ""}`,
+    c.shown < c.seconds - 0.005 && `Its picture is cut after ${c.shown.toFixed(1)} s by the next picture; its sound plays on`,
+    `In the ${c.corner.replace("-", " ")} corner, ${c.shape}${c.look !== "pip" ? ` (${c.look}: plays in a corner for now)` : ""} · ${c.sound ? `its sound plays${c.sound.volume !== null && c.sound.volume < 1 ? ` at ${Math.round(c.sound.volume * 100)}%` : ""}` : "no sound"}`,
+    c.text && `“${c.text}”`,
+    c.problem && `The render refuses this clip: ${c.problem}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 const stackHref = (on: boolean) => {
   const u = new URL(Astro.url);
   if (on) u.searchParams.set("stack", "chapters");
@@ -464,6 +484,20 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         </span>
                       )}
                       <span class="tl-len">{item.onScreen.seconds.toFixed(1)}s</span>
+                      {item.clip && (
+                        <span class:list={["tl-clip", `at-${item.clip.corner}`, { guess: item.clip.measured === "estimated", refused: !!item.clip.problem }]} role="img" aria-label={clipTitle(item.clip)} title={clipTitle(item.clip)}>
+                          <span class:list={["tl-clip-face", item.clip.shape]}>
+                            {item.clip.poster ? (
+                              <img src={item.clip.poster} alt="" loading="lazy" />
+                            ) : (
+                              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="13" height="12" rx="2" /><path d="M16 10.5 22 7v10l-6-3.5z" /></svg>
+                            )}
+                          </span>
+                          <small class="tl-clip-len">{clipLength(item.clip)}</small>
+                          {item.clip.text && <small class="tl-clip-text">{item.clip.text}</small>}
+                        </span>
+                      )}
+                      {item.clip && item.clip.shown > 0 && <i class="tl-clip-span" aria-hidden="true" style={`width:${Math.min(100, (item.clip.shown / Math.max(item.onScreen.seconds, 1e-9)) * 100).toFixed(2)}%`} />}
                     </div>
                   ))}
                 </div>
@@ -481,15 +515,18 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   // Pieces that overlap in time (two sound effects at one moment) stack on rows instead of sitting on top of each other.
                   const lanePieces = track.items.flatMap((item) => item.lanes[lane.id] ?? []);
                   const laneRows = stackRows(lanePieces);
+                  // A clip's sound, in the lane the spec names, on rows of its own under the lines (it is the beat's, not a line of it).
+                  const clipSounds = spec.spine.clip?.lane === lane.id ? track.items.flatMap((i) => (i.clip?.sound ? [i.clip.sound] : [])) : [];
+                  const clipRows = stackRows(clipSounds).map((r) => r + (lanePieces.length ? Math.max(...laneRows) + 1 : 0));
                   // Beds that run together (the story's ambience under a scene's) stack the same way; with a beat's own bed, like a mixer:
                   // the beat's on top, the scene's below it, the story's at the bottom, each named so the rows read apart.
                   const bedList = lane.bed ? bedsIn(lane, track) : [];
                   const bedRows = stackBeds(bedList.map((b) => ({ start: clip(b, track).from, seconds: clip(b, track).seconds, over: b.over, whole: b.whole })));
                   const layered = bedList.some((b) => b.over);
                   // A bed is taller than a piece: its title on top and the level labels in a band of their own below, so one never sits on the other.
-                  const laneHeight = (lane.bed ? 62 : 44) + Math.max(0, ...laneRows, ...bedRows) * (lane.bed ? 44 : 28);
+                  const laneHeight = (lane.bed ? 62 : 44) + Math.max(0, ...laneRows, ...clipRows, ...bedRows) * (lane.bed ? 44 : 28);
                   return (
-                  <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title} style={lane.bed || laneRows.some((r) => r > 0) || bedRows.some((r) => r > 0) ? `height:${laneHeight}px` : undefined}>
+                  <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title} style={lane.bed || laneRows.some((r) => r > 0) || clipRows.some((r) => r > 0) || bedRows.some((r) => r > 0) ? `height:${laneHeight}px` : undefined}>
                     <span class="tl-lane-name">
                       {!lane.cover && !lane.marks && <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>}
                       {lane.title}
@@ -627,6 +664,21 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         )}
                         {p.who && <b>{p.who}</b>}
                         <span>{firstWords(p.text || p.title)}</span>
+                      </a>
+                    ))}
+                    {clipSounds.map((p, n) => (
+                      <a
+                        class:list={["tl-piece", "tl-clip-sound", { estimated: p.estimated }]}
+                        role="listitem"
+                        href={open(p.id.slice("clip:".length))}
+                        data-piece={p.id}
+                        data-from={p.start}
+                        data-to={p.start + p.seconds}
+                        style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:18px${clipRows[n] ? `;top:${18 + clipRows[n] * 28}px` : ""}`}
+                        title={`The beat's clip: ${p.title}${p.text !== p.title ? `\n“${p.text}”` : ""}\n${timecode(p.start)} → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.estimated ? `, a ${CLIP_GUESS_SECONDS} s guess: its length is not known yet` : ""})${p.volume !== null && p.volume < 1 ? ` · at ${Math.round(p.volume * 100)}%` : ""}\nIts sound plays like a spoken line, from where its picture comes in; the music dips under it`}
+                      >
+                        <b>Clip</b>
+                        <span>{firstWords(p.text)}</span>
                       </a>
                     ))}
                     {spec.spine.word_cues?.lane === lane.id &&
@@ -1364,6 +1416,26 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-review button { font: inherit; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); cursor: pointer; }
   .tl-review .tl-keep { border-color: #2f9e44; }
   .tl-review button:disabled { cursor: progress; opacity: 0.5; }
+  /* A beat's clip: a small tile in its corner of the card (above the badge and length that share it), its length under it, and a thin bar along
+     the card's foot for as long as it plays in the picture. */
+  .tl-clip { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 1px; max-width: 45%; pointer-events: none; z-index: 1; }
+  .tl-clip.at-top-left { left: 6px; top: 28px; }
+  .tl-clip.at-top-right { right: 9px; top: 28px; }
+  .tl-clip.at-bottom-left { left: 6px; bottom: 26px; flex-direction: column-reverse; }
+  .tl-clip.at-bottom-right { right: 9px; bottom: 26px; flex-direction: column-reverse; }
+  .tl-clip-face { width: clamp(22px, calc(var(--tl-h, 120px) * 0.28), 64px); aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; background: color-mix(in srgb, var(--panel) 85%, transparent); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); color: var(--ink); }
+  .tl-clip-face.circle { border-radius: 50%; }
+  .tl-clip-face.rounded { border-radius: 18%; }
+  .tl-clip-face img { width: 100%; height: 100%; object-fit: cover; }
+  .tl-clip-face svg { width: 60%; height: 60%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+  .tl-clip-len, .tl-clip-text { font-size: 10px; line-height: 1.3; padding: 0 4px; border-radius: 4px; background: color-mix(in srgb, var(--panel) 85%, transparent); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; font-variant-numeric: tabular-nums; }
+  .tl-clip-text { color: var(--muted); font-style: italic; max-width: 9em; }
+  .tl-clip.guess .tl-clip-face { border-style: dashed; }
+  .tl-clip.guess .tl-clip-len { font-style: italic; }
+  .tl-clip.refused .tl-clip-len { background: #c92a2a; color: #fff; }
+  .tl-clip-span { position: absolute; left: 0; bottom: 0; height: 3px; border-radius: 0 0 0 8px; background: var(--accent); opacity: 0.7; pointer-events: none; }
+  .tl-piece.tl-clip-sound { border-style: solid; border-color: var(--muted); background: color-mix(in srgb, var(--muted) 18%, var(--panel)); }
+  .tl-piece.tl-clip-sound.estimated { border-style: dashed; }
   .tl-len { position: absolute; right: 9px; bottom: 6px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink); background: color-mix(in srgb, var(--panel) 85%, transparent); padding: 0 5px; border-radius: 4px; pointer-events: none; }
 
   .tl-ruler { position: relative; height: 22px; margin: 4px 0 6px; border-top: 1px solid var(--line); }

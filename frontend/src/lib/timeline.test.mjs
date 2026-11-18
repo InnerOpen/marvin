@@ -347,6 +347,30 @@ const coverLaid = ({ story = {}, storyAssets = [], scenes: sc, beatsData = [] })
   return layout(coverSpec, { entry: row("s", story, { assets: storyAssets }), spine, groups: chapters, lanes: { lines: [], sounds: [] }, via: { overlay: sc ?? [] } });
 };
 
+// The user's beat (the-flash-beat-02, Studio v223): one recording named by both its overlay and its clip. An entry attaches an asset once, so it
+// carried the role `clip` only, and the overlay lane, which found a field's asset by its role, drew no overlay (the render, which fetches the id
+// the field holds, showed both). A field's asset is found by the id it holds first.
+const recording = { id: "rec-1", role: "clip", name: "Recording Nov 18", publicUrl: "https://cdn/rec.mp4", mimeType: "video/mp4", metadataJson: { recording: { duration_seconds: 6.4 } } };
+const clipCoverSpec = { ...coverSpec, spine: { ...coverSpec.spine, clip: { field: "clip", lane: "lines" } } };
+const clipCoverLaid = (beatsData) => {
+  const spine = bedBeats.map((b, i) => ({ ...b, dataJson: { ...b.dataJson, ...(beatsData[i] ?? {}) }, assets: beatsData[i]?.assets ?? [] }));
+  return layout(clipCoverSpec, { entry: row("s", {}), spine, groups: chapters, lanes: { lines: [], sounds: [] }, via: { overlay: [] } });
+};
+
+test("overlay lane: one recording that is a beat's overlay and its clip is drawn as both, though it carries the clip's role only", () => {
+  const laid = clipCoverLaid([{ still: "img", overlay: "rec-1", overlay_blend: "screen", overlay_opacity: 0.3, clip: "rec-1", assets: [still, recording] }]);
+  const [cover] = laid.covers.overlay;
+  assert.deepEqual([cover.name, cover.url, cover.blend, cover.opacity, cover.items], ["Recording Nov 18", "https://cdn/rec.mp4", "screen", 0.3, ["id-b1"]]);
+  assert.equal(laid.items[0].clip.url, "https://cdn/rec.mp4");
+  assert.equal(laid.items[0].seconds, 6.4);
+  assert.equal(laid.items[0].picture, "https://cdn/still.png");
+});
+
+test("overlay lane: a beat whose clip plays on a plain card (no still) has no overlay file over it, as the render lays none; an info card still shows", () => {
+  const laid = clipCoverLaid([{ overlay: "rec-1", clip: "rec-1", assets: [recording] }, { overlay: "g", assets: [{ ...grain, id: "g" }] }]);
+  assert.deepEqual(laid.covers.overlay.map((c) => c.items), [["id-b2"]]);
+});
+
 test("overlay lane: the story's video runs under every beat as one block, named by its file, blend normal at full strength", () => {
   const [c] = coverLaid({ storyAssets: [grain] }).covers.overlay;
   assert.deepEqual([c.name, c.from, c.blend, c.opacity, c.start, c.seconds, c.items.length], ["grain.mp4", "story", "normal", 1, 0, 20, 5]);
