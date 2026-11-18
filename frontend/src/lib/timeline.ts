@@ -253,6 +253,41 @@ export interface Piece {
   words: Word[] | null;
   /** For a sound played by a cue on a word: the line (its title) and the word it plays after. */
   cue?: { line: string; word: number; text: string };
+  /** For a piece an item's JSON list places (a beat's `sounds`, or a sound of its `cues`): that item, the list field, the entry's position in it and
+   * the slug it names, so the page can move it and write back just that entry. */
+  slot?: { item: string; field: string; index: number; ref: string };
+}
+
+/** A unique key for a piece on the page: a placed piece by its item and list position (one sound can be placed twice), any other by its id. */
+export const pieceKey = (p: Pick<Piece, "id" | "slot">): string => (p.slot ? `${p.slot.item}:${p.slot.field}:${p.slot.index}` : p.id);
+
+/** Where a placed sound dragged by `seconds` lands: its `at` in the item moved and snapped to NUDGE_SNAP (thousandths when `free`), never below 0. */
+export function atAfterDrag(at: number, seconds: number, free = false): number {
+  const step = free ? 0.001 : NUDGE_SNAP;
+  return Math.max(0, Math.round(Math.round((at + seconds) / step) * step * 1000) / 1000);
+}
+
+/**
+ * An item's record with one key of one entry of a JSON list field set (or removed, with `undefined`), everything else as it was: what a page sends
+ * back, because saving an entry replaces all its fields. Null when the list no longer holds an object at `index` naming `ref` in `refKey` (the
+ * item was changed since the page was drawn), so nothing is written to the wrong entry.
+ */
+export function withListEntry(data: Record<string, unknown>, field: string, index: number, refKey: string, ref: string, key: string, value: number | undefined): Record<string, unknown> | null {
+  const raw = data[field];
+  let list: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      list = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(list)) return null;
+  const entry = list[index];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry) || (entry as Record<string, unknown>)[refKey] !== ref) return null;
+  const { [key]: _, ...rest } = entry as Record<string, unknown>;
+  const changed = value === undefined ? rest : { ...rest, [key]: value };
+  return { ...data, [field]: list.map((e, i) => (i === index ? changed : e)) };
 }
 
 /** A cue on a word, where it falls: on the piece (its id), at the end of the word before it (`at`, where its sound and camera move start) and the
@@ -268,6 +303,8 @@ export interface CueMark {
   sound: { slug: string; title: string; heard: boolean } | null;
   camera: { kind: string; amount?: number; x?: number; y?: number } | null;
   pic: string | null;
+  /** Seconds its sound and camera move come after (or before) the word; 0 for none. */
+  nudge: number;
 }
 
 /** A sound running under a stretch of the timeline: a scene's ambience across its beats, a story's music under everything. */
@@ -751,7 +788,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
         const known = bySlug(lane);
         const placed = field(row, lane.placed!.field);
         const pieces: Piece[] = [];
-        for (const ref of Array.isArray(placed) ? placed : []) {
+        for (const [index, ref] of (Array.isArray(placed) ? placed : []).entries()) {
           if (typeof ref !== "object" || ref === null) continue;
           const target = known.get(str((ref as Record<string, unknown>)[lane.placed!.ref]));
           if (!target) continue;
@@ -760,6 +797,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
           const piece = pieceOf(target, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + at, at);
           const own = lane.placed!.volume ? level((ref as Record<string, unknown>)[lane.placed!.volume]) : null;
           if (own !== null) piece.volume = own; // the cue's own loudness replaces the sound's, as in the render
+          piece.slot = { item: row.id, field: lane.placed!.field, index, ref: piece.slug };
           pieces.push(piece);
           // A sound with no take yet has a width to show it needs filling in (its text, as a line has), but nothing plays, so it never lengthens its item.
           const plays = !!length && (!length.estimated || !!assetUrl(target, lane.audio, "audio/"));
@@ -1209,11 +1247,17 @@ function wordCuesOf(item: Item, row: Row, spec: TimelineSpec, said: Map<string, 
       sound: cue.sound ? { slug: cue.sound, title: target?.title ?? cue.sound, heard } : null,
       camera: cue.camera ?? null,
       pic: cue.pic ?? null,
+      nudge: cue.nudge ?? 0,
     });
     if (!sounds || !target) continue;
     const length = pieceSeconds(target, sounds);
-    const offset = at - clock;
+    const nudge = cue.nudge ?? 0; // this much later (or earlier) than its word: the render plays the cue's sound and camera move there
+    const natural = clock + Math.max(at - clock, 0);
+    const offset = at + nudge - clock;
     const sound = pieceOf(target, sounds, length?.seconds ?? 0, length?.estimated ?? false, clock + Math.max(offset, 0), Number(Math.max(offset, 0).toFixed(3))); // never before its beat's sound starts, as the render places it
+    sound.nudge = nudge;
+    sound.natural = natural;
+    sound.slot = { item: row.id, field: wc.field, index: cue.position ?? 0, ref: cue.line };
     if (cue.volume !== undefined) sound.volume = cue.volume;
     sound.cue = { line: piece.title, word: cue.word, text: marks[marks.length - 1].text };
     item.lanes[sounds.id] = [...(item.lanes[sounds.id] ?? []), sound];

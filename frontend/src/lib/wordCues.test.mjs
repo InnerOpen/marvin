@@ -35,9 +35,10 @@ test("parseWordCues: keeps the well-formed cues and what else they carried", () 
       volume: 0.6,
       camera: { kind: "punch", amount: 1.08 },
       pic: "b04a",
+      position: 0,
       rest: { note: "kept" },
     },
-    { line: "l2", word: 2, rest: {} },
+    { line: "l2", word: 2, position: 5, rest: {} }, // its place in the stored list, malformed entries counted
   ]);
   assert.deepEqual(parseWordCues("not json"), []);
   assert.deepEqual(parseWordCues(null), []);

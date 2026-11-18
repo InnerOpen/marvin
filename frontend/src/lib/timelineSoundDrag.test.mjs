@@ -1,0 +1,139 @@
+// Moving a sound on the Timeline: a beat's placed sound gets a new `at`; a sound a cue on a word plays gets a `nudge` on its cue (seconds after,
+// or before, its word). Positions are worked out by hand from layout() (lead 0.3).
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { atAfterDrag, layout, nudgeAfterDrag, nudgeGhosts, pieceKey, stackRows, withListEntry } from "./timeline.ts";
+import { parseWordCues, serializeWordCues } from "./wordCues.ts";
+
+const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
+
+test("atAfterDrag: the new offset snapped to 0.05 s (thousandths with shift), never before the beat starts", () => {
+  assert.equal(atAfterDrag(1.5, -0.27), 1.25);
+  assert.equal(atAfterDrag(1.5, 0.4321, true), 1.932);
+  assert.equal(atAfterDrag(0.2, -3), 0);
+});
+
+test("withListEntry: one key of one entry changes, everything else is sent back as it was", () => {
+  const data = {
+    story: "s",
+    sounds: [
+      { sound: "rain", at: 0 },
+      { sound: "clang", at: 1.5, volume: 0.6 },
+    ],
+    hold_seconds: 3,
+  };
+  assert.deepEqual(withListEntry(data, "sounds", 1, "sound", "clang", "at", 1.25), {
+    story: "s",
+    sounds: [
+      { sound: "rain", at: 0 },
+      { sound: "clang", at: 1.25, volume: 0.6 },
+    ],
+    hold_seconds: 3,
+  });
+  assert.deepEqual(data.sounds[1].at, 1.5); // the record handed in is left alone
+  const cues = { cues: [{ line: "l1", word: 3, sound: "clang", nudge: 0.3 }] };
+  assert.deepEqual(withListEntry(cues, "cues", 0, "line", "l1", "nudge", undefined), {
+    cues: [{ line: "l1", word: 3, sound: "clang" }],
+  }); // ↺ removes the key
+  assert.deepEqual(withListEntry({ cues: JSON.stringify(cues.cues) }, "cues", 0, "line", "l1", "nudge", -0.2), {
+    cues: [{ line: "l1", word: 3, sound: "clang", nudge: -0.2 }],
+  }); // a list kept as text
+});
+
+test("withListEntry: nothing is written when the entry is no longer the one the page drew", () => {
+  const data = { sounds: [{ sound: "rain", at: 0 }] };
+  assert.equal(withListEntry(data, "sounds", 0, "sound", "clang", "at", 1), null);
+  assert.equal(withListEntry(data, "sounds", 3, "sound", "rain", "at", 1), null);
+  assert.equal(withListEntry({}, "sounds", 0, "sound", "rain", "at", 1), null);
+});
+
+test("wordCues: a cue's nudge is read, kept and written back; 0 leaves the key out", () => {
+  const [a, b] = parseWordCues([
+    { line: "l1", word: 3, sound: "s", nudge: 0.35 },
+    { line: "l1", word: 4, nudge: 0 },
+  ]);
+  assert.equal(a.nudge, 0.35);
+  assert.equal(b.nudge, undefined);
+  assert.deepEqual(JSON.parse(serializeWordCues([a, b])), [
+    { line: "l1", word: 3, sound: "s", nudge: 0.35 },
+    { line: "l1", word: 4 },
+  ]);
+});
+
+const spec = {
+  kind: "timeline",
+  title: "T",
+  entry_type: "story",
+  spine: {
+    entry_type: "beat",
+    of: "story",
+    order: "number",
+    word_cues: { field: "cues", lane: "lines", sounds: "sounds" },
+  },
+  lanes: [
+    {
+      id: "lines",
+      title: "Lines",
+      entry_type: "speech-line",
+      of: "story",
+      in: "beat",
+      order: "number",
+      text: "text",
+      seconds: "duration_seconds",
+    },
+    {
+      id: "sounds",
+      title: "Sounds",
+      entry_type: "sound",
+      placed: { field: "sounds", ref: "sound", at: "at" },
+      audio: "audio",
+      seconds: "duration_seconds",
+    },
+  ],
+};
+const take = { role: "audio", publicUrl: "https://cdn/x.mp3", mimeType: "audio/mpeg" };
+const laid = (beat) =>
+  layout(spec, {
+    spine: [{ id: "b1", slug: "b1", title: "b1", dataJson: { story: "s", number: 1, ...beat } }],
+    lanes: {
+      lines: [
+        {
+          id: "l1",
+          slug: "l1",
+          title: "l1",
+          dataJson: { story: "s", beat: "b1", number: 1, text: "one two three four", duration_seconds: 4 },
+        },
+      ],
+      sounds: [{ id: "clang", slug: "clang", title: "Clang", dataJson: { duration_seconds: 0.5 }, assets: [take] }],
+    },
+  });
+
+test("a beat's placed sounds know their place in its list, so the same sound placed twice moves apart", () => {
+  const [a, b] = laid({ sounds: [{ sound: "clang", at: 0.5 }, "junk", { sound: "clang", at: 2 }] }).items[0].lanes
+    .sounds;
+  assert.deepEqual(a.slot, { item: "b1", field: "sounds", index: 0, ref: "clang" });
+  assert.deepEqual(b.slot, { item: "b1", field: "sounds", index: 2, ref: "clang" });
+  assert.notEqual(pieceKey(a), pieceKey(b));
+});
+
+test("a cue sound plays at its word plus its nudge; the ghost marks the word", () => {
+  // "two" ends at character 7 of 18 -> share 0.3889 of the 4 s line, which starts at 0.3: 1.8556; nudged +0.4
+  const item = laid({ cues: [{ line: "l1", word: 2, sound: "clang", nudge: 0.4 }] }).items[0];
+  const [sound] = item.lanes.sounds;
+  const word = 0.3 + 0.3889 * 4;
+  close(sound.natural, word);
+  close(sound.start, word + 0.4);
+  assert.equal(sound.nudge, 0.4);
+  assert.deepEqual(sound.slot, { item: "b1", field: "cues", index: 0, ref: "l1" });
+  assert.equal(item.cues[0].nudge, 0.4);
+  const [ghost] = nudgeGhosts(item.lanes.sounds, stackRows(item.lanes.sounds));
+  close(ghost.start, word);
+  close(ghost.to, word + 0.4);
+  // dragging it back over its word clears the nudge
+  assert.equal(nudgeAfterDrag(sound.natural, sound.start - 0.41), 0);
+});
+
+test("a cue sound nudged before its beat's sound starts plays at the beat's start, as the render places it", () => {
+  const [sound] = laid({ cues: [{ line: "l1", word: 0, sound: "clang", nudge: -1 }] }).items[0].lanes.sounds;
+  close(sound.start, 0);
+});
