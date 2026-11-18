@@ -1,8 +1,12 @@
 /**
- * Cue lists: a JSON field on an entry that places other entries in time (a beat's `sounds`: `[{sound, at}]`). A package's timeline view
+ * Cue lists: a JSON field on an entry that places other entries in time (a beat's `sounds`: `[{sound, at, ring?}]`). A package's timeline view
  * declares that shape (a `placed` lane: `{field, ref, at}` on the spine type), so an entry of the spine type can edit the field as a list
  * of cues (pick an entry, set the seconds) instead of raw JSON. Pure: the page fetches, this reads and writes the shape.
  */
+
+/** The key on a placed sound's row (a beat's `sounds`) or a cue on a word (lib/wordCues.ts) that makes its sound ring over the next beats: it
+ * plays in full from where it is placed and does not make its beat longer, as the render reads it (Studio v224). Off is the key left out. */
+export const RING = "ring";
 
 export interface CueSpec {
   /** The JSON field on the entry being edited. */
@@ -82,6 +86,8 @@ export interface Cue {
   at: number;
   /** The cue's own level (0 to 1), or null for the sound's own. */
   level: number | null;
+  /** The sound plays in full over the next beats and does not make this entry longer; written as `ring: true`, left out when off. */
+  ring: boolean;
   /** Anything else the cue carried, kept as it was. */
   rest: Record<string, unknown>;
 }
@@ -116,7 +122,9 @@ export function parseCues(value: unknown, spec: Pick<CueSpec, "ref" | "at" | "vo
         delete rest[spec.volume]; // the editor owns it now; written back below when it is set
       }
     }
-    out.push({ ref: typeof ref === "string" ? ref : "", at: num(at), level, rest });
+    const ring = rest[RING] === true; // only `true` rings, as the render reads it; the editor owns the key now and writes it back when on
+    delete rest[RING];
+    out.push({ ref: typeof ref === "string" ? ref : "", at: num(at), level, ring, rest });
   }
   return out;
 }
@@ -126,7 +134,7 @@ export function serializeCues(cues: readonly Cue[], spec: Pick<CueSpec, "ref" | 
   const rows = cues
     .filter((c) => c.ref)
     .sort((a, b) => a.at - b.at)
-    .map((c) => ({ ...c.rest, [spec.ref]: c.ref, [spec.at]: Number(c.at.toFixed(3)), ...(spec.volume && c.level !== null ? { [spec.volume]: Number(c.level.toFixed(3)) } : {}) }));
+    .map((c) => ({ ...c.rest, [spec.ref]: c.ref, [spec.at]: Number(c.at.toFixed(3)), ...(spec.volume && c.level !== null ? { [spec.volume]: Number(c.level.toFixed(3)) } : {}), ...(c.ring ? { [RING]: true } : {}) }));
   return JSON.stringify(rows, null, 2);
 }
 

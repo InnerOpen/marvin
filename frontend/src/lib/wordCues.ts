@@ -1,6 +1,6 @@
 /**
  * Cues on words: a JSON list on a spine item (a beat's `cues`) whose cues sit at a word of one of its lines, as the Screenplay Studio render
- * reads them (marvin_pull `_cues`): `[{line, word, sound?, volume?, camera?, look?, mix?, emphasis?, pic?, nudge?}]`. `line` is the line's
+ * reads them (marvin_pull `_cues`): `[{line, word, sound?, volume?, ring?, camera?, look?, mix?, emphasis?, pic?, nudge?}]`. `line` is the line's
  * slug, `word` how many words are spoken before the cue; a sound plays at the end of the word before it, a camera move, a look and a change to
  * the mix start there, a picture comes in at the start of the word after it, and `emphasis` makes that word stand out in the captions. The
  * kinds of camera move, look and mix, their numbers and defaults are in lib/cueKinds.ts. A timeline view declares the field
@@ -22,6 +22,8 @@ export interface WordCue {
   sound?: string;
   /** The sound's own level for this cue, 0 to 1; missing keeps the sound's. */
   volume?: number;
+  /** The sound plays in full over the next beats and does not make its beat longer (Studio v224); missing is off. */
+  ring?: true;
   camera?: Camera;
   look?: Look;
   mix?: Mix;
@@ -37,7 +39,7 @@ export interface WordCue {
   rest: Record<string, unknown>;
 }
 
-const KNOWN = new Set(["line", "word", "sound", "volume", "camera", "look", "mix", "emphasis", "pic", "nudge"]);
+const KNOWN = new Set(["line", "word", "sound", "volume", "ring", "camera", "look", "mix", "emphasis", "pic", "nudge"]);
 
 const number = (v: unknown): number | null => {
   const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
@@ -92,6 +94,7 @@ export function parseWordCues(value: unknown): WordCue[] {
       word: Math.floor(word),
       ...(typeof r.sound === "string" && r.sound ? { sound: r.sound } : {}),
       ...(volume !== null ? { volume: held(volume, 0, 1) } : {}),
+      ...(r.ring === true ? { ring: true as const } : {}),
       ...(camera ? { camera } : {}),
       ...(look ? { look } : {}),
       ...(mix ? { mix } : {}),
@@ -113,6 +116,7 @@ export function serializeWordCues(cues: readonly WordCue[]): string {
     word: c.word,
     ...(c.sound ? { sound: c.sound } : {}),
     ...(c.volume !== undefined ? { volume: Number(c.volume.toFixed(3)) } : {}),
+    ...(c.ring ? { ring: true } : {}),
     ...(c.camera ? { camera: c.camera } : {}),
     ...(c.look ? { look: c.look } : {}),
     ...(c.mix ? { mix: c.mix } : {}),

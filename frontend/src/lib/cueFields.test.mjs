@@ -29,8 +29,8 @@ test("cues parse from JSON text or a list, keep what else they carried, and seri
   const cues = parseCues('[{"sound":"rain","at":"2.5","volume":0.4},{"sound":"gull","at":1},{"bogus":true},{"sound":"","at":3}]', spec);
   assert.deepEqual(cues.map((c) => [c.ref, c.at, c.rest]), [["rain", 2.5, { volume: 0.4 }], ["gull", 1, {}], ["", 0, { bogus: true }], ["", 3, {}]]);
   assert.deepEqual(JSON.parse(serializeCues(cues, spec)), [{ sound: "gull", at: 1 }, { volume: 0.4, sound: "rain", at: 2.5 }]);
-  assert.deepEqual(parseCues([{ sound: "a", at: -2 }], spec), [{ ref: "a", at: -2, level: null, rest: {} }]); // before the beat, over the one before
-  assert.deepEqual(parseCues([{ sound: "a", at: "soon" }], spec), [{ ref: "a", at: 0, level: null, rest: {} }]);
+  assert.deepEqual(parseCues([{ sound: "a", at: -2 }], spec), [{ ref: "a", at: -2, level: null, ring: false, rest: {} }]); // before the beat, over the one before
+  assert.deepEqual(parseCues([{ sound: "a", at: "soon" }], spec), [{ ref: "a", at: 0, level: null, ring: false, rest: {} }]);
   assert.deepEqual(parseCues("not json", spec), []);
   assert.deepEqual(parseCues({ sound: "a" }, spec), []);
   assert.equal(serializeCues([], spec), "[]");

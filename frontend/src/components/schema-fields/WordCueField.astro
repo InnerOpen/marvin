@@ -118,6 +118,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
   };
   const option = (value: string, text: string, selected: boolean) => el("option", { value, textContent: text, selected });
   const secs = (n: number) => `${n.toFixed(2)} s`;
+  const RING_HELP = "Plays in full without making this beat longer";
 
   document.querySelectorAll<HTMLElement>("[data-word-cues]").forEach((root) => {
     const jsonBox = root.querySelector<HTMLTextAreaElement>("[data-wc-json]")!;
@@ -310,7 +311,10 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
       );
       pick.onchange = () => {
         if (pick.value) cue.sound = pick.value;
-        else delete cue.sound;
+        else {
+          delete cue.sound;
+          delete cue.ring; // nothing to ring: no flag is saved without a sound
+        }
         repaint();
       };
       box.append(pick);
@@ -325,6 +329,13 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
           write();
         };
         box.append(el("label", { className: "wc-level" }, "level ", level));
+        const ring = el("input", { type: "checkbox", checked: !!cue.ring, title: RING_HELP });
+        ring.onchange = () => {
+          if (ring.checked) cue.ring = true;
+          else delete cue.ring;
+          write();
+        };
+        box.append(el("label", { className: "wc-level wc-ring", title: RING_HELP }, ring, " Ring over the next beats ", el("small", { textContent: RING_HELP })));
       }
       return box;
     };
@@ -431,6 +442,8 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
   .word-cue-field .wc-what { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
   .word-cue-field .wc-sound, .word-cue-field .wc-camera, .word-cue-field .wc-picture, .word-cue-field .wc-look, .word-cue-field .wc-mix, .word-cue-field .wc-emphasis { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .word-cue-field .wc-level { display: inline-flex; gap: 4px; align-items: center; font-size: 0.875rem; color: var(--muted); }
+  .word-cue-field .wc-ring { color: var(--ink); }
+  .word-cue-field .wc-ring small { color: var(--muted); }
   .word-cue-field .wc-audio { height: 28px; max-width: 220px; }
   .word-cue-field .wc-note { margin: 0; }
   .word-cue-field .wc-remove { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); cursor: pointer; }

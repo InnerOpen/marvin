@@ -54,6 +54,7 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
             <button type="button" class="cue-level-clear" data-cue-level-clear aria-label="Use the sound's own level" title="Use the sound's own level" hidden={cue.level === null}>×</button>
           </span>
         )}
+        <label class="cue-ring" title="Plays in full without making this beat longer"><input type="checkbox" data-cue-ring checked={cue.ring} /> Ring over the next beats <small>Plays in full without making this beat longer</small></label>
         <span class="cue-play" data-cue-play>{known.get(cue.ref)?.audioUrl && <PlayButton src={known.get(cue.ref)!.audioUrl!} label={`Play ${known.get(cue.ref)!.name}`} />}</span>
         <button type="button" class="cue-remove" data-cue-remove aria-label="Remove this cue">×</button>
       </li>
@@ -74,6 +75,7 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
             <button type="button" class="cue-level-clear" data-cue-level-clear aria-label="Use the sound's own level" title="Use the sound's own level" hidden>×</button>
           </span>
         )}
+      <label class="cue-ring" title="Plays in full without making this beat longer"><input type="checkbox" data-cue-ring /> Ring over the next beats <small>Plays in full without making this beat longer</small></label>
       <span class="cue-play" data-cue-play></span>
       <button type="button" class="cue-remove" data-cue-remove aria-label="Remove this cue">×</button>
     </li>
@@ -83,11 +85,12 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
     <button type="button" class="button secondary" data-cue-add>Add a {noun}</button>
     {options.length === 0 && <span class="field-help">No {spec.title.toLowerCase()} in the library yet.</span>}
   </div>
-  <p class="field-help">{field.helpText || `Which ${noun} plays, and how many seconds into this entry it starts (a negative number starts it before this entry, over the one before, but never before the film starts). The timeline shows them in their lane.`}</p>
+  <p class="field-help">{field.helpText || `Which ${noun} plays, and how many seconds into this entry it starts (a negative number starts it before this entry, over the one before, but never before the film starts). This entry lasts until its last sound ends, unless that sound is set to ring over the next beats. The timeline shows them in their lane.`}</p>
   {error && <p class="field-error">{error}</p>}
 </div>
 
 <script>
+  import { RING } from "@/lib/cueFields";
   // Rows → the hidden JSON the form posts. The textarea gets change/input events so the page's unsaved-changes tracking still works.
   document.querySelectorAll<HTMLElement>("[data-cue-field]").forEach((root) => {
     const json = root.querySelector<HTMLTextAreaElement>("[data-cue-json]")!;
@@ -113,7 +116,10 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
           const level = levelText === "" ? null : Number(levelText);
           const own = volumeKey && level !== null && Number.isFinite(level) && level >= 0 && level <= 1 ? { [volumeKey]: Number(level.toFixed(3)) } : {};
           if (volumeKey) delete extra[volumeKey];
-          return { ...extra, [refKey]: ref, [atKey]: Number(at.toFixed(3)), ...own };
+          // Ring over the next beats: the sound plays in full and does not make this entry longer; the key is left out when it is off.
+          delete extra[RING];
+          const ring = row.querySelector<HTMLInputElement>("[data-cue-ring]")?.checked ? { [RING]: true } : {};
+          return { ...extra, [refKey]: ref, [atKey]: Number(at.toFixed(3)), ...own, ...ring };
         })
         .filter((c) => c[refKey])
         .sort((a, b) => (a[atKey] as number) - (b[atKey] as number));
@@ -156,7 +162,7 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
       } else if (target.matches("[data-cue-level]") && row) {
         syncLevel(row);
         write();
-      } else if (target.matches("[data-cue-ref], [data-cue-at]")) write();
+      } else if (target.matches("[data-cue-ref], [data-cue-at], [data-cue-ring]")) write();
     });
     root.addEventListener("change", (e) => {
       const target = e.target as HTMLElement;
@@ -192,6 +198,8 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
   .cue-field .cue-level.is-set .cue-level-range { opacity: 1; }
   .cue-field .cue-level-number { width: 4.5em; font: inherit; padding: 0.4rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
   .cue-field .cue-level-clear { border: 0; background: transparent; color: var(--muted); font-size: 1.1rem; line-height: 1; padding: 0 0.2rem; cursor: pointer; }
+  .cue-field .cue-ring { display: inline-flex; align-items: center; gap: 4px; font-size: 0.875rem; color: var(--ink); }
+  .cue-field .cue-ring small { color: var(--muted); }
   .cue-field .cue-play { display: inline-flex; align-items: center; }
   .cue-field .cue-audio { height: 28px; max-width: 220px; }
   .cue-field .cue-remove { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); cursor: pointer; }
