@@ -1,0 +1,125 @@
+---
+// The Transcript of a recording on its asset page: the newest Transcript entry whose `source` names this asset (its id, or its
+// slug in the older ones), with its language and length, the words in paragraphs (the start shown, the rest behind "Show more"), a
+// link to download the version with times and one to the entry. Nothing at all when there is none, or its files cannot be read.
+import { fetchApi } from "@/lib/api/client";
+import { assetNamed, formatLength, languageName, splitForMore, type TranscriptRef, transcriptOf, transcriptQuery } from "@/lib/assetRecording";
+import { fetchTextPreview } from "@/lib/assetText";
+
+interface Props {
+  asset: { id: string; slug?: string | null };
+  authToken: string | null | undefined;
+}
+type TranscriptRow = { id: string; title?: string | null; dataJson?: Record<string, unknown> | null };
+type FileAsset = { id: string; slug?: string | null; name?: string | null; publicUrl?: string | null; originalFilename?: string | null };
+
+const { asset, authToken } = Astro.props;
+
+const found = authToken
+  ? await fetchApi<{ entries?: TranscriptRow[] }>("/api/platform/entries/query", { method: "POST", body: JSON.stringify(transcriptQuery(asset)) }, authToken).catch(() => null)
+  : null;
+const transcripts: TranscriptRef[] = (found?.entries ?? []).map(transcriptOf).filter((t: TranscriptRef | null): t is TranscriptRef => t !== null);
+const transcript = transcripts[0] ?? null;
+const others = transcripts.slice(1);
+
+let paragraphs: FileAsset | null = null;
+let timestamped: FileAsset | null = null;
+let body: { head: string; rest: string; cut: boolean } | null = null;
+if (transcript && authToken) {
+  const refs = [transcript.paragraphs, transcript.timestamped].filter((r): r is string => Boolean(r));
+  const query = refs.map((r) => `ids=${encodeURIComponent(r)}`).join("&");
+  const files = await fetchApi<FileAsset[]>(`/api/platform/assets?${query}`, {}, authToken).catch(() => [] as FileAsset[]);
+  paragraphs = assetNamed(files, transcript.paragraphs);
+  timestamped = assetNamed(files, transcript.timestamped);
+  const preview = paragraphs?.publicUrl ? await fetchTextPreview(new URL(paragraphs.publicUrl, Astro.url).toString()) : null;
+  if (preview?.text.trim()) body = { ...splitForMore(preview.text), cut: preview.truncated };
+}
+const shown = transcript && (body || timestamped?.publicUrl);
+const facts = transcript ? [transcript.language ? languageName(transcript.language) : null, transcript.seconds ? formatLength(transcript.seconds) : null].filter(Boolean) : [];
+---
+
+{shown && transcript && (
+  <section class="transcript-panel" aria-labelledby="transcript-heading">
+    <h4 id="transcript-heading">Transcript</h4>
+    {facts.length > 0 && <p class="transcript-facts">{facts.join(" · ")}</p>}
+    {body && (
+      <div class="transcript-text">
+        <p>{body.head}</p>
+        {body.rest && (
+          <details>
+            <summary>Show more</summary>
+            <p>{body.rest}</p>
+          </details>
+        )}
+        {body.cut && <p class="transcript-note">The transcript goes on past this. Download it for the rest.</p>}
+      </div>
+    )}
+    <p class="transcript-links">
+      {timestamped?.publicUrl && (
+        <a href={timestamped.publicUrl} download={timestamped.originalFilename || undefined}>Download with times</a>
+      )}
+      {body && paragraphs?.publicUrl && (
+        <a href={paragraphs.publicUrl} download={paragraphs.originalFilename || undefined}>Download text</a>
+      )}
+      <a href={`/workspace/entries/${transcript.id}`}>Open the Transcript entry</a>
+    </p>
+    {others.length > 0 && (
+      <p class="transcript-note">
+        Also transcribed:{" "}
+        {others.map((t: TranscriptRef, i: number) => (
+          <>
+            {i > 0 && ", "}
+            <a href={`/workspace/entries/${t.id}`}>{t.title}</a>
+          </>
+        ))}
+      </p>
+    )}
+  </section>
+)}
+
+<style>
+  .transcript-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+  }
+  .transcript-panel h4 {
+    margin: 0 0 0.25rem;
+    font-size: 1rem;
+  }
+  .transcript-facts {
+    margin: 0 0 1rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .transcript-text p {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+  }
+  .transcript-text details {
+    margin-top: 0.5rem;
+  }
+  .transcript-text details[open] summary {
+    margin-bottom: 0.5rem;
+  }
+  .transcript-text summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 0.875rem;
+  }
+  .transcript-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    margin: 1rem 0 0;
+    font-size: 0.875rem;
+  }
+  .transcript-note {
+    margin: 0.75rem 0 0;
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+</style>

@@ -2,7 +2,9 @@
 import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
 import AssetLineage from "@/components/AssetLineage.astro";
 import AssetTextPreview from "@/components/AssetTextPreview.astro";
+import AssetMediaFacts from "@/components/AssetMediaFacts.astro";
 import AssetMetaValue from "@/components/AssetMetaValue.astro";
+import AssetTranscript from "@/components/AssetTranscript.astro";
 import AssetVersions from "@/components/AssetVersions.astro";
 import TagList from "@/components/TagList.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -139,6 +141,9 @@ const isText = isTextMime(asset?.mimeType);
         )}
 
         {isText && <AssetTextPreview url={asset.publicUrl} />}
+
+        <AssetMediaFacts metadata={asset.metadataJson} />
+        {(isAudio || isVideo) && <AssetTranscript asset={asset} authToken={authToken} />}
 
         {!isImage && !isVideo && !isAudio && !isPdf && !isHtml && !isText && (
           <div class="file-info">
