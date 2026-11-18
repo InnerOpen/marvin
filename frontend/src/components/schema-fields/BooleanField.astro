@@ -33,6 +33,8 @@ const checked = value !== undefined ? value : field.defaultValue || false;
       disabled={field.readOnly}
       class:list={['field-checkbox', { error }]}
     />
+    {/* A disabled box is not sent with the form, and a save replaces the entry's data: a read-only one that is on (filled in by a job) sends it. */}
+    {field.readOnly && checked && <input type="hidden" name={`dataJson.${field.key}`} value="true" />}
     <label for={inputId}>
       {field.label}
       {field.required && <span class="required">*</span>}

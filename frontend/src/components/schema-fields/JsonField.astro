@@ -23,12 +23,15 @@ export interface Props {
 }
 
 import { readSuggest } from "../../lib/jsonSuggest";
+import { jsonText } from "../../lib/jsonText";
 
 const { field, value, error } = Astro.props;
 const suggest = field.readOnly ? null : readSuggest(field.suggest);
 const inputId = `field-${field.key}`;
 const presets = Array.isArray(field.presets) ? field.presets.filter((p) => p && typeof p.label === "string") : [];
-const empty = value === undefined || value === null || value === "";
+const text = jsonText(value, field.readOnly);
+// A read-only box is as tall as what it holds (up to a dozen lines): nothing is typed into it.
+const rows = field.readOnly ? Math.min(12, Math.max(2, text.split("\n").length)) : 6;
 ---
 
 <div
@@ -53,12 +56,12 @@ const empty = value === undefined || value === null || value === "";
     id={inputId}
     name={`dataJson.${field.key}`}
     placeholder={field.placeholder ?? "Enter valid JSON"}
-    rows="6"
+    rows={rows}
     required={field.required}
     readonly={field.readOnly}
     class:list={["field-textarea", { error }]}
     spellcheck="false"
-  >{empty ? "" : JSON.stringify(value, null, 2)}</textarea>
+  >{text}</textarea>
 
   {suggest && <p class="field-note" data-suggest-note hidden></p>}
   <p class="field-help">{field.helpText || "Enter valid JSON data"}</p>

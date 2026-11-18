@@ -96,6 +96,8 @@ const reader = isAsset && !multiple && field.preview === "text";
     ))}
   </ul>
 
+  {field.readOnly && ids.length === 0 && <p class="field-help li-unfilled">Not filled in yet.</p>}
+
   {reader && (
     <details class="li-reader" data-linked-reader data-id={ids[0] ?? ""} hidden={!ids.length}>
       <summary>Read the file <span class="li-reader-name" data-linked-reader-name>{picked[0]?.name ?? ""}</span></summary>

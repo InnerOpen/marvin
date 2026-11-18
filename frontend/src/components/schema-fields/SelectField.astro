@@ -62,6 +62,8 @@ const selectedValue = value || field.defaultValue;
       </option>
     ))}
   </select>
+  {/* A disabled select is not sent with the form, and a save replaces the entry's data: a read-only one sends what it holds. */}
+  {field.readOnly && (Array.isArray(selectedValue) ? selectedValue : selectedValue ? [selectedValue] : []).map((v) => <input type="hidden" name={inputName} value={String(v)} />)}
 
   {!bare && field.helpText && <p class="field-help">{field.helpText}</p>}
   {!bare && error && <p class="field-error">{error}</p>}
