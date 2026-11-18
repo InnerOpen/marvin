@@ -76,6 +76,9 @@
   .video-recorder select { width: 100%; min-width: 0; font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
   .video-recorder .vr-stage { position: relative; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #000; }
   .video-recorder .vr-stage video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  /* The rule above is more specific than the hidden rule at the top, so without this the hidden preview (or take) still fills the stage:
+     after a recording the empty preview sat on top and pushed the take, with its play controls, out of sight. */
+  .video-recorder .vr-stage video[hidden] { display: none; }
   /* The live picture is shown as a mirror, as people expect to see themselves; the take itself is not mirrored. */
   .video-recorder [data-vr-preview] { transform: scaleX(-1); }
   .video-recorder .vr-countdown { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; font-size: clamp(4rem, 18vw, 8rem); font-weight: 700; color: #fff; text-shadow: 0 2px 12px rgb(0 0 0 / 0.6); background: rgb(0 0 0 / 0.25); }
