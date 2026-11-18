@@ -1559,6 +1559,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 
   .sidebar-editor {
     display: grid;
+    grid-template-columns: minmax(0, 1fr); /* a long title or a wide picture must not stretch the column past a phone's screen */
     gap: 1.5rem;
     align-content: start;
   }
@@ -1598,7 +1599,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   /* Entry Details image preview. Re-rendered client-side, which this is:global block covers. */
   .entry-image-preview {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.375rem;
     margin-bottom: 1rem;
   }

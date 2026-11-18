@@ -32,7 +32,8 @@ const { groups, from } = Astro.props;
 </section>
 
 <style>
-  .related { display: grid; gap: 16px; margin: 20px 0; }
+  .related { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin: 20px 0; }
+  .related-group { min-width: 0; }
   .related-group h3 { margin: 0 0 6px; font-size: 0.9375rem; }
   .count { margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--panel-2, var(--panel)); color: var(--muted); font-size: 0.75rem; font-weight: 500; }
   ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 260px; overflow: auto; }
