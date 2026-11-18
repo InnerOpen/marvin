@@ -1216,7 +1216,7 @@ function wordCuesOf(item: Item, row: Row, spec: TimelineSpec, said: Map<string, 
     const sound = pieceOf(target, sounds, length?.seconds ?? 0, length?.estimated ?? false, clock + Math.max(offset, 0), Number(Math.max(offset, 0).toFixed(3))); // never before its beat's sound starts, as the render places it
     if (cue.volume !== undefined) sound.volume = cue.volume;
     sound.cue = { line: piece.title, word: cue.word, text: marks[marks.length - 1].text };
-    (item.lanes[sounds.id] ??= []).push(sound);
+    item.lanes[sounds.id] = [...(item.lanes[sounds.id] ?? []), sound];
     if (heard && length) reach = Math.max(reach, offset + length.seconds);
   }
   if (marks.length) item.cues = marks;
@@ -1290,6 +1290,69 @@ export function quiets(allItems: Item[], lane: LaneSpec): Quiet[] {
     add(`${item.id}:tail`, "tail", end, item.start + item.seconds - end);
   }
   return out;
+}
+
+/** The outline of a nudged piece where it would play without its nudge, and the arrow from there to where it plays now. */
+export interface Ghost {
+  piece: string;
+  /** Where it would start with no nudge of its own, and its length. */
+  start: number;
+  seconds: number;
+  nudge: number;
+  /** Where it starts now (the arrow's end) and the row it is drawn on. */
+  to: number;
+  toRow: number;
+  /** The row the outline goes on: the first row its slot is clear on, else row 0 (`free` false: it is drawn behind what is there). */
+  row: number;
+  free: boolean;
+}
+
+const EPS = 1e-6;
+const clash = (a: { start: number; seconds: number }, start: number, seconds: number) => a.start < start + seconds - EPS && start < a.start + a.seconds - EPS;
+
+/**
+ * Where each nudged piece of a lane would have played (its natural start, for its length) so the drawing can show where it moved from. Pure
+ * drawing: the rows are the lane's own (`stackRows`), and nothing here changes them. A piece with no nudge, no length, or one spoken together with
+ * the piece before (dual dialogue: no slot of its own) has none.
+ */
+export function nudgeGhosts(pieces: readonly Piece[], rows: readonly number[]): Ghost[] {
+  const height = Math.max(-1, ...rows) + 1;
+  const out: Ghost[] = [];
+  pieces.forEach((p, i) => {
+    if (!p.nudge || p.together || p.seconds <= 0) return;
+    const taken = (r: number) => pieces.some((q, j) => rows[j] === r && q.seconds > 0 && clash(q, p.natural, p.seconds)); // its own block counts: the outline never sits on it
+    const row = [...Array(height).keys()].find((r) => !taken(r));
+    out.push({ piece: p.id, start: p.natural, seconds: p.seconds, nudge: p.nudge, to: p.start, toRow: rows[i] ?? 0, row: row ?? 0, free: row !== undefined });
+  });
+  return out;
+}
+
+/** A stretch where two pieces of a lane play at once: from the later one's start to where the first of the two ends. */
+export interface Overlap {
+  start: number;
+  seconds: number;
+  /** The piece that started first and the one laid over it. */
+  earlier: string;
+  later: string;
+  /** The rows the two are drawn on, the higher (smaller) first. */
+  rows: [number, number];
+}
+
+/** Every pair of pieces of a lane that play at once (a nudge laid one over another, or two spoken together); pieces that only touch do not count.
+ * In time order of where each overlap starts. */
+export function overlapsIn(pieces: readonly Piece[], rows: readonly number[]): Overlap[] {
+  const timed = [...pieces.keys()].filter((i) => pieces[i].seconds > 0).sort((a, b) => pieces[a].start - pieces[b].start || a - b);
+  const out: Overlap[] = [];
+  timed.forEach((b, n) => {
+    for (const a of timed.slice(0, n)) {
+      const [p, q] = [pieces[a], pieces[b]];
+      const end = Math.min(p.start + p.seconds, q.start + q.seconds);
+      if (end - q.start <= EPS) continue;
+      const [r1, r2] = [rows[a] ?? 0, rows[b] ?? 0];
+      out.push({ start: q.start, seconds: end - q.start, earlier: p.id, later: q.id, rows: [Math.min(r1, r2), Math.max(r1, r2)] });
+    }
+  });
+  return out.sort((x, y) => x.start - y.start);
 }
 
 /**
