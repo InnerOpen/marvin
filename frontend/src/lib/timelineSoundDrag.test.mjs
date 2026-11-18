@@ -7,10 +7,44 @@ import { parseWordCues, serializeWordCues } from "./wordCues.ts";
 
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
 
-test("atAfterDrag: the new offset snapped to 0.05 s (thousandths with shift), never before the beat starts", () => {
+test("atAfterDrag: the new offset snapped to 0.05 s (thousandths with shift), before its beat as far back as the film's start", () => {
   assert.equal(atAfterDrag(1.5, -0.27), 1.25);
   assert.equal(atAfterDrag(1.5, 0.4321, true), 1.932);
-  assert.equal(atAfterDrag(0.2, -3), 0);
+  assert.equal(atAfterDrag(0.2, -0.71, false, -12), -0.5); // over the beat before: 0.5 s before this one starts
+  assert.equal(atAfterDrag(0.2, -0.7321, true, -12), -0.532);
+  assert.equal(atAfterDrag(0.2, -30, false, -12), -12); // never before the film starts (this beat starts 12 s in)
+  assert.equal(atAfterDrag(0.2, -3), 0); // the first beat, or no earliest given: 0
+  assert.equal(atAfterDrag(0.2, -3, false, 0), 0);
+});
+
+test("layout: a placed sound with a negative at starts before its beat, over the one before; in the first beat it starts at 0", () => {
+  const view = {
+    kind: "timeline",
+    title: "T",
+    entry_type: "story",
+    spine: { entry_type: "beat", of: "story", order: "number", seconds: { hold: "hold_seconds" } },
+    lanes: [{ id: "sounds", title: "Sounds", entry_type: "sound", placed: { field: "sounds", ref: "sound", at: "at" }, audio: "audio", seconds: "duration_seconds" }],
+  };
+  const bolt = { id: "bolt", slug: "bolt", title: "Lightning", dataJson: { duration_seconds: 1 }, assets: [{ role: "audio", publicUrl: "https://cdn/b.mp3", mimeType: "audio/mpeg" }] };
+  const laid = (first, second) =>
+    layout(view, {
+      spine: [
+        { id: "b1", slug: "b1", title: "b1", dataJson: { story: "s", number: 1, hold_seconds: 4, sounds: first } },
+        { id: "b2", slug: "b2", title: "b2", dataJson: { story: "s", number: 2, hold_seconds: 4, sounds: second } },
+      ],
+      lanes: { sounds: [bolt] },
+    });
+  const plain = laid([], [{ sound: "bolt", at: 1 }]);
+  const early = laid([], [{ sound: "bolt", at: -0.5 }]);
+  const [sound] = early.items[1].lanes.sounds;
+  close(sound.start, plain.items[1].start - 0.5);
+  assert.equal(sound.at, -0.5);
+  assert.deepEqual(early.items.map((i) => [i.start, i.seconds]), plain.items.map((i) => [i.start, i.seconds])); // it lengthens nothing
+  const far = laid([], [{ sound: "bolt", at: -40 }]).items[1].lanes.sounds[0];
+  close(far.start, 0); // never before the film starts
+  const first = laid([{ sound: "bolt", at: -2 }], []).items[0].lanes.sounds[0];
+  close(first.start, 0);
+  assert.equal(first.at, 0);
 });
 
 test("withListEntry: one key of one entry changes, everything else is sent back as it was", () => {

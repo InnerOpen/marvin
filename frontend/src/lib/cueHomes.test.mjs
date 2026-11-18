@@ -170,7 +170,7 @@ test("moveCueRow: a row the target already holds (a move tried before) is not ad
 });
 
 /** A fake entries API: two beats, every call recorded; `back` may change what a read after a PATCH returns. */
-const fakeApi = (back = (id, sent) => sent) => {
+const fakeApi = (back = (_id, sent) => sent) => {
   const store = {
     b1: { title: "Beat 1", slug: "b1", dataJson: { story: "s", number: 1, cues: [{ line: "l1", word: 1 }, { line: "l2", word: 3 }], sounds: [] } },
     b2: { title: "Beat 2", slug: "b2", dataJson: { story: "s", number: 2, hold_seconds: 3 } },

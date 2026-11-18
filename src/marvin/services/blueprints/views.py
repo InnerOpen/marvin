@@ -63,7 +63,8 @@ A timeline definition::
   pieces the same way.
 - A ``lane`` is a child type drawn under the spine, in one of four shapes. ``in`` names the field that holds the spine item's slug (a line
   belongs to a beat; ``of`` is then required and scopes the lane's entries to the view's entry). ``placed`` says the spine item lists them:
-  ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at`` (the entries come by
+  ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at``, negative to start
+  before the item over the one before, never before the film starts (the entries come by
   those slugs, so a library sound shared by stories is found; ``of`` is optional; ``volume`` names the key inside each cue that holds its
   own level (0 to 1), which replaces the sound's own for that cue and gets a slider in the cue editor; ``filter`` limits what the item's
   page offers to pick to entries whose fields hold those values, e.g. ``{"kind": "effect"}``). ``bed`` is a sound that runs under a stretch:

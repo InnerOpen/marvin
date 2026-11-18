@@ -263,10 +263,12 @@ export interface Piece {
 /** A unique key for a piece on the page: a placed piece by its item and list position (one sound can be placed twice), any other by its id. */
 export const pieceKey = (p: Pick<Piece, "id" | "slot">): string => (p.slot ? `${p.slot.item}:${p.slot.field}:${p.slot.index}` : p.id);
 
-/** Where a placed sound dragged by `seconds` lands: its `at` in the item moved and snapped to NUDGE_SNAP (thousandths when `free`), never below 0. */
-export function atAfterDrag(at: number, seconds: number, free = false): number {
+/** Where a placed sound dragged by `seconds` lands: its `at` in the item moved and snapped to NUDGE_SNAP (thousandths when `free`). It may be
+ * negative, starting before its item over the one before, as the render plays it, but never before the film starts: `earliest` is minus the
+ * item's start (0 for the first item, and by default). */
+export function atAfterDrag(at: number, seconds: number, free = false, earliest = 0): number {
   const step = free ? 0.001 : NUDGE_SNAP;
-  return Math.max(0, Math.round(Math.round((at + seconds) / step) * step * 1000) / 1000);
+  return Math.max(Math.min(earliest, 0), Math.round(Math.round((at + seconds) / step) * step * 1000) / 1000) + 0; // + 0: never -0
 }
 
 /**
@@ -831,7 +833,8 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
           if (typeof ref !== "object" || ref === null) continue;
           const target = known.get(str((ref as Record<string, unknown>)[lane.placed!.ref]));
           if (!target) continue;
-          const at = Math.max(0, num((ref as Record<string, unknown>)[lane.placed!.at]) ?? 0);
+          // before its item when negative, reaching back over the one before, as the render plays it; never before the film starts
+          const at = Math.max(-clock, num((ref as Record<string, unknown>)[lane.placed!.at]) ?? 0) + 0; // + 0: never -0
           const length = pieceSeconds(target, lane);
           const piece = pieceOf(target, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + at, at);
           const own = lane.placed!.volume ? level((ref as Record<string, unknown>)[lane.placed!.volume]) : null;

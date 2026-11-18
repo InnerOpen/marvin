@@ -45,7 +45,7 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
           {!known.has(cue.ref) && cue.ref && <option value={cue.ref} selected>{cue.ref} (not in the library)</option>}
           {options.map((o) => <option value={o.slug} selected={o.slug === cue.ref}>{o.name}{o.seconds ? ` · ${o.seconds.toFixed(1)} s` : ""}{o.audioUrl ? "" : " · no take"}</option>)}
         </select>
-        <label class="cue-at-label">at <input type="number" class="cue-at" data-cue-at min="0" step="any" value={cue.at} aria-label="seconds into this entry" /> s</label>
+        <label class="cue-at-label">at <input type="number" class="cue-at" data-cue-at step="any" value={cue.at} aria-label="seconds into this entry (negative: before it, over the one before)" /> s</label>
         {spec.volume && (
           <span class:list={["cue-level", { "is-set": cue.level !== null }]} data-cue-level-box title="This cue's own loudness, 0 to 1. Empty: the sound's own level.">
             <span class="cue-level-name">level</span>
@@ -65,7 +65,7 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
         <option value="">Pick a {noun}…</option>
         {options.map((o) => <option value={o.slug}>{o.name}{o.seconds ? ` · ${o.seconds.toFixed(1)} s` : ""}{o.audioUrl ? "" : " · no take"}</option>)}
       </select>
-      <label class="cue-at-label">at <input type="number" class="cue-at" data-cue-at min="0" step="any" value="0" aria-label="seconds into this entry" /> s</label>
+      <label class="cue-at-label">at <input type="number" class="cue-at" data-cue-at step="any" value="0" aria-label="seconds into this entry (negative: before it, over the one before)" /> s</label>
       {spec.volume && (
           <span class:list={["cue-level", { "is-set": false }]} data-cue-level-box title="This cue's own loudness, 0 to 1. Empty: the sound's own level.">
             <span class="cue-level-name">level</span>
@@ -83,7 +83,7 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
     <button type="button" class="button secondary" data-cue-add>Add a {noun}</button>
     {options.length === 0 && <span class="field-help">No {spec.title.toLowerCase()} in the library yet.</span>}
   </div>
-  <p class="field-help">{field.helpText || `Which ${noun} plays, and how many seconds into this entry it starts. The timeline shows them in their lane.`}</p>
+  <p class="field-help">{field.helpText || `Which ${noun} plays, and how many seconds into this entry it starts (a negative number starts it before this entry, over the one before, but never before the film starts). The timeline shows them in their lane.`}</p>
   {error && <p class="field-error">{error}</p>}
 </div>
 
@@ -101,7 +101,7 @@ const noun = spec.title.toLowerCase().replace(/s$/, "");
       const cues = [...rows.querySelectorAll<HTMLElement>("[data-cue-row]")]
         .map((row) => {
           const ref = row.querySelector<HTMLSelectElement>("[data-cue-ref]")!.value;
-          const at = Math.max(0, Number(row.querySelector<HTMLInputElement>("[data-cue-at]")!.value) || 0);
+          const at = Number(row.querySelector<HTMLInputElement>("[data-cue-at]")!.value) || 0; // negative starts before this entry
           let extra: Record<string, unknown> = {};
           try {
             extra = JSON.parse(row.dataset.extra || "{}");
