@@ -145,7 +145,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
       return box;
     };
 
-    /** A typed number, held to its range; empty leaves it out (the render's default, shown as the placeholder). */
+    /** A typed number, held to its range; empty leaves it out (the default, shown as the placeholder). */
     const num = (f: CueField, value: unknown, set: (n: number | undefined) => void) => {
       const [min, max] = [f.min ?? -Infinity, f.max ?? Infinity];
       const fallback = f.default !== undefined ? String(f.default) : (f.unset ?? "");
@@ -158,7 +158,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
       return input;
     };
 
-    /** One of a kind's fields: a number, or a pick (a direction, a colour) whose empty choice is the render's default. */
+    /** One of a kind's fields: a number, or a pick (a direction, a colour) whose empty choice is the default. */
     const fieldInput = (effect: Effect, f: CueField) => {
       const set = (v: number | string | undefined) => (v === undefined ? delete effect[f.key] : (effect[f.key] = v));
       if (!f.choices) return num(f, effect[f.key], set);
@@ -181,12 +181,12 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
     };
 
     /** A camera move, a look or a change to the mix: the kinds the render does (lib/cueKinds.ts), and the numbers the chosen one takes, its
-     * defaults as placeholders. A kind the render does not do yet, or does not know, stays as written and is shown as such. */
+     * defaults as placeholders. A kind not offered yet, or not known at all, stays as written and is shown as such. */
     const effectBox = (group: CueGroup, cue: WordCue, repaint: () => void, words: { label: string; none: string; title: string }) => {
       const box = el("span", { className: `wc-${group}`, role: "group", ariaLabel: words.label });
       const current = cue[group] as Effect | undefined;
       const def = current ? kindOf(group, current.kind) : undefined;
-      const kept = current && !def?.enabled ? [option(current.kind, `${def?.label ?? current.kind} (${def ? "not in the render yet" : "not a kind the render knows"}: kept as written)`, true)] : [];
+      const kept = current && !def?.enabled ? [option(current.kind, `${def?.label ?? current.kind} (${def ? "not offered yet" : "not a kind Marvin knows"}: kept as written)`, true)] : [];
       const kind = el("select", { ariaLabel: words.label, title: words.title }, option("", words.none, !current), ...kept, ...CUE_KINDS[group].filter((d) => d.enabled).map((d) => option(d.kind, d.label, def?.kind === d.kind && d.enabled)));
       kind.onchange = () => {
         if (kind.value) cue[group] = { kind: kind.value };
@@ -203,7 +203,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
     const lookBox = (cue: WordCue, repaint: () => void) => effectBox("look", cue, repaint, { label: "Look", none: "No look", title: "How the picture looks from the end of the word before the cue (a flash, a dip, a tint)" });
     const mixBox = (cue: WordCue, repaint: () => void) => effectBox("mix", cue, repaint, { label: "Mix", none: "No change to the mix", title: "What is heard under the voice from the end of the word before the cue; the voice itself is untouched" });
 
-    /** The word after the cue stands out in the captions: offered once the render does it; a row that has it keeps it either way. */
+    /** The word after the cue stands out in the captions: offered once EMPHASIS is enabled; a row that has it keeps it either way. */
     const emphasisBox = (cue: WordCue) => {
       const box = el("span", { className: "wc-emphasis" });
       if (!EMPHASIS.enabled) {

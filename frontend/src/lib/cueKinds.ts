@@ -3,9 +3,15 @@
  * the Screenplay Studio render does when one is left out. The beat page's editor and the Timeline both read it, so a change to the render's
  * kinds is a change here.
  *
- * `enabled` says whether the editor offers a kind. One the render does not do yet is listed with `enabled: false`: a row that already holds it
+ * `enabled` says whether the editor offers a kind. One listed with `enabled: false` (the render may not do it yet): a row that already holds it
  * keeps it, the editor shows it as written and the Timeline draws it, but nobody picks it by mistake. Turning one on is that one line.
  * A kind not listed at all is kept and shown by its own name. Pure: no fetching.
+ *
+ * Where the numbers come from: punch, shake and nudge are the render's (camera.py). For the newer kinds only these come from the cue contract:
+ * the kind names, dead air's and duck's 1.5 s, tint's "to the end of the beat", whip pan's x of -1 or 1, and the 0 to 1 amounts of flash, tint,
+ * blur and duck. Every other default and range here (whip pan's and sway's amounts, the looks' seconds, flash's colours, duck's 0.3, emphasis's
+ * scale) is assumed until the render's own are known. Only `held` ranges (the render's or the contract's) are applied to what a row holds;
+ * the others bound the editor's inputs and leave a stored value as written.
  */
 
 export type CueGroup = "camera" | "look" | "mix";
@@ -20,12 +26,15 @@ export interface CueField {
   key: string;
   /** What the editor calls it (its label and tooltip). */
   label: string;
-  /** A typed number, held to its range. */
+  /** A typed number: the editor's input keeps to this range. */
   min?: number;
   max?: number;
   step?: number;
-  /** A pick from these instead (a number picked keeps to the nearest one). */
+  /** A pick from these instead. */
   choices?: readonly CueChoice[];
+  /** The render holds a value to the range (or a number to the nearest choice), so a row's value is held to it too. Else a row keeps what it
+   * says even outside the range, which is only assumed. */
+  held?: boolean;
   /** What the render uses when it is left out. */
   default?: number | string;
   /** How leaving it out reads when it has no single default ("to the end of the beat"). */
@@ -41,7 +50,7 @@ export interface CueKind {
   /** The editor's option: its name and what it does. */
   label: string;
   fields: readonly CueField[];
-  /** Offered in the editor (the render does it). */
+  /** Offered in the editor. */
   enabled: boolean;
   /** Drawn as a labelled chip next to the cue's flag; off for the camera moves the flag's ✣ has always stood for. */
   chip: boolean;
@@ -59,12 +68,12 @@ const seconds = (label: string, fallback: number | undefined, unset?: string): C
   ...(fallback !== undefined ? { default: fallback } : {}),
   ...(unset ? { unset } : {}),
 });
-const share = (key: string, label: string, fallback: number): CueField => ({ key, label, min: 0, max: 1, step: 0.05, default: fallback });
+const share = (key: string, label: string, fallback: number, held = true): CueField => ({ key, label, min: 0, max: 1, step: 0.05, default: fallback, held });
 
 /** Camera moves at the cue, on top of the beat's own (render camera.py `cue_of`). */
 export const CAMERA: readonly CueKind[] = [
-  { kind: "punch", name: "Punch", label: "Punch (a quick zoom in)", enabled: true, chip: false, fields: [{ key: "amount", label: "How far in, 1 to 1.5", min: 1, max: 1.5, step: 0.01, default: 1.06 }] },
-  { kind: "shake", name: "Shake", label: "Shake", enabled: true, chip: false, fields: [{ key: "amount", label: "How hard, % of the frame, 0 to 10", min: 0, max: 10, step: 0.1, default: 1.2 }] },
+  { kind: "punch", name: "Punch", label: "Punch (a quick zoom in)", enabled: true, chip: false, fields: [{ key: "amount", label: "How far in, 1 to 1.5", min: 1, max: 1.5, step: 0.01, default: 1.06, held: true }] },
+  { kind: "shake", name: "Shake", label: "Shake", enabled: true, chip: false, fields: [{ key: "amount", label: "How hard, % of the frame, 0 to 10", min: 0, max: 10, step: 0.1, default: 1.2, held: true }] },
   {
     kind: "nudge",
     name: "Nudge",
@@ -80,8 +89,8 @@ export const CAMERA: readonly CueKind[] = [
     enabled: true,
     chip: true,
     fields: [
-      { key: "x", label: "Direction", choices: [{ value: -1, label: "left" }, { value: 1, label: "right" }], default: 1 },
-      share("amount", "How far, a share of the frame, 0 to 1", 0.3),
+      { key: "x", label: "Direction", choices: [{ value: -1, label: "left" }, { value: 1, label: "right" }], default: 1, held: true },
+      share("amount", "How far, a share of the frame, 0 to 1", 0.3, false),
     ],
   },
   {
@@ -148,11 +157,12 @@ const numberOf = (v: unknown): number | null => {
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 };
 
-/** One field's value made what the render reads: a number held to its range, a numeric choice moved to the nearest; null to leave it out. */
+/** One field's value as the render reads it: a number (held to a `held` range, a numeric choice moved to the nearest), a pick as written;
+ * null to leave it out. */
 function fieldValue(f: CueField, v: unknown): number | string | null {
   if (f.choices && typeof f.choices[0]?.value === "string") return typeof v === "string" && v ? v : null;
   const n = numberOf(v);
-  if (n === null) return null;
+  if (n === null || !f.held) return n;
   if (f.choices) return f.choices.reduce((best, c) => (Math.abs((c.value as number) - n) < Math.abs((best as number) - n) ? c.value : best), f.choices[0].value);
   return Math.min(Math.max(n, f.min ?? -Infinity), f.max ?? Infinity);
 }
@@ -188,13 +198,13 @@ function fieldWords(f: CueField, v: unknown): string {
   return f.unit ? `${text} ${f.unit}` : text;
 }
 
-/** How a camera move, look or mix change reads, the render's defaults filled in: "Punch 1.06", "Whip pan right, 0.3", "Dead air 1.5 s".
- * A kind the editor does not offer yet says so; one this build does not know is named as written. */
+/** How a camera move, look or mix change reads, the defaults filled in: "Punch 1.06", "Whip pan right, 0.3", "Dead air 1.5 s". A kind the
+ * editor does not offer yet says so; one this build does not know is named as written. */
 export function effectWords(group: CueGroup, effect: Effect): string {
   const def = kindOf(group, effect.kind);
   if (!def) return `${effect.kind} (not a kind the render knows: it does nothing)`;
   const values = def.fields.map((f) => fieldWords(f, effect[f.key])).filter(Boolean);
-  return `${def.name}${values.length ? ` ${values.join(", ")}` : ""}${def.enabled ? "" : " (not in the render yet)"}`;
+  return `${def.name}${values.length ? ` ${values.join(", ")}` : ""}${def.enabled ? "" : " (not offered in the editor yet)"}`;
 }
 
 /** The short label the Timeline draws next to the cue's flag ("flash", "dead air 1.5 s", "whip pan"), or null where the flag's ✣ says it. */
@@ -206,13 +216,13 @@ export function effectChip(group: CueGroup, effect: Effect): string | null {
   return `${def.name.toLowerCase()}${field ? ` ${fieldWords(field, effect[field.key])}` : ""}`;
 }
 
-/** How long a change to the mix lasts: its own seconds, else the render's default. */
+/** How long a change to the mix lasts: its own seconds, else the default (the contract's 1.5 s). */
 export function mixSeconds(mix: Effect): number {
   const n = numberOf(mix.seconds);
   return n !== null && n > 0 ? n : MIX_SECONDS;
 }
 
-/** Emphasis as a row holds it: `true` or an object (`{scale?}`, anything else kept); undefined for none. */
+/** Emphasis as a row holds it: `true` or an object (`{scale?}`, a numeric scale made a number, anything else kept); undefined for none. */
 export function emphasisOf(raw: unknown): true | Record<string, unknown> | undefined {
   if (raw === true) return true;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
@@ -228,7 +238,7 @@ export function emphasisOf(raw: unknown): true | Record<string, unknown> | undef
 /** "Emphasis" or "Emphasis ×1.4", and whether the editor offers it yet. */
 export function emphasisWords(emphasis: true | Record<string, unknown>): string {
   const scale = emphasis === true ? undefined : numberOf(emphasis.scale);
-  return `${EMPHASIS.name}${scale !== null && scale !== undefined ? ` ×${plain(scale)}` : ""}${EMPHASIS.enabled ? "" : " (not in the render yet)"}`;
+  return `${EMPHASIS.name}${scale !== null && scale !== undefined ? ` ×${plain(scale)}` : ""}${EMPHASIS.enabled ? "" : " (not offered in the editor yet)"}`;
 }
 
 /** One labelled chip beside a cue's flag on the Timeline: what it is, its words for the tooltip, and whether the render knows it / does it yet. */

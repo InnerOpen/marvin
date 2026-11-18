@@ -53,7 +53,7 @@ A timeline definition::
   after. ``look`` ({kind: flash|dip|freeze|tint|blur|vignette|glitch, amount?, seconds?, color?}) changes the picture from there, ``mix``
   ({kind: dead-air|duck, seconds?, amount?}) what is heard under the voice, and ``emphasis`` (true or {scale?}) marks the word after it in the
   captions; ``nudge`` (seconds) moves all of these but the picture. The kinds, their numbers and defaults live in the frontend's
-  ``lib/cueKinds.ts``; the editor offers only those the render does. The Timeline draws each cue on its piece, its sound in the sounds lane
+  ``lib/cueKinds.ts``; the editor offers only those enabled there. The Timeline draws each cue on its piece, its sound in the sounds lane
   (lengthening the item as a placed sound does) and dead air or a duck over the bed lanes (changing no timing); the item's page edits the field
   as rows, keeping keys and kinds it does not know.
 - On an ``in`` lane, ``nudge`` is a field holding seconds a piece starts later (+) or earlier (-) than it falls (-10 to 10; the pieces after it

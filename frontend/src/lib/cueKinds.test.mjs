@@ -8,7 +8,7 @@ import { parseWordCues, serializeWordCues } from "./wordCues.ts";
 
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
 
-test("CUE_KINDS: the editor offers the kinds the render does; freeze, blur, glitch and emphasis wait for it", () => {
+test("CUE_KINDS: the editor offers the easy kinds first; freeze, blur, glitch and emphasis wait", () => {
   const offered = Object.entries(CUE_KINDS).flatMap(([group, kinds]) => kinds.filter((k) => k.enabled).map((k) => `${group}:${k.kind}`));
   assert.deepEqual(offered, [
     "camera:punch",
@@ -30,7 +30,7 @@ test("CUE_KINDS: the editor offers the kinds the render does; freeze, blur, glit
   assert.equal(EMPHASIS.enabled, false);
 });
 
-test("CUE_KINDS: every default is one of its choices or inside its range", () => {
+test("CUE_KINDS: every default is one of its choices or inside its range, and what the render holds is marked held", () => {
   for (const [group, kinds] of Object.entries(CUE_KINDS)) {
     for (const k of kinds) {
       for (const f of k.fields) {
@@ -46,15 +46,28 @@ test("CUE_KINDS: every default is one of its choices or inside its range", () =>
   }
   assert.equal(kindOf("mix", "dead-air").fields[0].default, MIX_SECONDS);
   assert.equal(MIX_SECONDS, 1.5);
+  const held = (group, kind) => kindOf(group, kind).fields.filter((f) => f.held).map((f) => f.key);
+  assert.deepEqual([held("camera", "punch"), held("camera", "nudge"), held("camera", "whip-pan"), held("camera", "sway")], [["amount"], ["x", "y"], ["x"], []]);
+  assert.deepEqual([held("look", "flash"), held("look", "tint"), held("look", "dip"), held("mix", "duck")], [["amount"], ["amount"], [], ["amount"]]);
 });
 
-test("effectOf: a known kind's numbers are held to their ranges and what else it carries stays", () => {
-  assert.deepEqual(effectOf("camera", { kind: "Whip-Pan", x: 0.4, amount: 3 }), { kind: "whip-pan", x: 1, amount: 1 });
+test("effectOf: a known kind's numbers are held to the render's or the contract's ranges and what else it carries stays", () => {
+  assert.deepEqual(effectOf("camera", { kind: "Whip-Pan", x: 0.4, amount: "0.5" }), { kind: "whip-pan", x: 1, amount: 0.5 });
   assert.deepEqual(effectOf("camera", { kind: "whip-pan", x: -7 }), { kind: "whip-pan", x: -1 });
   assert.deepEqual(effectOf("camera", { kind: "sway", amount: "2", seconds: "3" }), { kind: "sway", amount: 2, seconds: 3 });
   assert.deepEqual(effectOf("look", { kind: "flash", amount: 4, color: "white", ease: "out" }), { kind: "flash", amount: 1, color: "white", ease: "out" });
-  assert.deepEqual(effectOf("look", { kind: "tint", amount: "lots" }), { kind: "tint" }); // not a number: left to the render's default
-  assert.deepEqual(effectOf("mix", { kind: "duck", amount: -1, seconds: 0 }), { kind: "duck", amount: 0, seconds: 0.1 });
+  assert.deepEqual(effectOf("look", { kind: "tint", amount: "lots" }), { kind: "tint" }); // not a number: left to the default
+  assert.deepEqual(effectOf("mix", { kind: "duck", amount: -1, seconds: 0 }), { kind: "duck", amount: 0, seconds: 0 });
+});
+
+test("effectOf: a range that is only assumed bounds the editor, never what a row already says", () => {
+  const rows = [
+    { line: "l1", word: 1, look: { kind: "tint", seconds: 40 } },
+    { line: "l1", word: 2, camera: { kind: "sway", amount: 12, seconds: 45 } },
+    { line: "l1", word: 3, camera: { kind: "whip-pan", amount: 2.5, x: -1 } },
+    { line: "l1", word: 4, mix: { kind: "duck", seconds: 0 } },
+  ];
+  assert.deepEqual(JSON.parse(serializeWordCues(parseWordCues(rows))), rows);
 });
 
 test("effectOf: a kind this build does not know is kept exactly as written; something that is not a kind at all is nothing", () => {
@@ -64,7 +77,7 @@ test("effectOf: a kind this build does not know is kept exactly as written; some
   assert.equal(effectOf("mix", [{ kind: "duck" }]), undefined);
 });
 
-test("effectWords and effectChip: how each kind reads, the render's defaults filled in", () => {
+test("effectWords and effectChip: how each kind reads, the defaults filled in", () => {
   assert.equal(effectWords("camera", { kind: "punch" }), "Punch 1.06");
   assert.equal(effectChip("camera", { kind: "punch" }), null); // the flag's ✣ says it, as before
   assert.equal(effectWords("camera", { kind: "whip-pan", x: -1 }), "Whip pan left, 0.3");
@@ -74,7 +87,7 @@ test("effectWords and effectChip: how each kind reads, the render's defaults fil
   assert.equal(effectChip("look", { kind: "flash" }), "flash");
   assert.equal(effectWords("look", { kind: "dip", color: "white", seconds: 1 }), "Dip white, 1 s");
   assert.equal(effectWords("look", { kind: "tint" }), "Tint sepia, 0.5, to the end of the beat");
-  assert.equal(effectWords("look", { kind: "freeze" }), "Freeze 1 s (not in the render yet)");
+  assert.equal(effectWords("look", { kind: "freeze" }), "Freeze 1 s (not offered in the editor yet)");
   assert.equal(effectChip("mix", { kind: "dead-air" }), "dead air 1.5 s");
   assert.equal(effectChip("mix", { kind: "dead-air", seconds: 2.25 }), "dead air 2.25 s");
   assert.equal(effectChip("mix", { kind: "duck" }), "duck");
@@ -105,9 +118,10 @@ test("cueChips: a chip for each new thing a cue does, an unknown kind shown by i
   assert.deepEqual(cueChips({ camera: null }), []);
 });
 
-test("emphasisOf: true, or an object whose scale is held to its range", () => {
+test("emphasisOf: true, or an object whose scale is a number", () => {
   assert.equal(emphasisOf(true), true);
-  assert.deepEqual(emphasisOf({ scale: 9, style: "caps" }), { scale: 2, style: "caps" });
+  assert.deepEqual(emphasisOf({ scale: "1.4", style: "caps" }), { scale: 1.4, style: "caps" });
+  assert.deepEqual(emphasisOf({ scale: 9 }), { scale: 9 }); // its range is assumed: kept as written
   assert.equal(emphasisOf(false), undefined);
   assert.equal(emphasisOf(null), undefined);
 });
