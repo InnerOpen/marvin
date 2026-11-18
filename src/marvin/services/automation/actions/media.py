@@ -1145,11 +1145,100 @@ class _SpeechKeeper(_GeneratedKeeper):
 
 def _audio_bytes(item: dict) -> bytes:
     """Audio's bytes from base64 (a data: URL's too)."""
-    b64 = item["audio_b64"]
+    return _b64_bytes(item["audio_b64"], MAX_AUDIO_BYTES, "audio")
+
+
+def _b64_bytes(b64: str, limit: int, what: str) -> bytes:
+    """A file's bytes from base64 (a data: URL's too), refused past `limit`."""
     b64 = b64.split(",", 1)[1] if b64.startswith("data:") else b64
-    if len(b64) * 3 // 4 > MAX_AUDIO_BYTES:
-        raise ValueError(f"the audio is over {MAX_AUDIO_BYTES // (1024 * 1024)} MB")
+    if len(b64) * 3 // 4 > limit:
+        raise ValueError(f"the {what} is over {limit // (1024 * 1024)} MB")
     try:
         return base64.b64decode(b64, validate=False)
     except (ValueError, TypeError) as e:
-        raise ValueError("the audio data isn't valid base64") from e
+        raise ValueError(f"the {what} data isn't valid base64") from e
+
+
+# ── Video an integration returns ────────────────────────────────────────────
+VIDEO_EXTENSIONS = {"video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm"}
+VIDEO_FACTS = ("duration_seconds", "model_id", "resolution", "aspect_ratio", "generate_audio", "generation_id")
+"""What a video action's result says about the clip, kept on the asset beside how it was made (and on the step's reference)."""
+
+
+def returns_video(declared) -> bool:
+    """Whether a provider action's output is a video to keep: it declares a `video.*` capability (ElevenLabs' `make_video`,
+    video.from_image). Its `source` is the picture it starts from."""
+    return str(getattr(declared, "capability", None) or "").startswith("video.")
+
+
+def max_video_bytes() -> int:
+    """The largest video a `video.*` action may download and Marvin keep: what an asset may hold (ASSET_MAX_FILE_SIZE). The
+    integration HTTP client's usual cap (INTEGRATION_HTTP_MAX_BYTES, 5 MB) is for API answers; a few seconds of 720p is more."""
+    from marvin.core.config import get_app_settings
+
+    return int(get_app_settings().ASSET_MAX_FILE_SIZE)
+
+
+def keep_generated_video(
+    session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id, attach_as=None, tags=None, source=None
+) -> dict:
+    """Save the video in a `video.*` action's result as an asset and put a reference in its place, before the output reaches
+    the run (a run's snapshot holds an id, not megabytes of base64). The canonical shape is `{video_b64, mime?,
+    duration_seconds?, model_id?, resolution?, aspect_ratio?, generate_audio?, generation_id?}`; those facts are kept on the
+    asset's metadata beside how it was made, and `duration_seconds` on the reference too. The asset is named after the step's
+    `name` arg, else the first words of its `prompt`; with a `source` (the still it was made from) its metadata says
+    `made_from`. `attach_as` links it to the run's entry in that role."""
+    if not isinstance(result.get("video_b64"), str) or not result["video_b64"]:
+        return result
+    role = _attach_role({"attach_as": attach_as}, context)
+    entry_id = subject_entry_id(context)
+    if role and entry_id is None:
+        raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
+    keep = _VideoKeeper(session, group_id, result, generated_by=generated_by, args=args, context=context, user_id=user_id, source=source)
+    ref = keep.one(result)
+    if "duration_seconds" in keep.facts:
+        ref["duration_seconds"] = keep.facts["duration_seconds"]
+    if names := tag_names(tags, context):
+        ref["tags"] = tag_asset(session, group_id, keep.rows[ref["id"]], names)
+    if role:
+        ref["attached"] = attach(session, group_id, entry_id, keep.rows[ref["id"]], role, context, user_id=user_id)
+    return {**{k: v for k, v in result.items() if k != "video_b64"}, "asset": ref}
+
+
+class _VideoKeeper(_GeneratedKeeper):
+    """Stores one video action's clip, once per event like a picture: the same step of the same run handling an event twice
+    finds the asset it made. Not a version of its still (a clip is not another take of a picture): `made_from` names it."""
+
+    def __init__(self, session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id, source=None):
+        super().__init__(session, group_id, result, generated_by=generated_by, args=args, context=context, user_id=user_id, count=1)
+        prompt = str(args.get("prompt") or "")
+        if not str(args.get("name") or "").strip() and prompt.strip():
+            self.name = " ".join(prompt.split())[:SLUG_SOURCE_CHARS]
+        self.facts = {k: result[k] for k in VIDEO_FACTS if result.get(k) not in (None, "")}
+        self.lineage = {**self.lineage, **self.facts, **({"made_from": str(source.id)} if source is not None else {})}
+        self.mime = str(result.get("mime") or "video/mp4").split(";")[0].strip().lower()
+
+    def _store(self, item: dict, slug: str, index: int):
+        from marvin.services.assets.asset_storage_service import AssetRejected
+
+        extension = VIDEO_EXTENSIONS.get(self.mime)
+        try:
+            if extension is None:
+                raise ValueError(f"“{self.mime}” isn't video Marvin keeps")
+            data = _b64_bytes(item["video_b64"], max_video_bytes(), "video")
+            read = _storage(self.session, self.group_id).create_derivative(
+                source=None,
+                data=data,
+                group_id=self.group_id,
+                derivation=f"generated:{self.generated_by}",
+                slug=slug,
+                name=self.name,
+                user_id=self.uploader,
+                extra_metadata=dict(self.lineage),
+                extension=extension,
+            )
+        except (ValueError, AssetRejected) as e:  # a bad mime or base64, the upload limits, no uploader
+            raise AutomationActionError(f"{self.generated_by} made a video, but it can't be kept: {e}") from e
+        from marvin.db.models.platform.assets import Assets
+
+        return self.session.get(Assets, read.id)

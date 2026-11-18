@@ -52,8 +52,9 @@ export interface WorkflowApproval {
 
 export interface ApprovalEstimate {
   text: string;
-  items?: { step?: string | null; text: string; amount?: number | null; unit?: string | null; calls?: number | null; unknown?: boolean }[];
-  total?: { amount: number; unit: string } | null;
+  items?: { step?: string | null; text: string; amount?: number | null; unit?: string | null; calls?: number | null; unknown?: boolean; guess?: boolean }[];
+  /** `guess`: a line it adds up is the provider's placeholder figure, not a measured cost (the text says so). */
+  total?: { amount: number; unit: string; guess?: boolean } | null;
 }
 
 /** Waiting for you (`pending`, oldest first), or the latest settled ones (`decided`, newest first, with who, when and the note).

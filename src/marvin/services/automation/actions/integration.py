@@ -54,6 +54,11 @@ An action with a `speech.*` / `audio.*` capability (ElevenLabs' `synthesize`, `d
 audio the same way: kept as an asset, replaced by `asset: {id, slug, url, duration_seconds, …}` — see
 media.keep_generated_audio. `speech.transcribe` goes the other way: its `source` is an audio or video asset, handed to
 the provider as `audio_b64` / `audio_mime`, and it answers text.
+
+An action with a `video.*` capability (ElevenLabs' `make_video`, video.from_image) returns a video the same way: kept as an
+asset, replaced by `asset: {id, slug, url, duration_seconds, …}` — see media.keep_generated_video. Its `source` is the picture
+it starts from (handed over as `image_b64` / `image_mime`, as an image.* action's), and the call may download up to what an
+asset may hold (media.max_video_bytes), not the 5 MB an API answer may be.
 """
 
 import time
@@ -176,10 +181,10 @@ def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry
 
     if needs_approval(declared) and not approved:
         raise AutomationActionError(f"'{row.provider}.{key}' requires approval: put an Approval step before it (it runs once approved)")
-    from .media import returns_audio, returns_images, takes_audio
+    from .media import returns_images, returns_video, takes_audio
 
     keeps_images = returns_images(declared)
-    src = _source_picture(session, group_id, action, context, keeps_images, takes_audio(declared))
+    src = _source_picture(session, group_id, action, context, keeps_images or returns_video(declared), takes_audio(declared))
     references = _reference_pictures(session, group_id, action, context, keeps_images)
     # An idempotency_key that already made this call within its window: nothing is called, the earlier output is reused.
     from .. import idempotency
@@ -193,13 +198,7 @@ def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry
             preview["source"] = src.slug
         if references:
             preview["references"] = [r.slug for r in references]
-        if keeps_images:
-            preview["keeps_images_as_assets"] = True
-        if keeps_images or returns_audio(declared):
-            if action.get("attach_as"):
-                preview["attach_as"] = interpolate(action["attach_as"], context)
-        if returns_audio(declared):
-            preview["keeps_audio_as_asset"] = True
+        preview.update(_kept_preview(declared, keeps_images, action, context))
         if (social or (engagement and capability in DRY_RUN_CAPABILITIES)) and (gate is None or not gate.duplicate):
             # A social post (or reply, or message): the plugin is asked what it would send (args.dry_run; it sends nothing)
             # so the preview shows its answer — and its refusal, e.g. a text too long for the network.
@@ -221,6 +220,17 @@ def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry
     if gate is not None:
         gate.complete(out)
     return out
+
+
+def _kept_preview(declared, keeps_images: bool, action: dict, context: dict) -> dict:
+    """What a dry run says the step would keep: its pictures, audio or video as assets, and the role it would attach them in."""
+    from .media import returns_audio, returns_video
+
+    kept = {"keeps_images_as_assets": keeps_images, "keeps_audio_as_asset": returns_audio(declared), "keeps_video_as_asset": returns_video(declared)}
+    preview = {k: True for k, v in kept.items() if v}
+    if preview and action.get("attach_as"):
+        preview["attach_as"] = interpolate(action["attach_as"], context)
+    return preview
 
 
 def _keep_in_inbox(session, row, out: dict) -> dict:
@@ -322,9 +332,10 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
     from marvin.services.integrations import IntegrationContext, build_http
     from marvin.services.secrets.resolver import resolve_secret
 
-    from .media import keep_generated_audio, keep_generated_images, returns_audio, takes_audio
+    from .media import keep_generated_audio, keep_generated_images, keep_generated_video, max_video_bytes, returns_audio, returns_video, takes_audio
 
     slug = row.slug
+    makes_video = returns_video(_declared_action(provider, key))
     from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
 
     try:
@@ -359,8 +370,9 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
     secret = resolve_secret(row.secret_ref, group_id) if row.secret_ref else None
     # A retry resumes from the provider's partial progress with the same idempotency seed (SDK 0.5.0+).
     resume, seed = errors.resume_state(session, group_id, row.id, key, context)
+    http = build_http(max_bytes=max_video_bytes() if makes_video else None)  # a clip is bigger than an API answer
     ctx = errors.build_context(
-        IntegrationContext, config=row.config or {}, secret=secret, logger=_logger(), http=build_http(), resume=resume, idempotency_seed=seed
+        IntegrationContext, config=row.config or {}, secret=secret, logger=_logger(), http=http, resume=resume, idempotency_seed=seed
     )
     started = time.monotonic()
     try:
@@ -428,16 +440,31 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
             attach_as=action.get("attach_as"),
             tags=action.get("tags"),
         )
+    elif makes_video:
+        out = keep_generated_video(
+            session,
+            group_id,
+            out,
+            generated_by=f"{row.provider}.{key}",
+            args=plain_args,
+            context=context,
+            user_id=user_id,
+            attach_as=action.get("attach_as"),
+            tags=action.get("tags"),
+            source=src,
+        )
     return out
 
 
-def _source_picture(session, group_id, action: dict, context: dict, keeps_images: bool, takes_audio: bool = False):
-    """The picture an image.* action (or the audio or video a speech.transcribe action) works on (`source`, as a media
-    step's), or None."""
+def _source_picture(session, group_id, action: dict, context: dict, takes_picture: bool, takes_audio: bool = False):
+    """The picture an image.* or video.* action (or the audio or video a speech.transcribe action) works on (`source`, as a
+    media step's), or None."""
     if not action.get("source"):
         return None
-    if not keeps_images and not takes_audio:
-        raise AutomationActionError("source goes with an action that works on a picture (an image.* capability, e.g. image.edit)")
+    if not takes_picture and not takes_audio:
+        raise AutomationActionError(
+            "source goes with an action that works on a picture (an image.* capability, e.g. image.edit, or a video.* one, e.g. video.from_image)"
+        )
     from marvin.services.ai.media import transforms
 
     from .media import resolve_source

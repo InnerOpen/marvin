@@ -16,6 +16,7 @@ import SchemaForm from "@/components/SchemaForm.astro";
 import SchemaFormField from "@/components/SchemaFormField.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { acceptKind } from "@/lib/acceptKind";
+import { isVideoUrl } from "@/lib/approvalMedia";
 import { getAuthToken } from "@/lib/api/client";
 import { type MarvinAsset, getAssets } from "@/lib/api/platform";
 import { acceptsVideo, kindOfAccept, matchesAccept, recordsAudio, uploadChoices } from "@/lib/assetAccept";
@@ -787,7 +788,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       <p class="approval-title">{approveNames[c.automationSlug ?? ""] ?? "A workflow"} is asking</p>
                       <div class="approval-message">{c.message}</div>
                       {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
-                      {c.imageUrl && <audio class="approval-audio" controls src={c.imageUrl}></audio>}
+                      {c.imageUrl && (isVideoUrl(c.imageUrl)
+                        ? <video class="approval-picture" src={c.imageUrl} controls playsinline preload="metadata" />
+                        : <audio class="approval-audio" controls src={c.imageUrl}></audio>)}
                       <ApprovalCost estimate={c.estimate} limit={c.spendLimit} />
                       <ApprovalBoxes fields={c.fields} />
                       <ApprovalPick card={c} cards={pendingCards} />
@@ -958,7 +961,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             <p class="approval-title">{flow.name ?? step.generate.workflow} is asking</p>
                             <div class="approval-message">{c.message}</div>
                             {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
-                            {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
+                            {c.imageUrl && (isVideoUrl(c.imageUrl)
+                              ? <video class="approval-picture" src={c.imageUrl} controls playsinline preload="metadata" />
+                              : <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />)}
                             <ApprovalCost estimate={c.estimate} limit={c.spendLimit} />
                             <ApprovalBoxes fields={c.fields} />
                             <ApprovalPick card={c} cards={pendingCards} />
@@ -1043,7 +1048,9 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                   <p class="approval-title">{flow.name ?? step.workflow} is asking</p>
                   <div class="approval-message">{c.message}</div>
                   {c.detail && <details class="approval-detail"><summary>Show the details</summary><div class="approval-message">{c.detail}</div></details>}
-                  {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
+                  {c.imageUrl && (isVideoUrl(c.imageUrl)
+                    ? <video class="approval-picture" src={c.imageUrl} controls playsinline preload="metadata" />
+                    : <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />)}
                   <ApprovalCost estimate={c.estimate} limit={c.spendLimit} />
                   <ApprovalBoxes fields={c.fields} />
                   <ApprovalPick card={c} cards={pendingCards} />

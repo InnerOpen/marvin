@@ -13,7 +13,13 @@ writes (services/integrations/usage_log.py): the same integration and operation,
 * a price per call in dollars (an image model's tokens at its known price, ``estimated_cost_usd``): the typical one, among calls
   of the same `size` and `quality` when those are given.
 
-"Typical" is the median of the last ``LOOKBACK`` calls. Nothing to go by (no earlier call, none measured) says so: ``unknown``.
+Only calls of the same kind count (``SAME_KIND_ARGS``): the same size, quality and model, and for a video the same resolution and
+with or without generated sound, so a 720p clip with no sound is never averaged with a 1080p one with sound.
+
+"Typical" is the median of the last ``LOOKBACK`` calls. Nothing to go by (no earlier call, none measured) says so: ``unknown`` —
+unless the provider offers its own figure (``estimate_cost(key, args)`` on the provider, optional): then that figure is shown,
+marked as the provider's guess (``guess: True``), until this workspace's own measured calls replace it. ElevenLabs video is the
+case: ElevenLabs publishes no price per second, so the plugin's table is a placeholder, and the card says so.
 Never raises: an estimate is a courtesy on a card.
 """
 
@@ -23,7 +29,9 @@ from statistics import median
 
 LOOKBACK = 20  # the earlier calls an estimate reads
 SCAN = 200  # the newest rows of that operation looked through for this integration's own
-SAME_KIND_ARGS = ("size", "quality", "model_id", "model")  # an image's size and quality, a voice's model: calls only like these count
+# An image's size and quality, a voice's model, a video's resolution and whether it has sound: calls only like these count.
+SAME_KIND_ARGS = ("size", "quality", "model_id", "model", "resolution", "generate_audio")
+_YES, _NO = frozenset({"true", "yes", "1", "on"}), frozenset({"false", "no", "0", "off"})
 
 
 def _number(value) -> float | None:
@@ -45,6 +53,12 @@ def _billed(meta: dict) -> float | None:
     return units * (_number(meta.get("multiplier")) or 1.0)
 
 
+def _kind(value) -> str:
+    """An argument as a kind compares it: a yes/no the same however it is written (False, "false", "no"), else its text."""
+    text = str(value).strip().lower()
+    return "yes" if text in _YES else "no" if text in _NO else text
+
+
 def earlier_calls(session, group_id, integration_id, operation: str, args: dict) -> list:
     """This integration's latest completed calls of `operation`, the same kind as `args` (size, quality, model) where both say."""
     from marvin.db.models.groups.ai_executions import AIExecutionModel as Run
@@ -64,7 +78,7 @@ def earlier_calls(session, group_id, integration_id, operation: str, args: dict)
         if str(meta.get("integration_id") or "") != str(integration_id):
             continue
         was = ((run.input_json or {}).get("args") or {}) if isinstance(run.input_json, dict) else {}
-        if any(args.get(k) not in (None, "") and was.get(k) not in (None, "") and str(args[k]) != str(was[k]) for k in SAME_KIND_ARGS):
+        if any(args.get(k) not in (None, "") and was.get(k) not in (None, "") and _kind(args[k]) != _kind(was[k]) for k in SAME_KIND_ARGS):
             continue
         found.append(run)
         if len(found) >= LOOKBACK:
@@ -198,7 +212,7 @@ def paid_call(session, group_id, step: dict, context: dict) -> tuple | None:
     declared = _declared_action(provider, key) if key else None
     if declared is None or not (getattr(declared, "cost_hint", None) == "paid" or needs_approval(declared)):
         return None
-    return integration, provider, capability or f"{integration.provider}.{key}", args
+    return integration, provider, capability or f"{integration.provider}.{key}", args, key
 
 
 def _step_estimate(session, group_id, step: dict, context: dict) -> dict | None:
@@ -209,9 +223,37 @@ def _step_estimate(session, group_id, step: dict, context: dict) -> dict | None:
     found = paid_call(session, group_id, step, context)
     if found is None:
         return None  # not a paid call: nothing to say
-    integration, provider, operation, args = found
+    integration, provider, operation, args, key = found
     name = getattr(provider, "name", None) or integration.provider
-    return {"step": step.get("id"), **estimate_call(session, group_id, integration, operation, args, provider_name=name)}
+    said = estimate_call(session, group_id, integration, operation, args, provider_name=name)
+    if said.get("unknown"):
+        said = provider_guess(provider, key, args, provider_name=name) or said
+    return {"step": step.get("id"), **said}
+
+
+def provider_guess(provider, key: str, args: dict, *, provider_name: str) -> dict | None:
+    """The provider's own figure for a call nothing here has measured yet (``provider.estimate_cost(key, args)``, optional:
+    ``{amount, unit?, basis?}``), marked as a guess on the card; None when it offers none (or fails: never raises)."""
+    guess = getattr(provider, "estimate_cost", None)
+    if not callable(guess):
+        return None
+    try:
+        figure = guess(key, dict(args))
+    except Exception:  # noqa: BLE001 — a guess is a courtesy on a courtesy
+        return None
+    amount = _number((figure or {}).get("amount")) if isinstance(figure, dict) else None
+    if amount is None:
+        return None
+    unit = f"{provider_name} {figure.get('unit') or 'credits'}"
+    basis = str(figure.get("basis") or "a call").strip()
+    return {
+        "amount": round(amount),
+        "unit": unit,
+        "calls": 0,
+        "guess": True,
+        "text": f"About {_shown(round(amount), unit)} ({basis}) — a guess: {provider_name} publishes no price for this, so the plugin's "
+        "placeholder figure stands until calls made here have been measured",
+    }
 
 
 def _inner_steps(actions: list, index: int, context: dict) -> list[dict]:
@@ -252,8 +294,9 @@ def combine(items: list[dict]) -> dict:
     if known and len(known) == len(items) and len(units) == 1:
         unit = units.pop()
         total = round(sum(i["amount"] for i in known), 2) if unit == "USD" else sum(i["amount"] for i in known)
-        out["total"] = {"amount": total, "unit": unit}
-        out["text"] = items[0]["text"] if len(items) == 1 else f"About {_shown(total, unit)} in all"
+        out["total"] = {"amount": total, "unit": unit, **({"guess": True} if any(i.get("guess") for i in known) else {})}
+        guessed = " (partly a guess: see each line)" if any(i.get("guess") for i in known) else ""
+        out["text"] = items[0]["text"] if len(items) == 1 else f"About {_shown(total, unit)} in all{guessed}"
     else:
         out["text"] = " · ".join(i["text"] for i in items)
     return out

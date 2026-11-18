@@ -255,6 +255,7 @@ class MarvinHttpHelper:
         return self._send(urllib.request.Request(url, data=body, method=method, headers=headers or {}), timeout)
 
 
-def build_http() -> MarvinHttpHelper:
-    """Factory for the per-call http helper handed to providers."""
-    return MarvinHttpHelper()
+def build_http(max_bytes: int | None = None) -> MarvinHttpHelper:
+    """Factory for the per-call http helper handed to providers. ``max_bytes`` raises (or lowers) the response cap for this
+    call only: a `video.*` action downloads its clip (services/automation/actions/media.py: max_video_bytes)."""
+    return MarvinHttpHelper(max_bytes=max_bytes)

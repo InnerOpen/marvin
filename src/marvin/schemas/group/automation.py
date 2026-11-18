@@ -497,11 +497,13 @@ class ApprovalEstimateItem(_MarvinModel):
     unit: str | None = None  # "<provider> credits" | "USD"
     calls: int | None = None  # how many earlier calls it went by
     unknown: bool = False
+    guess: bool = False  # the provider's own placeholder figure (nothing here measured yet): the text says so
 
 
 class ApprovalEstimateTotal(_MarvinModel):
     amount: float
     unit: str
+    guess: bool = False  # one of the lines it adds up is a guess
 
 
 class ApprovalEstimate(_MarvinModel):

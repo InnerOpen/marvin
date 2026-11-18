@@ -666,7 +666,9 @@ MEDIA_NOTE = (
     "adds pictures to go by, e.g. a character's master (source, if set, is the one it edits). An action with a "
     "speech.* or audio.* capability (elevenlabs.synthesize, .dialogue, .sound_effect, .music) keeps its audio as an asset — "
     "output asset {id, url, duration_seconds} — and takes attach_as and tags; speech.transcribe takes an audio or video "
-    "asset as source and answers text with word times. extract_text: a PDF's "
+    "asset as source and answers text with word times. An action with a video.* capability (elevenlabs.make_video) takes a "
+    "picture as source (the frame it starts from) and keeps its video as an asset — output asset {id, url, duration_seconds} "
+    "plus model_id, resolution, generation_id — and takes attach_as and tags. extract_text: a PDF's "
     "own text is free, a scanned page or a picture costs one vision call (ocr: never skips them); outputs text with "
     "[page N] marks and pages. pages outputs asset (first) and assets. find_sensitive outputs regions + count; redact "
     "takes boxes: ${steps.<id>.output.regions} (count 0 makes nothing). zip takes files: a gather step's rows. "
@@ -1146,18 +1148,22 @@ def _step_issues(
 
 
 def _picture_fields_issue(step: dict, actions: list[dict], slug, key, bad) -> None:
-    """`source`, `references`, `attach_as` and `tags` on an integration action: they go with one that makes pictures or audio
-    (`source` also on speech.transcribe, which reads audio), and `references` is a list of up to 16 pictures."""
+    """`source`, `references`, `attach_as` and `tags` on an integration action: they go with one that makes pictures, audio or
+    video (`source` also on speech.transcribe, which reads audio, and on a video.* action, the picture it starts from), and
+    `references` is a list of up to 16 pictures for an image.* action."""
     declared = next((a for a in actions if a["action"] == key), None)
     capability = str((declared or {}).get("capability") or "")
     makes_audio = capability.startswith(("speech.", "audio.")) and capability != "speech.transcribe"
+    makes_video = capability.startswith("video.")
     refs = step.get("references")
-    if declared is not None and not capability.startswith("image.") and not makes_audio and capability != "speech.transcribe":
+    if declared is not None and not capability.startswith("image.") and not makes_audio and not makes_video and capability != "speech.transcribe":
         field_name = next(f for f in ("source", "references", "attach_as", "tags") if step.get(f))
-        bad(field_name, f"{field_name} goes with an action that makes images or audio; “{slug}.{key}” doesn't.")
+        bad(field_name, f"{field_name} goes with an action that makes images, audio or video; “{slug}.{key}” doesn't.")
     elif makes_audio and (step.get("source") or refs):
         field_name = "source" if step.get("source") else "references"
         bad(field_name, f"{field_name} goes with an action that works on a picture; “{slug}.{key}” makes audio.")
+    elif makes_video and refs:
+        bad("references", f"references goes with an action that makes pictures; “{slug}.{key}” makes a video from its `source` picture.")
     elif refs and not isinstance(refs, list | str):
         bad("references", "references is a list of asset ids or slugs (templates allowed).")
     elif isinstance(refs, list) and len(refs) > MAX_REFERENCES:
