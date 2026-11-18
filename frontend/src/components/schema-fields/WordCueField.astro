@@ -180,7 +180,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
       return pick;
     };
 
-    /** A camera move, a look or a change to the mix: the kinds the render does (lib/cueKinds.ts), and the numbers the chosen one takes, its
+    /** A camera move, a look or a change to the mix: the kinds enabled in lib/cueKinds.ts, and the numbers the chosen one takes, its
      * defaults as placeholders. A kind not offered yet, or not known at all, stays as written and is shown as such. */
     const effectBox = (group: CueGroup, cue: WordCue, repaint: () => void, words: { label: string; none: string; title: string }) => {
       const box = el("span", { className: `wc-${group}`, role: "group", ariaLabel: words.label });
