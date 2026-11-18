@@ -405,6 +405,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       data-key={itemRun && item.key && !item.card ? item.key : undefined}
                       data-name={item.number !== null ? String(item.number) : item.title}
                       data-start={item.onScreen.start}
+                      data-end={item.onScreen.start + item.onScreen.seconds}
                       data-sound-start={item.start}
                       style={`left:${pctIn(track, item.onScreen.start)};width:${pctIn(track, track.start + item.onScreen.seconds)}`}
                       title={itemTitle(item)}
@@ -586,6 +587,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         role="listitem"
                         href={laneOpens[lane.id] ? laneOpens[lane.id](p.slug) : open(p.id)}
                         data-piece={p.id}
+                        data-from={p.seconds > 0 ? p.start : undefined}
+                        data-to={p.seconds > 0 ? p.start + p.seconds : undefined}
                         data-drag={nudgeField.has(lane.id) && p.seconds > 0 && itemOfPiece.has(p.id) ? JSON.stringify({ item: itemOfPiece.get(p.id), field: nudgeField.get(lane.id) }) : undefined}
                         data-drag-sound={lane.placed && p.slot ? JSON.stringify(soundDrag(lane, p)) : undefined}
                         style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}`}
@@ -863,13 +866,14 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     let cueStartedAt = 0; // wall clock, for silent stretches
 
     const cueAt = (t: number) => cues.findIndex((c) => t >= c.start && t < c.start + c.seconds);
+    // What lights is what the playhead is over, by where each thing is drawn: a card while its picture is up (a picture lead or a nudge moves that from
+    // its sound), and every line or sound heard at that moment, nudged or laid over another, not only the one the walk plays in turn.
+    const lights = Array.from(root.querySelectorAll<HTMLElement>("[data-item][data-start][data-end]"), (el) => ({ el, from: Number(el.dataset.start), to: Number(el.dataset.end) }));
+    const heard = Array.from(root.querySelectorAll<HTMLElement>(".tl-piece[data-from][data-to]"), (el) => ({ el, from: Number(el.dataset.from), to: Number(el.dataset.to) }));
     const light = (t: number) => {
-      const cue = cues[cueAt(t)];
-      root.querySelectorAll<HTMLElement>(".tl-item.is-now, .tl-piece.is-now").forEach((el) => el.classList.remove("is-now"));
+      for (const { el, from, to } of lights) el.classList.toggle("is-now", t >= from && t < to);
+      for (const { el, from, to } of heard) el.classList.toggle("is-now", t >= from && t < to);
       root.querySelectorAll<HTMLElement>(".tl-bed").forEach((el) => el.classList.toggle("is-now", playing && t >= Number(el.dataset.start) && t < Number(el.dataset.end)));
-      if (!cue) return;
-      root.querySelector(`[data-item="${cue.item}"]`)?.classList.add("is-now");
-      if (cue.piece) root.querySelector(`[data-piece="${cue.piece}"]`)?.classList.add("is-now");
     };
     // Where each item starts and what it is called (a beat's number): for the clock's "how far into this beat" and for jumping between them.
     const itemMarks = Array.from(root.querySelectorAll<HTMLElement>("[data-item][data-start]"), (item) => ({ start: Number(item.dataset.start), sound: Number(item.dataset.soundStart ?? item.dataset.start), name: item.dataset.name || "" }));
