@@ -2,6 +2,7 @@
 // squeeze the take so ten minutes still fit one upload, when a take stops itself, what to name the file and the facts kept
 // with it. What it shares with the audio recorder is in lib/recording.ts. Pure, so node can test them.
 
+import { type MicrophoneSettings, microphoneFacts, toDbfs } from "./audioRecorder.ts";
 import { type DeviceWords, containerOf, safeBaseName } from "./recording.ts";
 import { UPLOAD_LIMIT_BYTES } from "./uploadLimit.ts";
 
@@ -85,43 +86,86 @@ export function videoFileFor(blob: Blob, mimeType: string, baseName: string): Fi
   return new File([blob], `${safeBaseName(baseName)}.${EXTENSION_OF[container]}`, { type: `video/${container}` });
 }
 
-/** The camera and microphone picked. A device remembered from an earlier visit is asked for as `ideal`: its id may be stale (a
- * browser can rotate them, the camera may be unplugged), and `exact` would then fail as if there were no camera at all. One
- * picked just now is `exact`, so a camera that can't open says so instead of quietly giving another. */
+/** The browser's own sound processing, each asked for on or off as the person ticked it. */
+export type Processing = Record<"autoGainControl" | "echoCancellation" | "noiseSuppression", boolean>;
+export const PROCESSING_NAMES = ["autoGainControl", "echoCancellation", "noiseSuppression"] as const;
+/** All off by default, as the audio recorder's: the take is what the microphone hears. */
+export const NO_PROCESSING: Processing = { autoGainControl: false, echoCancellation: false, noiseSuppression: false };
+
+/** The "Mic level" slider: a boost or cut in the browser (a Web Audio gain), not the microphone's own gain, which a page can't
+ * read or set. 1 leaves the sound as it came. */
+export const MIN_MIC_GAIN = 0.5;
+export const MAX_MIC_GAIN = 2;
+export const DEFAULT_MIC_GAIN = 1;
+
+/** A mic level kept within the slider's range; anything that is not a number is the default. */
+export function clampMicGain(value: unknown): number {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return DEFAULT_MIC_GAIN;
+  return Math.min(MAX_MIC_GAIN, Math.max(MIN_MIC_GAIN, n));
+}
+
+/** A device remembered from an earlier visit is asked for as `ideal`: its id may be stale (a browser can rotate them, the camera
+ * may be unplugged), and `exact` would then fail as if there were no device at all. One picked just now is `exact`, so a device
+ * that can't open says so instead of quietly giving another. */
+function wantDevice(id: string | undefined, remembered: boolean | undefined): MediaTrackConstraints {
+  return id ? { deviceId: remembered ? { ideal: id } : { exact: id } } : {};
+}
+
+/** The microphone picked, with its processing on or off as ticked: for opening it, alone or with the camera. */
+export function microphoneConstraints(choice: { microphoneId?: string; remembered?: boolean; processing?: Processing }): MediaTrackConstraints {
+  return { ...wantDevice(choice.microphoneId, choice.remembered), ...(choice.processing ?? NO_PROCESSING) };
+}
+
+/** The camera and microphone picked, the camera asked for 720p at 30 frames. */
 export function videoConstraints(choice: {
   cameraId?: string;
   microphoneId?: string;
   remembered?: boolean;
+  processing?: Processing;
 }): MediaStreamConstraints {
-  const want = (id?: string) => (id ? { deviceId: choice.remembered ? { ideal: id } : { exact: id } } : {});
   return {
     video: {
-      ...want(choice.cameraId),
+      ...wantDevice(choice.cameraId, choice.remembered),
       width: { ideal: IDEAL_WIDTH },
       height: { ideal: IDEAL_HEIGHT },
       frameRate: { ideal: IDEAL_FRAME_RATE },
     },
-    audio: { ...want(choice.microphoneId) },
+    audio: microphoneConstraints(choice),
   };
 }
 
-/** The devices kept between visits. */
+/** True when the microphone now runs with the processing asked for. `applyConstraints` can resolve and change nothing (Chrome
+ * does for these three), so what the track reports decides whether it must be reopened. A setting the browser doesn't report
+ * can't be checked, and passes. */
+export function processingHeld(asked: Processing, applied: Partial<Record<keyof Processing, unknown>>): boolean {
+  return PROCESSING_NAMES.every((name) => applied[name] === undefined || applied[name] === asked[name]);
+}
+
+/** The devices and microphone settings kept between visits. */
 export interface DeviceChoice {
   cameraId: string;
   microphoneId: string;
   countdown: boolean;
+  processing: Processing;
+  micGain: number;
 }
 
-/** A remembered choice (text from storage), or the defaults when there is none or it is not ours. */
+/** A remembered choice (text from storage), or the defaults when there is none or it is not ours. A choice kept before the
+ * microphone settings existed still reads, with them at their defaults. */
 export function parseDeviceChoice(stored: string | null | undefined): DeviceChoice {
-  const none: DeviceChoice = { cameraId: "", microphoneId: "", countdown: false };
+  const none: DeviceChoice = { cameraId: "", microphoneId: "", countdown: false, processing: { ...NO_PROCESSING }, micGain: DEFAULT_MIC_GAIN };
   if (!stored) return none;
   try {
-    const raw = JSON.parse(stored) as Partial<Record<keyof DeviceChoice, unknown>>;
+    const raw = JSON.parse(stored) as Partial<Record<keyof DeviceChoice, unknown>> | null;
+    if (typeof raw !== "object" || raw === null) return none;
+    const processing = (typeof raw.processing === "object" && raw.processing !== null ? raw.processing : {}) as Record<string, unknown>;
     return {
-      cameraId: typeof raw?.cameraId === "string" ? raw.cameraId : "",
-      microphoneId: typeof raw?.microphoneId === "string" ? raw.microphoneId : "",
-      countdown: raw?.countdown === true,
+      cameraId: typeof raw.cameraId === "string" ? raw.cameraId : "",
+      microphoneId: typeof raw.microphoneId === "string" ? raw.microphoneId : "",
+      countdown: raw.countdown === true,
+      processing: Object.fromEntries(PROCESSING_NAMES.map((name) => [name, processing[name] === true])) as Processing,
+      micGain: clampMicGain(raw.micGain),
     };
   } catch {
     return none;
@@ -137,23 +181,31 @@ export const CAMERA_WORDS: DeviceWords = {
   failed: "The camera could not be opened.",
 };
 
-/** What the camera and microphone gave (MediaStreamTrack.getSettings() and labels) and the format recorded. */
-export interface VideoSettings {
+/** What the camera and microphone gave (MediaStreamTrack.getSettings() and labels, the microphone's from its own track, not the
+ * gain's) and the format recorded. `gain` is the mic level put on the take in the browser, or null when none was. */
+export interface VideoSettings extends MicrophoneSettings {
   mimeType: string;
   camera?: string;
   microphone?: string;
   width?: number;
   height?: number;
   frameRate?: number;
+  gain?: number | null;
+}
+
+/** What the take came to: its length, why it stopped, and its loudest moment as the meter saw it (none when there was no meter). */
+export interface VideoStats {
+  durationSeconds: number;
+  stopped?: "time" | "size" | null;
+  peak?: number;
+  clipped?: boolean;
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-/** The facts kept in the asset's metadata, under `recording` (snake_case, like the audio recorder's). */
-export function videoRecordingMetadata(
-  settings: VideoSettings,
-  stats: { durationSeconds: number; stopped?: "time" | "size" | null },
-): { recording: Record<string, unknown> } {
+/** The facts kept in the asset's metadata, under `recording` (snake_case, like the audio recorder's, whose microphone facts it
+ * shares). */
+export function videoRecordingMetadata(settings: VideoSettings, stats: VideoStats): { recording: Record<string, unknown> } {
   return {
     recording: {
       source: "browser",
@@ -164,7 +216,11 @@ export function videoRecordingMetadata(
       width: settings.width ?? null,
       height: settings.height ?? null,
       frame_rate: settings.frameRate ? round1(settings.frameRate) : null,
+      ...microphoneFacts(settings),
+      gain: settings.gain ?? null,
       duration_seconds: round1(stats.durationSeconds),
+      peak_dbfs: stats.peak === undefined ? null : toDbfs(stats.peak),
+      clipped: stats.clipped ?? null,
       stopped: stats.stopped ?? null,
     },
   };

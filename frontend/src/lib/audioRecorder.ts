@@ -77,15 +77,19 @@ export function canPauseReliably(userAgent: string): boolean {
   return !isSafari;
 }
 
-/** What the microphone gave (MediaStreamTrack.getSettings(), plus the device's label) and the format recorded. */
-export interface RecordingSettings {
-  mimeType: string;
-  deviceLabel?: string;
+/** What a microphone gave (MediaStreamTrack.getSettings()): the video recorder keeps the same facts of its microphone. */
+export interface MicrophoneSettings {
   sampleRate?: number;
   channelCount?: number;
   echoCancellation?: boolean;
   noiseSuppression?: boolean;
   autoGainControl?: boolean;
+}
+
+/** What the microphone gave, plus the device's label, and the format recorded. */
+export interface RecordingSettings extends MicrophoneSettings {
+  mimeType: string;
+  deviceLabel?: string;
 }
 
 /** What the take came to: its length (decoded when the browser could, else the dialog's clock) and loudest moment. */
@@ -97,21 +101,28 @@ export interface RecordingStats {
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-/** The facts kept in the asset's metadata, under `recording` (snake_case, like the rest of an asset's metadata).
- * The constraints are what the browser applied, not what was asked: it may ignore a request. */
+/** A microphone's facts as kept under `recording`, by either recorder. The constraints are what the browser applied, not what
+ * was asked: it may ignore a request. */
+export function microphoneFacts(settings: MicrophoneSettings): Record<string, unknown> {
+  return {
+    sample_rate: settings.sampleRate ?? null,
+    channels: settings.channelCount ?? null,
+    constraints: {
+      echo_cancellation: settings.echoCancellation ?? null,
+      noise_suppression: settings.noiseSuppression ?? null,
+      auto_gain_control: settings.autoGainControl ?? null,
+    },
+  };
+}
+
+/** The facts kept in the asset's metadata, under `recording` (snake_case, like the rest of an asset's metadata). */
 export function recordingMetadata(settings: RecordingSettings, stats: RecordingStats): { recording: Record<string, unknown> } {
   return {
     recording: {
       source: "browser",
       mime: settings.mimeType,
       device: settings.deviceLabel || null,
-      sample_rate: settings.sampleRate ?? null,
-      channels: settings.channelCount ?? null,
-      constraints: {
-        echo_cancellation: settings.echoCancellation ?? null,
-        noise_suppression: settings.noiseSuppression ?? null,
-        auto_gain_control: settings.autoGainControl ?? null,
-      },
+      ...microphoneFacts(settings),
       duration_seconds: round1(stats.durationSeconds),
       peak_dbfs: toDbfs(stats.peak),
       clipped: stats.clipped,

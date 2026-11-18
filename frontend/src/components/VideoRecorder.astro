@@ -8,8 +8,10 @@
  *   const facts = window.VideoRecorder.metadataOf(file); // { ...metadata, recording: { kind: "video", mime, camera, … } }
  *
  * It records only after Record is pressed (after a 3-2-1 when asked for), stops itself at ten minutes or near the upload limit,
- * and lets go of the camera whenever the dialog closes. The chosen camera, microphone and count-down are remembered.
- * lib/videoRecorder.ts and lib/recording.ts have the pure parts.
+ * and lets go of the camera whenever the dialog closes. Its microphone has the audio recorder's processing options (all off by
+ * default), a level meter that latches a clip warning, and a "Mic level" slider: a gain in the browser, recorded only when moved
+ * off 100%. The chosen camera, microphone, options, mic level and count-down are remembered.
+ * lib/videoRecorder.ts, lib/audioRecorder.ts and lib/recording.ts have the pure parts.
  */
 ---
 
@@ -24,11 +26,28 @@
         <select data-vr-microphone><option value="">Default microphone</option></select>
       </label>
     </div>
+    <p class="vr-help">With echo cancellation and automatic gain off the take is what the microphone hears: wear headphones and keep the meter out of the red. With the speakers on, a webcam take may echo: wear headphones or tick Echo cancellation.</p>
+    <div class="vr-mic">
+      <fieldset class="vr-options">
+        <legend>Browser processing</legend>
+        <label><input type="checkbox" data-vr-constraint="autoGainControl" /> Automatic gain</label>
+        <label><input type="checkbox" data-vr-constraint="echoCancellation" /> Echo cancellation</label>
+        <label><input type="checkbox" data-vr-constraint="noiseSuppression" /> Noise suppression</label>
+      </fieldset>
+      <label class="vr-gain" data-vr-gain-row title="Turns the sound up or down in the browser, before it is recorded. It doesn't change the microphone's own gain, which a web page can't reach.">Mic level
+        <input type="range" data-vr-gain min="0.5" max="2" step="0.05" value="1" />
+        <output data-vr-gain-value>100%</output>
+      </label>
+    </div>
     <div class="vr-stage">
       <video data-vr-preview muted playsinline autoplay aria-label="What the camera sees"></video>
       <video data-vr-playback controls playsinline hidden aria-label="The take"></video>
       <p class="vr-countdown" data-vr-countdown aria-live="assertive" hidden></p>
       <span class="vr-rec" data-vr-rec hidden>● REC</span>
+    </div>
+    <div class="vr-meter">
+      <canvas data-vr-meter height="14" aria-hidden="true"></canvas>
+      <button type="button" class="vr-clip" data-vr-clip hidden title="It clipped: move back or turn the mic level down. Click to reset.">Clipped</button>
     </div>
     <label class="vr-option"><input type="checkbox" data-vr-countdown-on /> Count down 3, 2, 1 before recording</label>
     <p class="vr-clock" data-vr-clock>0:00</p>
@@ -62,6 +81,17 @@
   .video-recorder .vr-countdown { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; font-size: clamp(4rem, 18vw, 8rem); font-weight: 700; color: #fff; text-shadow: 0 2px 12px rgb(0 0 0 / 0.6); background: rgb(0 0 0 / 0.25); }
   .video-recorder .vr-countdown[hidden] { display: none; }
   .video-recorder .vr-rec { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 4px; background: var(--color-error, #dc2626); color: #fff; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; }
+  .video-recorder .vr-help { margin: 0; font-size: 0.8125rem; color: var(--muted); }
+  .video-recorder .vr-mic { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  .video-recorder .vr-options { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.8125rem; }
+  .video-recorder .vr-options legend { padding: 0 4px; color: var(--muted); }
+  .video-recorder .vr-options label { display: flex; gap: 6px; align-items: center; }
+  .video-recorder .vr-gain { display: flex; gap: 8px; align-items: center; font-size: 0.8125rem; font-weight: 600; }
+  .video-recorder .vr-gain input { width: 120px; }
+  .video-recorder .vr-gain output { min-width: 3.5em; font-weight: 400; font-variant-numeric: tabular-nums; }
+  .video-recorder .vr-meter { display: flex; gap: 8px; align-items: center; }
+  .video-recorder canvas { flex: 1; min-width: 0; height: 14px; border-radius: 4px; background: var(--panel-2); }
+  .video-recorder .vr-clip { padding: 2px 8px; border: 0; border-radius: 4px; background: var(--color-error); color: #fff; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
   .video-recorder .vr-option { display: flex; gap: 6px; align-items: center; font-size: 0.8125rem; }
   .video-recorder .vr-clock { margin: 0; font-size: 1.5rem; font-variant-numeric: tabular-nums; text-align: center; }
   .video-recorder .vr-clock small { font-size: 0.875rem; color: var(--muted); }
@@ -73,20 +103,26 @@
 </style>
 
 <script>
+  import { MICROPHONE_WORDS, levelOf, meterPosition } from "@/lib/audioRecorder";
   import { createStopwatch, deviceError, deviceOptions, formatClock, looksTruncated, readStored, stampedName, writeStored } from "@/lib/recording";
   import {
     AUDIO_BITS_PER_SECOND,
     CAMERA_WORDS,
+    DEFAULT_MIC_GAIN,
     MAX_VIDEO_SECONDS,
     VIDEO_BITS_PER_SECOND,
+    clampMicGain,
     countdownFrom,
+    microphoneConstraints,
     parseDeviceChoice,
     pickVideoMimeType,
+    processingHeld,
     stopReason,
     stoppedWords,
     videoConstraints,
     videoFileFor,
     videoRecordingMetadata,
+    type Processing,
     type VideoSettings,
   } from "@/lib/videoRecorder";
 
@@ -96,6 +132,10 @@
   const TICK_MS = 250;
   const COUNT_MS = 1000;
   const CHOICE_KEY = "video-recorder-devices";
+  /** About 43 ms of sound at 48 kHz per meter frame, as the audio recorder's. */
+  const FFT_SIZE = 2048;
+  /** How quickly the mic level follows the slider: a jump would click. */
+  const GAIN_GLIDE_SECONDS = 0.02;
 
   type Options = { suggestedName?: string; metadata?: Record<string, unknown> };
   type State = "starting" | "ready" | "counting" | "recording" | "recorded" | "failed";
@@ -109,6 +149,12 @@
   const countdownText = el<HTMLElement>("countdown");
   const rec = el<HTMLElement>("rec");
   const countdownOn = el<HTMLInputElement>("countdown-on");
+  const toggles = Array.from(dialog.querySelectorAll<HTMLInputElement>("[data-vr-constraint]"));
+  const gainInput = el<HTMLInputElement>("gain");
+  const gainRow = el<HTMLElement>("gain-row");
+  const gainValue = el<HTMLOutputElement>("gain-value");
+  const canvas = el<HTMLCanvasElement>("meter");
+  const clip = el<HTMLButtonElement>("clip");
   const clock = el<HTMLElement>("clock");
   const status = el<HTMLElement>("status");
   const error = el<HTMLElement>("error");
@@ -128,6 +174,18 @@
   let kept: File | null = null;
   let stream: MediaStream | null = null;
   let streamRequest = 0;
+  // The microphone's sound graph: its track -> the mic level (a gain) -> the meter, and -> a track the take records when the level
+  // was moved. The source is rebuilt for every new microphone track: it stays bound to the track it was made from.
+  let audio: AudioContext | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
+  let gain: GainNode | null = null;
+  let analyser: AnalyserNode | null = null;
+  let leveled: MediaStreamAudioDestinationNode | null = null;
+  let frame = 0;
+  let peak = 0;
+  let clippedInTake = false;
+  /** Whether the meter ran through the take, so its peak means something. */
+  let metered = false;
   let recorder: MediaRecorder | null = null;
   let chunks: Blob[] = [];
   let bytes = 0;
@@ -154,7 +212,8 @@
     buttons.retake.hidden = buttons.keep.hidden = state !== "recorded";
     buttons.discard.textContent = state === "recorded" ? "Discard" : "Cancel";
     camera.disabled = microphone.disabled = live;
-    countdownOn.disabled = live;
+    countdownOn.disabled = gainInput.disabled = live;
+    toggles.forEach((t) => (t.disabled = live));
     preview.hidden = state === "recorded";
     playback.hidden = state !== "recorded";
     rec.hidden = state !== "recording";
@@ -169,11 +228,57 @@
     clock.append(Object.assign(document.createElement("small"), { textContent: limit }));
   }
 
+  function processing(): Processing {
+    return Object.fromEntries(toggles.map((t) => [t.dataset.vrConstraint, t.checked])) as Processing;
+  }
+
+  const micGain = () => clampMicGain(gainInput.valueAsNumber);
+
   function remember() {
-    writeStored(store, CHOICE_KEY, JSON.stringify({ cameraId: camera.value, microphoneId: microphone.value, countdown: countdownOn.checked }));
+    writeStored(
+      store,
+      CHOICE_KEY,
+      JSON.stringify({ cameraId: camera.value, microphoneId: microphone.value, countdown: countdownOn.checked, processing: processing(), micGain: micGain() }),
+    );
+  }
+
+  function showGain() {
+    gainValue.textContent = `${Math.round(micGain() * 100)}%`;
+  }
+
+  /** The sound graph, made once a dialog session and woken on every click that opens a device: Safari starts an AudioContext only
+   * inside one. Without Web Audio there is no meter and no mic level; the take still records. */
+  function wakeAudio() {
+    if (!audio) {
+      try {
+        audio = new AudioContext();
+        gain = audio.createGain();
+        analyser = Object.assign(audio.createAnalyser(), { fftSize: FFT_SIZE });
+        leveled = audio.createMediaStreamDestination();
+        gain.connect(analyser);
+        gain.connect(leveled);
+      } catch {
+        audio = gain = analyser = leveled = null;
+      }
+      gainRow.hidden = !leveled;
+    }
+    void audio?.resume();
+  }
+
+  /** Points the mic level and the meter at the microphone's track now in the stream. */
+  function connectMeter() {
+    source?.disconnect();
+    source = null;
+    const track = stream?.getAudioTracks()[0];
+    if (!audio || !gain || !track) return;
+    gain.gain.value = micGain();
+    source = audio.createMediaStreamSource(new MediaStream([track]));
+    source.connect(gain);
   }
 
   function stopStream() {
+    source?.disconnect();
+    source = null;
     preview.srcObject = null;
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
@@ -189,8 +294,11 @@
       return;
     }
     show("starting", "Waiting for the camera…");
+    wakeAudio();
     try {
-      const opened = await navigator.mediaDevices.getUserMedia(videoConstraints({ cameraId: camera.value, microphoneId: microphone.value, remembered: !pickedHere }));
+      const opened = await navigator.mediaDevices.getUserMedia(
+        videoConstraints({ cameraId: camera.value, microphoneId: microphone.value, remembered: !pickedHere, processing: processing() }),
+      );
       if (request !== streamRequest || !dialog.open) return opened.getTracks().forEach((t) => t.stop());
       stream = opened;
     } catch (e) {
@@ -199,8 +307,79 @@
     }
     preview.srcObject = stream;
     void preview.play().catch(() => {}); // autoplay covers it; a refused play() of a muted preview changes nothing
+    connectMeter();
     await listDevices();
     show("ready", "Ready.");
+  }
+
+  /** Another microphone, or other processing, with the camera kept as it is. Processing is first changed on the track itself, where
+   * the browser can (it is checked, not trusted: Chrome resolves and changes nothing); else the microphone alone is opened again
+   * and its track swapped into the stream. Called from changes, which are disabled while recording. */
+  async function reopenMicrophone(deviceChanged: boolean) {
+    const live = stream;
+    const old = live?.getAudioTracks()[0];
+    if (!live || !old) return startStream();
+    const request = ++streamRequest;
+    const asked = processing();
+    show("starting", "Setting up the microphone…");
+    wakeAudio();
+    if (!deviceChanged && (await changedInPlace(old, asked))) {
+      if (request === streamRequest) show("ready", "Ready.");
+      return;
+    }
+    if (request !== streamRequest) return;
+    // The old track goes first: a phone opens one microphone at a time, and a second request can fail while the first is held.
+    old.stop();
+    live.removeTrack(old);
+    try {
+      const opened = await navigator.mediaDevices.getUserMedia({
+        audio: microphoneConstraints({ microphoneId: microphone.value, remembered: !pickedHere, processing: asked }),
+      });
+      if (request !== streamRequest || stream !== live || !dialog.open) return opened.getTracks().forEach((t) => t.stop());
+      opened.getAudioTracks().forEach((t) => live.addTrack(t));
+    } catch (e) {
+      if (request !== streamRequest) return;
+      stopStream(); // a stream without its microphone would record a silent take: Try again opens both afresh
+      show("failed", deviceError(e, MICROPHONE_WORDS));
+      return;
+    }
+    connectMeter();
+    await listDevices();
+    if (request === streamRequest) show("ready", "Ready.");
+  }
+
+  /** True when the track took the processing asked for without being reopened. */
+  async function changedInPlace(track: MediaStreamTrack, asked: Processing): Promise<boolean> {
+    try {
+      await track.applyConstraints(asked);
+    } catch {
+      return false;
+    }
+    return processingHeld(asked, track.getSettings());
+  }
+
+  const samples = new Float32Array(FFT_SIZE);
+  let colours: { level: string; peak: string; clip: string } | null = null;
+  /** The meter, after the mic level: what the take gets. Its loudest moment and any clip are kept while recording. */
+  function paintMeter() {
+    frame = requestAnimationFrame(paintMeter);
+    const ctx = canvas.getContext("2d");
+    if (!ctx || !analyser || !source) return;
+    analyser.getFloatTimeDomainData(samples);
+    const level = levelOf(samples);
+    if (level.clipped) clip.hidden = false;
+    if (recorder?.state === "recording") {
+      peak = Math.max(peak, level.peak);
+      clippedInTake ||= level.clipped;
+    }
+    const style = getComputedStyle(dialog);
+    colours ??= { level: style.getPropertyValue("--color-primary").trim() || "#3b82f6", peak: style.color, clip: style.getPropertyValue("--color-error").trim() || "#dc2626" };
+    const { width, height } = canvas;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = level.clipped ? colours.clip : colours.level;
+    ctx.fillRect(0, 0, width * meterPosition(level.rms), height);
+    ctx.fillStyle = level.clipped ? colours.clip : colours.peak;
+    ctx.fillRect(Math.max(0, width * meterPosition(level.peak) - 2), 0, 2, height);
   }
 
   /** The cameras and microphones, named: browsers give labels only once a page may use them, so this runs after they open. */
@@ -217,6 +396,7 @@
   /** Record pressed: after the count-down when it is on, else at once. Nothing records without this click. */
   function record() {
     if (!stream) return void startStream();
+    void audio?.resume(); // in the click: a context the browser held back starts here
     const steps = countdownOn.checked ? countdownFrom() : [];
     if (!steps.length) return begin();
     show("counting", "Get ready…");
@@ -245,9 +425,20 @@
     bytes = 0;
     mimeType = "";
     stopped = null;
+    peak = 0;
+    clippedInTake = false;
+    clip.hidden = true;
+    metered = audio?.state === "running" && !!source;
+    const video = stream.getVideoTracks()[0];
+    const mic = stream.getAudioTracks()[0];
+    // The mic level is recorded only when moved off 100%, and only from a running graph (a held-back one would record silence);
+    // at 100% the take records the microphone's own track, as it always has.
+    const level = micGain();
+    const leveledTrack = level !== DEFAULT_MIC_GAIN && metered ? leveled?.stream.getAudioTracks()[0] : undefined;
+    const recorded = leveledTrack ? new MediaStream([...stream.getVideoTracks(), leveledTrack]) : stream;
     const picked = pickVideoMimeType((t) => MediaRecorder.isTypeSupported(t));
     try {
-      recorder = new MediaRecorder(stream, {
+      recorder = new MediaRecorder(recorded, {
         ...(picked ? { mimeType: picked } : {}),
         videoBitsPerSecond: VIDEO_BITS_PER_SECOND,
         audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
@@ -266,10 +457,23 @@
     };
     recorder.onstop = finish;
     recorder.onerror = () => show("failed", "The recording stopped with an error. Try again.");
-    const video = stream.getVideoTracks()[0];
-    const audio = stream.getAudioTracks()[0];
-    const applied = video?.getSettings() ?? {};
-    settings = { mimeType: picked, camera: video?.label, microphone: audio?.label, width: applied.width, height: applied.height, frameRate: applied.frameRate };
+    // The microphone's facts come from its own track: the leveled track's label and settings are Web Audio's, not the microphone's.
+    const shot = video?.getSettings() ?? {};
+    const heard = mic?.getSettings() ?? {};
+    settings = {
+      mimeType: picked,
+      camera: video?.label,
+      microphone: mic?.label,
+      width: shot.width,
+      height: shot.height,
+      frameRate: shot.frameRate,
+      sampleRate: heard.sampleRate,
+      channelCount: heard.channelCount,
+      echoCancellation: heard.echoCancellation,
+      noiseSuppression: heard.noiseSuppression,
+      autoGainControl: heard.autoGainControl,
+      gain: leveledTrack ? level : null,
+    };
     stopwatch.start();
     recorder.start(TIMESLICE_MS);
     ticker = window.setInterval(() => {
@@ -330,7 +534,8 @@
   function keep() {
     if (!take || !settings) return;
     const file = videoFileFor(take, mimeType, options.suggestedName || stampedName());
-    const facts = videoRecordingMetadata(settings, { durationSeconds: stopwatch.elapsed(), stopped });
+    const level = metered ? { peak, clipped: clippedInTake } : {};
+    const facts = videoRecordingMetadata(settings, { durationSeconds: stopwatch.elapsed(), stopped, ...level });
     metadataByFile.set(file, { ...(options.metadata ?? {}), ...facts });
     kept = file;
     dialog.close();
@@ -346,7 +551,11 @@
       if (recorder.state !== "inactive") recorder.stop();
       recorder = null;
     }
+    cancelAnimationFrame(frame);
     stopStream();
+    leveled?.stream.getTracks().forEach((t) => t.stop());
+    void audio?.close();
+    audio = gain = analyser = leveled = null;
     dropTake();
     stopwatch.reset();
     settle?.(kept);
@@ -363,9 +572,15 @@
     camera.replaceChildren(new Option("Default camera", choice.cameraId));
     microphone.replaceChildren(new Option("Default microphone", choice.microphoneId));
     countdownOn.checked = choice.countdown;
+    toggles.forEach((t) => (t.checked = choice.processing[t.dataset.vrConstraint as keyof Processing] ?? false));
+    gainInput.value = String(choice.micGain);
+    showGain();
+    clip.hidden = true;
     stopwatch.reset();
     paintClock();
     dialog.showModal();
+    canvas.width = Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio));
+    frame = requestAnimationFrame(paintMeter);
     void startStream();
     return new Promise((resolve) => (settle = resolve));
   }
@@ -380,13 +595,30 @@
     paintClock();
     show("ready", "Ready.");
   });
-  [camera, microphone].forEach((select) =>
-    select.addEventListener("change", () => {
-      pickedHere = true;
+  camera.addEventListener("change", () => {
+    pickedHere = true;
+    remember();
+    void startStream();
+  });
+  microphone.addEventListener("change", () => {
+    pickedHere = true;
+    remember();
+    void reopenMicrophone(true);
+  });
+  toggles.forEach((t) =>
+    t.addEventListener("change", () => {
       remember();
-      void startStream();
+      void reopenMicrophone(false);
     }),
   );
+  // The level follows the slider at once, in the meter, so it can be set before recording; it is kept when let go.
+  gainInput.addEventListener("input", () => {
+    showGain();
+    clip.hidden = true;
+    if (audio && gain) gain.gain.setTargetAtTime(micGain(), audio.currentTime, GAIN_GLIDE_SECONDS);
+  });
+  gainInput.addEventListener("change", remember);
+  clip.addEventListener("click", () => (clip.hidden = true));
   countdownOn.addEventListener("change", remember);
   // Esc mid-take or with a take not yet kept asks first: a take is easy to lose and not always easy to do again.
   dialog.addEventListener("cancel", (e) => {
