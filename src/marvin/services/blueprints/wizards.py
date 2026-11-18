@@ -538,6 +538,21 @@ def _check_subtitle(s: _Step) -> str | None:
     return f"{s.label}: subtitle must be a field key, or a list of up to three of them"
 
 
+MAX_MARKS = 2
+
+
+def _check_marks(s: _Step) -> str | None:
+    """``marks``: up to two ``{field, text}``; a choice whose ``field`` holds something (a file, a number, words) shows ``text`` as a small
+    label beside its name: a line with a take shows "audio", so a pick says what is already there."""
+    marks = s.step.get("marks")
+    if marks is None:
+        return None
+    ok = isinstance(marks, list) and 1 <= len(marks) <= MAX_MARKS and all(
+        isinstance(m, dict) and _is_field(m.get("field")) and isinstance(m.get("text"), str) and 0 < len(m["text"].strip()) <= 24 for m in marks
+    )
+    return None if ok else f"{s.label}: marks is a list of up to {MAX_MARKS} {{field, text}}, the text a few words"
+
+
 def _check_multiple(s: _Step) -> str | None:
     """A multi-select choose: ``multiple`` true, cards of ``entry_type`` or of the workspace's ``assets`` (filters), and no ``create``."""
     step = s.step
@@ -603,7 +618,7 @@ def _check_choose(s: _Step) -> str | None:
         return f"{s.label}: picture must be a field key"
     if s.step.get("cards") is not None and not isinstance(s.step["cards"], bool):
         return f"{s.label}: cards is true or false: whether the choices are tiles even when the type has no picture (a letter stands for it)"
-    if problem := _check_subtitle(s):
+    if problem := _check_subtitle(s) or _check_marks(s):
         return problem
     return s.sets_context() or s.entry_type() or s.refs_one(scope, "scope") or (create is not None and _check_create(s, create)) or None
 

@@ -24,7 +24,7 @@ import { refOptionsFor } from "@/lib/refFieldsApi";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
-  type ApprovalCard, type Check, type Ctx, type OptionChoice, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, ownSort, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, opensMore, optionStepOf, passes, previousStep, readCtx, suppliedData,
+  type ApprovalCard, type Check, type Ctx, type OptionChoice, type Step, NOTICE_PARAM, NOTICES, RUN_PARAM, runIdOf, subtitleOf, marksOf, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, ownSort, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, opensMore, optionStepOf, passes, previousStep, readCtx, suppliedData,
   MAX_PICKS, PAGE_PARAM, PER_PARAM, assetSpec, listKeys, listOf, listStepOf, pickedLine, picksAssets, pictureFieldOf, skipTo, withoutFrom,
   StepError, cardAudio, cardPicture, fieldRole, fileButtonNote, fileButtonOff, fileWays, galleryAccept, cardActionShown, generateAsRun, highlightOf, isDone, referenceMarks, referencingSpec, naturalByTitle, prefillOf, runInputs, shownLines, shownSteps, stepHref, addFormFields, workingOf,
 } from "@/lib/wizard";
@@ -651,6 +651,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                             <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} />
                             <span class="tpic">{pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(c.title || "?").slice(0, 1)}</span>}</span>
                             <strong>{c.title}</strong>
+                            {marksOf(step.marks, c.dataJson).map((m) => <span class="cmark">{m}</span>)}
                             {subtitleOf(step.subtitle, c.dataJson) && <span class="muted gsub">{subtitleOf(step.subtitle, c.dataJson)}</span>}
                           </label>
                         );
@@ -661,7 +662,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
                       {choices.map((c) => (
                         <label class="choice" data-pick-item>
                           <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} />
-                          <span class="choice-text">{c.title}{subtitleOf(step.subtitle, c.dataJson, 400) && <span class="muted gsub">{subtitleOf(step.subtitle, c.dataJson, 400)}</span>}</span>
+                          <span class="choice-text">{c.title}{marksOf(step.marks, c.dataJson).map((m) => <span class="cmark">{m}</span>)}{subtitleOf(step.subtitle, c.dataJson, 400) && <span class="muted gsub">{subtitleOf(step.subtitle, c.dataJson, 400)}</span>}</span>
                         </label>
                       ))}
                     </div>
@@ -1501,6 +1502,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   .gnone { font-size: 40px; font-weight: 700; color: var(--muted); }
   .gsub { font-size: 12px; }
   .choice-text { display: grid; gap: 2px; min-width: 0; }
+  .cmark { justify-self: start; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
   .choice-text .gsub { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
   .gactions { display: grid; gap: 10px; }
   .gaction summary { display: inline-flex; list-style: none; cursor: pointer; }
