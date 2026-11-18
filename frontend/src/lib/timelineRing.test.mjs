@@ -24,16 +24,18 @@ const sound = (slug, seconds) => ({ id: slug, slug, title: slug, dataJson: { dur
 const beat = (slug, number, data = {}) => ({ id: `id-${slug}`, slug, title: slug, dataJson: { story: "s", number, ...data } });
 const library = [sound("rumble", 9), sound("click", 1)];
 // Two beats with nothing timed hold 4 s each (the view's default hold); b1 places what it is given.
-const laidWith = (b1Sounds, b2Sounds) => layout(spec, { spine: [beat("b1", 1, { sounds: b1Sounds }), beat("b2", 2, b2Sounds ? { sounds: b2Sounds } : {})], lanes: { lines: [], sounds: library } });
+// With `third`, a third beat makes the film long enough that nothing rings past its end.
+const laidWith = (b1Sounds, b2Sounds, third = false) =>
+  layout(spec, { spine: [beat("b1", 1, { sounds: b1Sounds }), beat("b2", 2, b2Sounds ? { sounds: b2Sounds } : {}), ...(third ? [beat("b3", 3)] : [])], lanes: { lines: [], sounds: library } });
 
 test("ring: a placed sound that rings plays in full over the next beat and does not make its own beat longer", () => {
-  const rung = laidWith([{ sound: "rumble", at: 2, ring: true }]);
-  assert.deepEqual(rung.items.map((i) => [i.start, i.seconds]), [[0, 4], [4, 4]]);
-  assert.equal(rung.total, 8);
+  const rung = laidWith([{ sound: "rumble", at: 2, ring: true }], undefined, true);
+  assert.deepEqual(rung.items.map((i) => [i.start, i.seconds]), [[0, 4], [4, 4], [8, 4]]);
+  assert.equal(rung.total, 12);
   const [piece] = rung.items[0].lanes.sounds;
   assert.deepEqual([piece.start, piece.seconds, piece.ringsFrom], [2, 9, 4], "drawn at its real length, from where it is placed; its beat ends at 4");
-  const plain = laidWith([{ sound: "rumble", at: 2 }]);
-  assert.deepEqual(plain.items.map((i) => [i.start, i.seconds]), [[0, 11], [11, 4]], "without ring it stretches its beat to its end, as before");
+  const plain = laidWith([{ sound: "rumble", at: 2 }], undefined, true);
+  assert.deepEqual(plain.items.map((i) => [i.start, i.seconds]), [[0, 11], [11, 4], [15, 4]], "without ring it stretches its beat to its end, as before");
   assert.equal(plain.items[0].lanes.sounds[0].ringsFrom, undefined);
   assert.equal(laidWith([{ sound: "rumble", at: 2, ring: false }]).items[0].seconds, 11, "ring: false is off");
   assert.equal(laidWith([{ sound: "rumble", at: 2, ring: "true" }]).items[0].seconds, 11, "only true rings, as the render reads it");
@@ -128,4 +130,35 @@ test("ring: a drag, a cleared nudge and a move to another beat keep the flag", (
 test("ring: a cue's words say its sound rings over", () => {
   assert.equal(cueWords(parseWordCues([{ line: "l1", word: 1, sound: "clang", ring: true }])[0]), "Sound clang (rings over the next beats)");
   assert.equal(cueWords(parseWordCues([{ line: "l1", word: 1, sound: "clang" }])[0]), "Sound clang");
+});
+
+// ── the film's last shot waits for every sound still ringing (Studio v225) ──────────────────────────────────────────────────────────────
+test("ring: the last beat is held until a sound ringing from an earlier beat has ended, and that beat stays as it was", () => {
+  const laid = laidWith([{ sound: "rumble", at: 2, ring: true }]); // the rumble ends at 11; b2 would end at 8
+  assert.deepEqual(laid.items.map((i) => [i.start, i.seconds]), [[0, 4], [4, 7]]);
+  assert.equal(laid.total, 11);
+  assert.deepEqual(laid.items[1].onScreen, { start: 4, seconds: 7 }, "its picture stays up as long");
+});
+
+test("ring: a sound ringing on the last beat holds that beat until it ends, with no ring mark left to cross", () => {
+  const laid = layout(spec, { spine: [beat("b1", 1, { sounds: [{ sound: "rumble", at: 2, ring: true }] })], lanes: { lines: [], sounds: library } });
+  assert.deepEqual(laid.items.map((i) => [i.start, i.seconds]), [[0, 11]]);
+  const [piece] = laid.items[0].lanes.sounds;
+  assert.equal(piece.ringsFrom, 11);
+  assert.equal(ringSpan(piece, laid.total), null);
+});
+
+test("ring: with an end card it is the card that is held, the last beat keeps its length", () => {
+  const withCard = { ...spec, spine: { ...spec.spine, cards: { outro: { title: "end_title", seconds: "end_seconds", default_seconds: 2.5 } } } };
+  const laid = layout(withCard, { entry: { id: "s", slug: "s", title: "s", dataJson: { end_title: "The end" } }, spine: [beat("b1", 1, { sounds: [{ sound: "rumble", at: 2, ring: true }] }), beat("b2", 2)], lanes: { lines: [], sounds: library } });
+  assert.deepEqual(laid.items.map((i) => [i.slug, i.start, i.seconds]), [["b1", 0, 4], ["b2", 4, 4], ["outro", 8, 3]], "held from 8 until the rumble ends at 11, past its own 2.5 s");
+  assert.equal(laid.total, 11);
+  const short = layout(withCard, { entry: { id: "s", slug: "s", title: "s", dataJson: { end_title: "The end" } }, spine: [beat("b1", 1, { sounds: [{ sound: "click", at: 3.5, ring: true }] })], lanes: { lines: [], sounds: library } });
+  assert.deepEqual(short.items.map((i) => [i.slug, i.seconds]), [["b1", 4], ["outro", 2.5]], "a sound that ends inside the card changes nothing");
+});
+
+test("ring: a ring sound with no take holds nothing at the end of the film", () => {
+  const silent = { id: "hum", slug: "hum", title: "hum", dataJson: { duration_seconds: 9 } };
+  const laid = layout(spec, { spine: [beat("b1", 1, { sounds: [{ sound: "hum", at: 2, ring: true }] })], lanes: { lines: [], sounds: [silent] } });
+  assert.equal(laid.total, 4);
 });

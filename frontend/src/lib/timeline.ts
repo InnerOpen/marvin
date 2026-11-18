@@ -750,15 +750,19 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   const said = new Map<string, Piece>(); // every timed piece laid so far, by slug: an overlay comes in at a word of one of them
   const cuts: PictureCut[] = []; // each item's sound and what moves its picture, to cut the pictures from once everything is laid
   // A title or end card is an item of its own, so everything laid out after it starts when the render starts it.
-  const addCard = (kind: "intro" | "outro") => {
+  // `atLeast`: the end card is held that long when a sound still rings (the film's last shot waits for it).
+  const addCard = (kind: "intro" | "outro", atLeast = 0): boolean => {
     const card = cardOf(spec.spine.cards?.[kind], rows.entry, kind);
-    if (!card) return;
-    const item: Item = { id: `card:${kind}`, slug: kind, key: "", title: card.label, number: null, text: card.title, picture: null, status: "", start: clock, seconds: card.seconds, onScreen: { start: clock, seconds: card.seconds }, estimated: false, lanes: {}, card: kind };
+    if (!card) return false;
+    const seconds = Math.max(card.seconds, atLeast);
+    const item: Item = { id: `card:${kind}`, slug: kind, key: "", title: card.label, number: null, text: card.title, picture: null, status: "", start: clock, seconds, onScreen: { start: clock, seconds }, estimated: false, lanes: {}, card: kind };
     items.push(item);
-    cuts.push({ start: clock, seconds: card.seconds, firstWord: null, lead: null, anchor: null });
-    out.push({ card: kind, id: null, slug: null, title: card.label, start: clock, seconds: card.seconds, items: [item] });
-    clock += card.seconds;
+    cuts.push({ start: clock, seconds, firstWord: null, lead: null, anchor: null });
+    out.push({ card: kind, id: null, slug: null, title: card.label, start: clock, seconds, items: [item] });
+    clock += seconds;
+    return true;
   };
+  let ringEnd = 0; // where the last sound that rings over the next beats ends on the film: the film's last shot is held until then
   addCard("intro");
   // The pause where a scene ends: after an item whose next item is in another scene. The rows come in the order the render plays them.
   const flat = groups.flatMap((g) => g.rows);
@@ -859,7 +863,13 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
       }
       reach = Math.max(reach, wordCuesOf(item, cuesHeld.get(row.slug) ?? [], rowBySlug, spec, said, laneOf(spec.spine.word_cues?.sounds), bySlug, clock));
       if (reach > item.seconds - item.pause) item.seconds = reach + item.pause; // the render: max(hold, speech, the end of the last sound) and then the pause
-      for (const lane of placedLanes) for (const p of item.lanes[lane.id] ?? []) if (p.ringsFrom !== undefined) p.ringsFrom = clock + item.seconds;
+      for (const lane of placedLanes) {
+        for (const p of item.lanes[lane.id] ?? []) {
+          if (p.ringsFrom === undefined) continue;
+          p.ringsFrom = clock + item.seconds;
+          if (p.audio && p.seconds > 0) ringEnd = Math.max(ringEnd, p.start + p.seconds); // one with no take plays nothing, so holds nothing
+        }
+      }
       cuts.push({ start: clock, seconds: item.seconds, firstWord: timed[0] ? timed[0].natural : null, lead: pictureLeadOf(row, spec.spine.seconds, rows.entry), anchor: overlay?.at ?? null });
       clock += item.seconds;
       made.push(item);
@@ -867,7 +877,15 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
     }
     out.push({ id: g.id, slug: g.slug, title: g.title, start: 0, seconds: 0, items: made });
   }
-  addCard("outro");
+  // The render holds the film's last shot until every sound still ringing has ended (Studio v225): the end card when there is one, else the last
+  // beat, whichever beat the sound came from. Its own ring mark then has nothing left to cross.
+  if (!addCard("outro", ringEnd - clock) && ringEnd > clock && items.length && !items[items.length - 1].card) {
+    const last = items[items.length - 1];
+    last.seconds += ringEnd - clock;
+    cuts[cuts.length - 1].seconds = last.seconds;
+    clock = ringEnd;
+    for (const lane of placedLanes) for (const p of last.lanes[lane.id] ?? []) if (p.ringsFrom !== undefined) p.ringsFrom = clock;
+  }
   // The pictures are cut from the sound (a picture lead brings one in before its words); the chapters, beds, overlays, marks and bands follow them.
   picturesOf(cuts, clock).forEach((cut, k) => {
     items[k].onScreen = cut;
