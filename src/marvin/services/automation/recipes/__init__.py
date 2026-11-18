@@ -122,6 +122,7 @@ CAPABILITY_WORDS = {
     "speech.transcribe": "transcribe speech",
     "audio.sound_effect": "make sound effects",
     "audio.music": "compose music",
+    "video.from_image": "make a video from a picture",
 }
 
 

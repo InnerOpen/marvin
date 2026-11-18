@@ -9,7 +9,7 @@ import MessageText from "@/components/MessageText.astro";
  * of pairing off into rows of uneven height. Slotted sections use the same `.panel` chrome (global here).
  */
 import LocalTime from "@/components/LocalTime.astro";
-import { isAudioUrl } from "@/lib/approvalMedia";
+import { isAudioUrl, isVideoUrl } from "@/lib/approvalMedia";
 import { unpricedNotice } from "@/lib/aiUsage";
 import { dashboardLine } from "@/lib/automationAttention";
 
@@ -217,6 +217,8 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
                 <p class="approval-ask"><MessageText message={a.message} /></p>
                 {(a.imageUrl ?? a.image_url) && (isAudioUrl(a.imageUrl ?? a.image_url)
                   ? <audio class="approval-audio" src={a.imageUrl ?? a.image_url} controls preload="metadata" />
+                  : isVideoUrl(a.imageUrl ?? a.image_url)
+                  ? <video class="approval-pic" src={a.imageUrl ?? a.image_url} controls playsinline preload="metadata" />
                   : <a href={a.imageUrl ?? a.image_url} target="_blank" rel="noopener"><img class="approval-pic" src={a.imageUrl ?? a.image_url} alt="" loading="lazy" /></a>)}
                 <p class="approval-meta">
                   {a.automationName ?? a.automation_name ?? "Workflow"}

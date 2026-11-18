@@ -22,8 +22,10 @@ which it accepts once the run is past an Approval step (``approved``). Marvin tr
 whether or not the plugin said ``requires_approval``."""
 IMAGE_GENERATE = "image.generate"
 SPEECH_SYNTHESIZE = "speech.synthesize"
-PAID_CAPABILITIES = frozenset({IMAGE_GENERATE, SPEECH_SYNTHESIZE, "speech.dialogue", "speech.transcribe", "audio.sound_effect", "audio.music"})
-"""Capabilities that spend the connection's credits (a picture, a line of speech, a sound, a track, a transcript)."""
+PAID_CAPABILITIES = frozenset(
+    {IMAGE_GENERATE, SPEECH_SYNTHESIZE, "speech.dialogue", "speech.transcribe", "audio.sound_effect", "audio.music", "video.from_image"}
+)
+"""Capabilities that spend the connection's credits (a picture, a line of speech, a sound, a track, a transcript, a video)."""
 APPROVABLE_CAPABILITIES = GATED_CAPABILITIES | PAID_CAPABILITIES
 """Capabilities a capability step may run on an approval-gated action once the run is past an Approval step. The
 public-facing ones above always need that approval; ``image.generate`` spends the connection's credits, and providers

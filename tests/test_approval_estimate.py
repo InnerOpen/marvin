@@ -22,10 +22,18 @@ class _Studio(IntegrationProvider):
         ProviderAction(key="speak", label="Speak", cost_hint="paid"),
         ProviderAction(key="picture", label="Picture", cost_hint="paid", requires_approval=True),
         ProviderAction(key="voices", label="Voices", cost_hint="free"),
+        ProviderAction(key="video", label="Video", capability="video.from_image", cost_hint="paid", requires_approval=True),
     )
 
     def run_action(self, key, args, ctx):
         return {}
+
+    def estimate_cost(self, key, args):
+        """A placeholder per-second figure, as the ElevenLabs plugin offers for video (ElevenLabs publishes none)."""
+        if key != "video":
+            return None
+        seconds = float(args.get("duration_seconds") or 8)
+        return {"amount": 100 * seconds, "basis": f"for {seconds:g} seconds at {args.get('resolution') or '720p'}"}
 
 
 @pytest.fixture
@@ -183,3 +191,59 @@ def test_an_approval_asked_instead_of_another_is_passed_over(ws, studio):  # noq
     )
 
     assert estimate["total"]["amount"] == 70
+
+
+# ── a video: per second, by model, resolution and sound; the plugin's placeholder until calls here are measured ────────
+
+VIDEO = {
+    "prompt": "${steps.spend.output.fields.prompt}",
+    "duration_seconds": 6,
+    "model_id": "veo-3.1-fast-generate-001",
+    "resolution": "720p",
+    "generate_audio": False,
+}
+
+
+def test_a_video_nothing_here_measured_shows_the_plugins_figure_marked_as_a_guess(ws, studio):  # noqa: F811
+    estimate = approval_estimate(ws.session, _asked(ws, "video", VIDEO))
+
+    (item,) = estimate["items"]
+    assert item["guess"] is True and item["amount"] == 600 and item["calls"] == 0 and "unknown" not in item
+    assert estimate["text"].startswith("About 600 Fake Studio credits (for 6 seconds at 720p) — a guess: Fake Studio publishes no price")
+    assert estimate["total"] == {"amount": 600, "unit": "Fake Studio credits", "guess": True}
+
+
+def test_a_video_is_estimated_per_second_from_measured_calls_of_the_same_model_resolution_and_sound(ws, studio):  # noqa: F811
+    same = {"model_id": "veo-3.1-fast-generate-001", "resolution": "720p", "generate_audio": "false"}  # "false" is False
+    _earlier(ws, studio, "video", meta={"credits": 320}, args=same, out={"duration_seconds": 8})  # 40 a second
+    _earlier(ws, studio, "video", meta={"credits": 240}, args={**same, "generate_audio": "no"}, out={"duration_seconds": 6})  # 40 a second
+    _earlier(ws, studio, "video", meta={"credits": 9000}, args={**same, "resolution": "1080p"}, out={"duration_seconds": 8})
+    _earlier(ws, studio, "video", meta={"credits": 9000}, args={**same, "generate_audio": True}, out={"duration_seconds": 8})
+    _earlier(ws, studio, "video", meta={"credits": 9000}, args={**same, "model_id": "veo-3.1-generate-001"}, out={"duration_seconds": 8})
+
+    estimate = approval_estimate(ws.session, _asked(ws, "video", VIDEO))
+
+    assert estimate["total"] == {"amount": 240, "unit": "Fake Studio credits"}  # 6 seconds at 40 a second; no guess
+    assert estimate["text"] == "About 240 Fake Studio credits (for 6 seconds, going by the last 2 like it)"
+
+
+def test_a_video_approval_counts_against_the_daily_paid_limit(ws, studio):  # noqa: F811
+    assert _asked(ws, "video", VIDEO).paid is True
+
+
+def test_a_guess_that_adds_up_with_a_measured_line_says_so():
+    a = {"amount": 100, "unit": "X credits", "text": "About 100 X credits"}
+    g = {"amount": 600, "unit": "X credits", "guess": True, "calls": 0, "text": "About 600 X credits — a guess"}
+    both = combine([a, g])
+    assert (
+        both["total"] == {"amount": 700, "unit": "X credits", "guess": True}
+        and both["text"] == "About 700 X credits in all (partly a guess: see each line)"
+    )
+
+
+def test_the_card_carries_the_guess_flag(ws, studio):  # noqa: F811
+    from marvin.routes.automations.automations_controller import _approval_read
+
+    card = _approval_read(ws.session, _asked(ws, "video", VIDEO))
+
+    assert card.estimate.items[0].guess is True and card.estimate.total.guess is True and "a guess" in card.estimate.text

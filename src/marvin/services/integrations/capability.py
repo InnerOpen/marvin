@@ -27,6 +27,8 @@ Canonical input/output dict shapes per capability kind (the resolver builds inpu
     audio.sound_effect in {text, duration_seconds?}               out {audio_b64, mime, duration_seconds?}
     audio.music        in {prompt, music_length_ms?}              out {audio_b64, mime, duration_seconds?}
     speech.transcribe  in {audio_b64, audio_mime, language_code?} out {text, words?, language_code?}
+    video.from_image   in {image_b64, image_mime, prompt, duration_seconds?, model_id?, resolution?, aspect_ratio?, generate_audio?}
+                       out {video_b64, mime, duration_seconds, model_id?, resolution?, generation_id?}
 """
 
 import time

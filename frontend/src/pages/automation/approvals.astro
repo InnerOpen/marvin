@@ -11,7 +11,7 @@ import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listApprovals, type WorkflowApproval } from "@/lib/api/workflowApprovals";
-import { isAudioUrl } from "@/lib/approvalMedia";
+import { isAudioUrl, isVideoUrl } from "@/lib/approvalMedia";
 import { deciderLabel, decisionLabel, firstLine } from "@/lib/approvalHistory";
 import { captionResultsHtml } from "@/lib/captionCheck";
 import { isForbidden } from "@/lib/workspaceRole";
@@ -47,6 +47,8 @@ try {
         {a.detail && <details class="ask-detail"><summary>Show the details</summary><p><MessageText message={a.detail} /></p></details>}
         {a.imageUrl && (isAudioUrl(a.imageUrl)
           ? <audio class="preview-audio" src={a.imageUrl} controls preload="metadata" />
+          : isVideoUrl(a.imageUrl)
+          ? <video class="preview" src={a.imageUrl} controls playsinline preload="metadata" />
           : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
         <ApprovalCost estimate={a.estimate} limit={a.spendLimit} />
         <ApprovalBoxes fields={a.fields} />
@@ -110,6 +112,8 @@ try {
               {a.detail && <details class="ask-detail"><summary>Show the details</summary><p><MessageText message={a.detail} /></p></details>}
               {a.imageUrl && (isAudioUrl(a.imageUrl)
                 ? <audio class="preview-audio" src={a.imageUrl} controls preload="none" />
+                : isVideoUrl(a.imageUrl)
+                ? <video class="preview" src={a.imageUrl} controls playsinline preload="none" />
                 : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
               {a.note && <p class="note-text">{a.note}</p>}
               <dl class="facts">
