@@ -36,49 +36,156 @@ export function kindOfAccept(accept: string | null | undefined): AcceptKind {
   return only === "audio" || only === "image" || only === "video" ? only : "any";
 }
 
-const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov", ".webm"]);
+// ---- What an upload surface offers -------------------------------------------------------------------------------------------------
+// Every place that takes a file (an asset field and its dialog, the Upload page, a guided drop zone) offers the same things, in the
+// same order and words, decided only by what it accepts: upload, then Record audio…, then Record video….
 
-/** Whether a field could take a video recorded from the camera: it takes anything (no `accept`), or one of its tokens names video.
- *  A field of pictures and documents does not, whatever "any" kindOfAccept gives it. */
-export function acceptsVideo(accept: string | null | undefined): boolean {
-  const tokens = acceptTokens(accept);
-  return tokens.length === 0 || tokens.some((t) => t.startsWith("video/") || VIDEO_EXTENSIONS.has(t));
+/** The families of file an accept can name. A document is anything that is not a sound, a video or a picture (PDF, JSON, text…). */
+export type FileFamily = "audio" | "video" | "image" | "document";
+export type Recorder = "audio" | "video";
+
+const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".weba", ".flac"]);
+const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov", ".mkv", ".avi"]);
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".heic"]);
+/** `.webm` holds sound or video: it goes with whichever of the two the rest of the accept names, else counts as both. */
+const EITHER_EXTENSIONS = new Set([".webm"]);
+const FAMILY_ORDER: FileFamily[] = ["audio", "video", "image", "document"];
+const IMAGE_WORD = "images";
+/** How a document type is named in a hint ("PDF files only"); a type not here is named as written. */
+const DOCUMENT_NAMES: Record<string, string> = {
+  "application/pdf": "PDF",
+  ".pdf": "PDF",
+  "application/json": "JSON",
+  ".json": "JSON",
+  "text/html": "HTML",
+  ".html": "HTML",
+  ".htm": "HTML",
+  "text/*": "text",
+  "text/plain": "text",
+  ".txt": "text",
+  "text/markdown": "Markdown",
+  ".md": "Markdown",
+  ".doc": "Word",
+  ".docx": "Word",
+  "application/msword": "Word",
+};
+
+function familyOf(token: string): FileFamily | "either" {
+  for (const family of ["audio", "video", "image"] as const) if (token.startsWith(`${family}/`)) return family;
+  if (EITHER_EXTENSIONS.has(token)) return "either";
+  if (AUDIO_EXTENSIONS.has(token)) return "audio";
+  if (VIDEO_EXTENSIONS.has(token)) return "video";
+  if (IMAGE_EXTENSIONS.has(token)) return "image";
+  return "document";
 }
 
-/** The words of an asset field's upload dialog for a kind of file: what it is called, the line under the title, and the line in the drop box. */
-export function uploadWords(kind: AcceptKind, multiple: boolean, role: string | null): { noun: string; open: string; intro: string; drop: string } {
-  // No role: the field is not an entry's own (a guided setup's file box), so nothing is attached on a save.
-  const attached = role ? `It is uploaded now, chosen here, and attached as ${role} when you save.` : "It is uploaded to your assets now and chosen here.";
-  if (kind === "audio") {
-    return {
-      noun: "sound",
-      open: multiple ? "Upload or record sounds…" : "Upload or record a sound…",
-      intro: `A new sound for this field: record one, or upload a file. ${attached}`,
-      drop: multiple ? "Sounds; several at once, each becomes an asset." : "One sound.",
-    };
+/** The families an accept names, in a fixed order; null when it takes anything (no accept). */
+export function acceptFamilies(accept: string | null | undefined): FileFamily[] | null {
+  const tokens = acceptTokens(accept);
+  if (!tokens.length) return null;
+  const found = new Set<FileFamily | "either">(tokens.map(familyOf));
+  if (found.delete("either") && !found.has("audio") && !found.has("video")) {
+    found.add("audio");
+    found.add("video");
   }
-  if (kind === "image") {
-    return {
-      noun: "picture",
-      open: multiple ? "Upload pictures…" : "Upload a picture…",
-      intro: `A new picture for this field: it opens in the cropper first (crop, rotate, brightness, contrast). ${attached}`,
-      drop: multiple ? "Pictures; several at once, each becomes an asset." : "One picture.",
-    };
-  }
-  if (kind === "video") {
-    return {
-      noun: "video",
-      open: multiple ? "Upload or record videos…" : "Upload or record a video…",
-      intro: `A new video for this field: record one with the camera, or upload a file. ${attached}`,
-      drop: multiple ? "Videos; several at once, each becomes an asset." : "One video.",
-    };
-  }
-  return {
-    noun: "asset",
-    open: multiple ? "Upload assets…" : "Upload an asset…",
-    intro: `A new asset for this field: a picture opens in the cropper first (crop, rotate, brightness, contrast). ${attached}`,
-    drop: multiple ? "Pictures, sounds, videos or documents; several at once, each becomes an asset." : "One picture, sound, video or document.",
-  };
+  return FAMILY_ORDER.filter((f) => found.has(f));
+}
+
+/** What a place that takes files offers, from its accept alone. */
+export interface UploadChoices {
+  /** The upload button's words ("Upload an audio file"); a surface adds "…" where it opens a dialog. */
+  upload: string;
+  /** The line under "Click to upload or drag and drop": what goes here ("Audio files only", "Any file"). */
+  hint: string;
+  /** The recorders offered, audio before video. */
+  record: Recorder[];
+}
+
+const UPLOAD_LABELS: Record<string, [string, string]> = {
+  audio: ["Upload an audio file", "Upload audio files"],
+  video: ["Upload a video", "Upload videos"],
+  image: ["Upload an image", "Upload images"],
+  any: ["Upload any file", "Upload files"],
+  mixed: ["Upload a file", "Upload files"],
+};
+
+const capitalized = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const listed = (words: string[]) =>
+  words.length < 2 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} or ${words.at(-1)}`;
+
+function hintFor(accept: string | null | undefined, families: FileFamily[] | null): string {
+  if (!families) return "Any file";
+  const documents = [
+    ...new Set(
+      acceptTokens(accept)
+        .filter((t) => familyOf(t) === "document")
+        .map((t) => DOCUMENT_NAMES[t] ?? t),
+    ),
+  ];
+  // Kinds of file share one "files" ("audio or video files", "PDF or JSON files"); pictures are "images" ("images or video files").
+  const fileKinds = [...(["audio", "video"] as const).filter((f) => families.includes(f)), ...documents];
+  const parts = [
+    ...(families.includes("image") ? [IMAGE_WORD] : []),
+    ...(fileKinds.length ? [`${listed(fileKinds)} files`] : []),
+  ];
+  return `${capitalized(listed(parts))} only`;
+}
+
+/** What a place that accepts `accept` offers: its upload button, the hint under the drop zone and the recorders. `multiple`: it takes
+ *  several files at once (an asset list, the Upload page's batch). */
+export function uploadChoices(accept: string | null | undefined, multiple = false): UploadChoices {
+  const families = acceptFamilies(accept);
+  const single = families?.length === 1 && families[0] !== "document" ? families[0] : null;
+  const labels = UPLOAD_LABELS[!families ? "any" : (single ?? "mixed")];
+  const record: Recorder[] = !families
+    ? ["audio", "video"]
+    : (["audio", "video"] as const).filter((r) => families.includes(r));
+  const hint = hintFor(accept, families);
+  return { upload: labels[multiple ? 1 : 0], hint: multiple ? `${hint}; several at once` : hint, record };
+}
+
+/** The recorders' button words, the same on every surface. */
+export const RECORD_LABELS: Record<Recorder, string> = { audio: "Record audio…", video: "Record video…" };
+/** The drop zone's first line, the same on every surface. */
+export const DROP_LINE = "Click to upload or drag and drop";
+
+/** Whether a picked or dropped file suits the accept (a file input's accept doesn't stop a drop, nor "All files" in a picker). */
+export function fileFits(accept: string | null | undefined, file: { name: string; type: string }): boolean {
+  return matchesAccept(accept, { mimeType: file.type, name: file.name });
+}
+
+/** The one message for a file of the wrong type, the same everywhere: "clip.mov can't go here: audio files only." */
+export function wrongFileMessage(accept: string | null | undefined, fileName: string): string {
+  const hint = uploadChoices(accept).hint;
+  const isAcronym = /^[A-Z]{2}/.test(hint); // "PDF files only" stays as it is; "Audio files only" reads "audio files only"
+  return `${fileName} can't go here: ${isAcronym ? hint : `${hint.charAt(0).toLowerCase()}${hint.slice(1)}`}.`;
+}
+
+/** Whether a place could take a video recorded from the camera (its choices offer Record video…). */
+export function acceptsVideo(accept: string | null | undefined): boolean {
+  return uploadChoices(accept).record.includes("video");
+}
+
+/** Whether a place could take a sound recorded from the microphone (its choices offer Record audio…). */
+export function recordsAudio(accept: string | null | undefined): boolean {
+  return uploadChoices(accept).record.includes("audio");
+}
+
+/** The line under an asset field's upload dialog title, from its accept like everything else the dialog offers: what is new here, the
+ *  ways in, the cropper for a picture, and what happens on a save (no role: a guided setup's file box, attached by nothing). */
+export function uploadIntro(accept: string | null | undefined, role: string | null): string {
+  const families = acceptFamilies(accept);
+  const single = families?.length === 1 ? families[0] : null;
+  const noun = single === "audio" ? "audio file" : single === "video" ? "video" : single === "image" ? "image" : "file";
+  const ways = uploadChoices(accept).record.length ? "upload one, or record one" : "upload one";
+  const cropper =
+    !families || families.includes("image")
+      ? " An image opens in the cropper first (crop, rotate, brightness, contrast)."
+      : "";
+  const attached = role
+    ? `It is uploaded now, chosen here, and attached as ${role} when you save.`
+    : "It is uploaded to your assets now and chosen here.";
+  return `A new ${noun} for this field: ${ways}.${cropper} ${attached}`;
 }
 
 /** The choices the schema editor offers for a field's `accept` (label, accept string). */

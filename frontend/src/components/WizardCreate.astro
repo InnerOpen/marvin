@@ -31,7 +31,7 @@ const bad = (name: string) => (badFields.includes(name) ? "invalid" : undefined)
   <input type="hidden" name="action" value="create" />
   <fieldset class="create">
     <legend>{upload || first ? `Add a new ${typeName.toLowerCase()}` : hasChoices ? "Or make a new one" : `Make a new ${typeName.toLowerCase()}`}</legend>
-    {upload && <FileDrop accept={accept} required={false} hint={`One ${noun}. It starts the new ${typeName.toLowerCase()}.`} nameFrom="create_title" />}
+    {upload && <FileDrop accept={accept} required={false} note={`It starts the new ${typeName.toLowerCase()}.`} nameFrom="create_title" />}
     <div class="form-group">
       <label for="create_title">Name {!upload && <span class="req" title="Required">*</span>}</label>
       <input class:list={["input", bad("create_title")]} id="create_title" name="create_title" required={!upload} placeholder={upload ? `Left empty, the ${noun}'s file name is used` : undefined} />

@@ -6,11 +6,15 @@ import SlugInput from "@/components/SlugInput.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listEntryTypes } from "@/lib/api/entryTypes";
+import { DROP_LINE, RECORD_LABELS, uploadChoices } from "@/lib/assetAccept";
 import { FULL_CONTENT_ACCESS, getContentAccess, getCurrentWorkspace } from "@/lib/api/workspaces";
 import { templateChoices, type TemplateChoice } from "@/lib/uploadTemplate";
 import { AUTHORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
+// The general upload takes any file (the server's own type and size limits still answer), so it offers everything every upload
+// surface can: upload, Record audio…, Record video… (lib/assetAccept.ts uploadChoices).
+const uploadOffer = uploadChoices(null, true);
 // Uploading is AUTHOR+ (the API answers a VIEWER with 403).
 const access = authToken ? await getContentAccess(authToken, Astro.locals) : FULL_CONTENT_ACCESS;
 // The workspace an upload is meant for: one that waits for a connection is sent there only (lib/uploadQueue.ts).
@@ -50,7 +54,6 @@ try {
             name="file"
             required
             multiple
-            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.svg"
             hidden
           />
           <div class="upload-placeholder" id="uploadPlaceholder">
@@ -59,11 +62,12 @@ try {
               <polyline points="17 8 12 3 7 8"></polyline>
               <line x1="12" y1="3" x2="12" y2="15"></line>
             </svg>
-            <p style="margin: 1rem 0 0.5rem; font-weight: 600;">Click to upload or drag and drop</p>
-            <p style="margin: 0; font-size: 0.875rem; color: var(--muted);">Images, videos, PDFs, documents — one file, or a whole batch</p>
+            <p style="margin: 1rem 0 0.5rem; font-weight: 600;">{DROP_LINE}</p>
+            <p style="margin: 0; font-size: 0.875rem; color: var(--muted);">{uploadOffer.hint}</p>
             <span class="record-buttons">
-              <button type="button" class="button secondary small" id="recordAudio" data-record="audio">Record audio…</button>
-              <button type="button" class="button secondary small" id="recordVideo" data-record="video">Record video…</button>
+              {uploadOffer.record.map((r) => (
+                <button type="button" class="button secondary small" id={r === "audio" ? "recordAudio" : "recordVideo"} data-record={r}>{RECORD_LABELS[r]}</button>
+              ))}
             </span>
           </div>
           <div class="upload-preview" id="uploadPreview" style="display: none;">
