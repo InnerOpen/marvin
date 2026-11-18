@@ -241,6 +241,8 @@ export interface Piece {
    * before (dual dialogue). */
   nudge: number;
   together: boolean;
+  /** Where a timed piece would start without its own nudge (the start for any other piece). */
+  natural: number;
   /** The take's word timings, when the lane names them and the take has them (delivery tags such as `[sighs]` left out). */
   words: Word[] | null;
 }
@@ -327,6 +329,8 @@ export interface Item {
   /** True when any timed piece in it is estimated (so its length may change). */
   estimated: boolean;
   lanes: Record<string, Piece[]>;
+  /** The silences its timed pieces were laid with (missing on a card), to lay them again while one is dragged. */
+  timing?: { lead: number; gap: number; tail: number };
   /** Set on an item whose picture comes in at a word of a piece laid before it (`spine.starts_during`): that piece, the word, and where on the
    * film the picture comes in (`onScreen.start` unless the least picture length moved it); `estimated` when the place came from the text. */
   overlay?: { piece: string; title: string; word: number; text: string; at: number; estimated: boolean };
@@ -467,15 +471,17 @@ export interface LineTiming {
  * of the two. `spoken` is how long the item's sound lasts: until its latest piece ends, then the tail; null when nothing moved a piece, so the
  * caller keeps the plain sum (the same number, without a rounding difference). `clock` is where the item's sound starts.
  */
-export function placeLines(lines: LineTiming[], s: { lead: number; gap: number; tail: number }, clock: number): { starts: number[]; spoken: number | null } {
+export function placeLines(lines: LineTiming[], s: { lead: number; gap: number; tail: number }, clock: number): { starts: number[]; naturals: number[]; spoken: number | null } {
   let cursor = clock + s.lead;
   let lastEnd = clock;
   let moved = false;
   const starts: number[] = [];
+  const naturals: number[] = []; // where each would start without its own nudge (the lines before it as they are): what a drag measures from
   lines.forEach((line, i) => {
     const together = line.together && i > 0;
     if (line.nudge || line.together) moved = true;
     if (together) cursor = starts[i - 1];
+    naturals.push(cursor);
     if (line.nudge) cursor = Math.max(cursor + line.nudge, 0);
     starts.push(cursor);
     if (together) {
@@ -487,7 +493,34 @@ export function placeLines(lines: LineTiming[], s: { lead: number; gap: number; 
     cursor += line.seconds;
     cursor += s.gap;
   });
-  return { starts, spoken: moved && lines.length ? Math.max(cursor - s.gap, lastEnd) - clock + s.tail : null };
+  return { starts, naturals, spoken: moved && lines.length ? Math.max(cursor - s.gap, lastEnd) - clock + s.tail : null };
+}
+
+/** How fine a dragged piece's nudge snaps (seconds); shift drags it free, to the thousandth. */
+export const NUDGE_SNAP = 0.05;
+
+/**
+ * The nudge a piece dragged to start at `start` gets: its offset from where it would start without one (`natural`), snapped to NUDGE_SNAP (or to
+ * the thousandth when `free`), held to the render's -10..10 and never earlier than the film's start (the render would start it at 0 anyway).
+ * 0 means no nudge: the piece is back where it falls.
+ */
+export function nudgeAfterDrag(natural: number, start: number, free = false): number {
+  const raw = start - natural;
+  const step = free ? 0.001 : NUDGE_SNAP;
+  const snapped = Math.round(raw / step) * step;
+  const held = Math.min(Math.max(snapped, -natural, -MAX_NUDGE), MAX_NUDGE);
+  const out = Math.round(held * 1000) / 1000;
+  return Math.abs(out) < 1e-9 ? 0 : out;
+}
+
+/** Where an item's timed pieces start when one of them (`index`) gets `nudge` instead of its own: the drawing while a piece is dragged, the pieces
+ * after it following it as they will once it is saved. */
+export function relaid(lines: LineTiming[], s: { lead: number; gap: number; tail: number }, clock: number, index: number, nudge: number): number[] {
+  return placeLines(
+    lines.map((line, i) => (i === index ? { ...line, nudge } : line)),
+    s,
+    clock,
+  ).starts;
 }
 
 /** A piece's word timings from its take's asset metadata, as the render reads them (marvin_pull: spoken_words): a delivery tag such as `[sighs]`
@@ -665,15 +698,17 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
         item.lanes[lane.id] = pieces;
       }
       const placedLines = placeLines(timed, s, clock);
+      item.timing = { lead: s.lead, gap: s.gap, tail: s.tail };
       timed.forEach((p, i) => {
         p.start = placedLines.starts[i];
+        p.natural = placedLines.naturals[i];
         said.set(p.slug, p);
       });
       let end = clock + s.lead; // a piece with no length sits where the piece before it ends
       for (const lane of inLanes) {
         for (const p of item.lanes[lane.id]) {
           if (timed.includes(p)) end = p.start + p.seconds;
-          else p.start = end;
+          else p.start = p.natural = end;
         }
       }
       const overlay = overlayOf(row, spec.spine, said);
@@ -1110,6 +1145,7 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
     volume: level(field(row, lane.volume)),
     at,
     nudge: within(num(field(row, lane.nudge)), -MAX_NUDGE, MAX_NUDGE) ?? 0,
+    natural: start,
     together: lane.simultaneous ? field(row, lane.simultaneous) === true : false,
     words: wordTimings(row, lane),
   };
