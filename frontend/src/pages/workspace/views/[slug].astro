@@ -559,7 +559,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     {(lane.in || lane.placed) &&
                       nudgeGhosts(lanePieces, laneRows).map((g) => (
                         <>
-                          <span class:list={["tl-ghost", { busy: !g.free }]} role="img" aria-label={ghostWords(g)} title={ghostWords(g)} style={`left:${pctIn(track, g.start)};width:${pctIn(track, track.start + g.seconds)};top:${18 + g.row * 28}px`} />
+                          <span class:list={["tl-ghost", { busy: !g.free }]} role="img" aria-label={ghostWords(g)} title={ghostWords(g)} style={`left:${pctIn(track, g.start)};width:${pctIn(track, track.start + g.seconds)};top:${18 + g.row * 28}px`}>
+                            {g.free && <small>{g.seconds.toFixed(2).replace(/\.?0+$/, "")}</small>}
+                          </span>
                           {g.row === g.toRow ? (
                             <span class:list={["tl-ghost-arrow", g.to < g.start ? "earlier" : "later"]} aria-hidden="true" style={`left:${pctIn(track, Math.min(g.start, g.to))};width:${pctIn(track, track.start + Math.abs(g.start - g.to))};top:${18 + g.row * 28 + 11}px`} />
                           ) : (
@@ -1354,7 +1356,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   /* a line that can be nudged moves under the mouse; while it does, its nudge shows above it */
   .tl-piece[data-drag], .tl-piece[data-drag-sound] { cursor: grab; user-select: none; }
   /* where a nudged line would have played: a faint dashed outline behind the blocks, an arrow from its left edge to where the line starts now */
-  .tl-ghost { position: absolute; height: 24px; min-width: 12px; box-sizing: border-box; border: 1px dashed color-mix(in srgb, var(--ink) 45%, transparent); border-radius: 6px; opacity: 0.55; }
+  .tl-ghost { position: absolute; height: 24px; min-width: 12px; box-sizing: border-box; border: 1px dashed color-mix(in srgb, var(--ink) 45%, transparent); border-radius: 6px; opacity: 0.55; display: flex; align-items: center; justify-content: center; color: var(--muted); overflow: hidden; }
+  .tl-ghost:not(.busy) { background: color-mix(in srgb, var(--muted) 8%, transparent); } /* an empty slot reads as quiet, like the silence bands beside it, with its seconds */
+  .tl-ghost small { font-size: 10px; letter-spacing: 0.02em; }
   .tl-ghost.busy { pointer-events: none; } /* its slot holds other lines: drawn behind them, never in the way of a click */
   .tl-ghost-link { position: absolute; overflow: visible; pointer-events: none; }
   .tl-ghost-link line { stroke: color-mix(in srgb, var(--ink) 55%, transparent); stroke-width: 1; }
