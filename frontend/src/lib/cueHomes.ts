@@ -61,6 +61,14 @@ function listOf(value: unknown): unknown[] | null {
 /** The list back in the form the field held it: JSON text stays text. */
 const asStored = (before: unknown, list: unknown[]) => (typeof before === "string" ? JSON.stringify(list, null, 2) : list);
 
+/** Two JSON values alike, whatever the order of their keys. */
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) return false;
+  const [ka, kb] = [Object.keys(a), Object.keys(b)];
+  return ka.length === kb.length && ka.every((k) => same((a as Data)[k], (b as Data)[k]));
+}
+
 const isRow = (v: unknown, line: string, word: number): boolean =>
   !!v && typeof v === "object" && !Array.isArray(v) && (v as Data).line === line && Math.floor(Number((v as Data).word ?? 0)) === word;
 
@@ -77,10 +85,44 @@ export function moveCueRow(source: Data, target: Data, field: string, at: { posi
   const index = at.position !== undefined && isRow(from[at.position], at.line, at.word) ? at.position : from.findIndex((v) => isRow(v, at.line, at.word));
   if (index < 0) return null;
   const moved = row ?? from[index];
+  const already = to.some((v) => same(v, moved)); // a move tried before that reached the target but not the source: not added twice
   return {
     source: { ...source, [field]: asStored(source[field], from.filter((_, i) => i !== index)) },
-    target: { ...target, [field]: asStored(target[field], [...to, moved]) },
+    target: already ? target : { ...target, [field]: asStored(target[field], [...to, moved]) },
   };
+}
+
+/** A whole entry as the entries API reads and writes it: its title and slug go back with every PATCH, which replaces dataJson. */
+export interface WholeEntry {
+  title: string;
+  slug: string;
+  dataJson?: Data | null;
+}
+
+/** The two calls a move makes, so the order and the bodies can be checked without a server. */
+export interface EntryApi {
+  get(id: string): Promise<WholeEntry>;
+  patch(id: string, body: { title: string; slug: string; dataJson: Data }): Promise<unknown>;
+}
+
+/**
+ * Moves a cue row from beat `from` to beat `to` (ids, and `to`'s label for messages): both whole records are read, the row (`row`: as the
+ * editor holds it) is added to `to` first and then taken out of `from`, each PATCH carrying the whole record and each read back and checked
+ * (lib `patchedAsSent`). So a failure half way leaves the row on both beats, never on neither; a second try after one finds it already on `to`
+ * and does not add it again. Throws with what to do when a step fails.
+ */
+export async function moveCue(api: EntryApi, field: string, from: string, to: { id: string; label: string }, at: { position?: number; line: string; word: number }, row: unknown): Promise<void> {
+  const [here, there] = await Promise.all([api.get(from), api.get(to.id)]);
+  const moved = moveCueRow(here.dataJson ?? {}, there.dataJson ?? {}, field, at, row);
+  if (!moved) throw new Error("this cue is not saved on this beat yet (save the page first), or a cues list is not a list");
+  const write = async (id: string, entry: WholeEntry, dataJson: Data) => {
+    await api.patch(id, { title: entry.title, slug: entry.slug, dataJson });
+    return patchedAsSent(dataJson, (await api.get(id)).dataJson ?? null, field);
+  };
+  const added = await write(to.id, there, moved.target);
+  if (added) throw new Error(`${to.label} may not have taken it (${added}): check ${to.label} before trying again`);
+  const removed = await write(from, here, moved.source);
+  if (removed) throw new Error(`it is on ${to.label} now, but this beat did not let it go (${removed}): delete it here`);
 }
 
 /** Whether a record came back as written: as many keys as sent and the field's list as long. A reason when not, null when it did. */

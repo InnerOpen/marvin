@@ -2,7 +2,7 @@
 // the render does from Studio v221, and the beat page says where the line went, moves the row there as whole records, and shows adopted rows.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cuesByHolder, cueWords, homeOf, moveCueRow, patchedAsSent, strayHomes } from "./cueHomes.ts";
+import { cuesByHolder, cueWords, homeOf, moveCue, moveCueRow, patchedAsSent, strayHomes } from "./cueHomes.ts";
 import { layout } from "./timeline.ts";
 
 test("cuesByHolder: a cue plays in the beat that holds its line now; one whose line is gone stays with the beat that stores it", () => {
@@ -160,4 +160,104 @@ test("layout: a cue on its own beat's line is not marked; one whose line is gone
   const laid = laidWith([{ line: "gone", word: 1, sound: "clang" }], [{ line: "l1", word: 1 }]);
   assert.equal(laid.items[0].cues, undefined);
   assert.equal(laid.items[1].cues[0].stored, undefined);
+});
+
+test("moveCueRow: a row the target already holds (a move tried before) is not added again", () => {
+  const row = { line: "l2", word: 3, sound: "clang" };
+  const moved = moveCueRow({ cues: [row] }, { cues: [{ sound: "clang", word: 3, line: "l2" }] }, "cues", { position: 0, line: "l2", word: 3 });
+  assert.deepEqual(moved.target.cues.length, 1);
+  assert.deepEqual(moved.source.cues, []);
+});
+
+/** A fake entries API: two beats, every call recorded; `back` may change what a read after a PATCH returns. */
+const fakeApi = (back = (id, sent) => sent) => {
+  const store = {
+    b1: { title: "Beat 1", slug: "b1", dataJson: { story: "s", number: 1, cues: [{ line: "l1", word: 1 }, { line: "l2", word: 3 }], sounds: [] } },
+    b2: { title: "Beat 2", slug: "b2", dataJson: { story: "s", number: 2, hold_seconds: 3 } },
+  };
+  const calls = [];
+  const patched = new Set();
+  return {
+    calls,
+    store,
+    api: {
+      async get(id) {
+        calls.push(["get", id]);
+        const entry = structuredClone(store[id]);
+        return patched.has(id) ? { ...entry, dataJson: back(id, entry.dataJson) } : entry;
+      },
+      async patch(id, body) {
+        calls.push(["patch", id, body]);
+        store[id] = structuredClone(body);
+        patched.add(id);
+      },
+    },
+  };
+};
+
+test("moveCue: the target is written first and then the source, each as its whole record, and each read back", async () => {
+  const { api, calls, store } = fakeApi();
+  await moveCue(api, "cues", "b1", { id: "b2", label: "beat 2" }, { position: 1, line: "l2", word: 3 }, { line: "l2", word: 3, look: { kind: "flash" } });
+  const patches = calls.filter((c) => c[0] === "patch");
+  assert.deepEqual(
+    patches.map((c) => c[1]),
+    ["b2", "b1"],
+  );
+  assert.deepEqual(patches[0][2], { title: "Beat 2", slug: "b2", dataJson: { story: "s", number: 2, hold_seconds: 3, cues: [{ line: "l2", word: 3, look: { kind: "flash" } }] } });
+  assert.deepEqual(patches[1][2], { title: "Beat 1", slug: "b1", dataJson: { story: "s", number: 1, cues: [{ line: "l1", word: 1 }], sounds: [] } });
+  assert.deepEqual(
+    calls.map((c) => c.slice(0, 2)),
+    [
+      ["get", "b1"],
+      ["get", "b2"],
+      ["patch", "b2"],
+      ["get", "b2"],
+      ["patch", "b1"],
+      ["get", "b1"],
+    ],
+  );
+  assert.equal(store.b1.dataJson.cues.length, 1);
+});
+
+test("moveCue: a target that comes back short stops before the source is touched", async () => {
+  const { api, calls } = fakeApi((id, d) => (id === "b2" ? { story: d.story } : d));
+  await assert.rejects(moveCue(api, "cues", "b1", { id: "b2", label: "beat 2" }, { position: 1, line: "l2", word: 3 }, { line: "l2", word: 3 }), /beat 2 may not have taken it .*check beat 2 before trying again/);
+  assert.deepEqual(
+    calls.filter((c) => c[0] === "patch").map((c) => c[1]),
+    ["b2"],
+  );
+});
+
+test("moveCue: a source that does not let go says the row is on both beats and to delete it here", async () => {
+  const { api } = fakeApi((id, d) => (id === "b1" ? { ...d, cues: [{}, {}] } : d));
+  await assert.rejects(moveCue(api, "cues", "b1", { id: "b2", label: "beat 2" }, { position: 1, line: "l2", word: 3 }, { line: "l2", word: 3 }), /it is on beat 2 now, but this beat did not let it go .*delete it here/);
+});
+
+test("moveCue: a row no longer stored on this beat is refused before anything is written", async () => {
+  const { api, calls } = fakeApi();
+  await assert.rejects(moveCue(api, "cues", "b1", { id: "b2", label: "beat 2" }, { line: "l9", word: 0 }, { line: "l9", word: 0 }), /save the page first/);
+  assert.equal(calls.filter((c) => c[0] === "patch").length, 0);
+});
+
+test("layout: a line moved to an earlier beat takes its cue, its sound and the length that sound adds with it", () => {
+  const laid = layout(view, {
+    spine: [
+      { id: "id-b1", slug: "b1", title: "b1", dataJson: { story: "s", number: 1 } },
+      { id: "id-b2", slug: "b2", title: "b2", dataJson: { story: "s", number: 2, cues: [{ line: "l1", word: 1, sound: "clang" }] } },
+    ],
+    lanes: {
+      lines: [
+        { id: "l1", slug: "l1", title: "The hammer", dataJson: { story: "s", beat: "b1", number: 1, text: "The hammer", duration_seconds: 1 }, assets: [take(words)] },
+        { id: "l0", slug: "l0", title: "Later", dataJson: { story: "s", beat: "b2", number: 1, text: "Later on.", duration_seconds: 1 }, assets: [take()] },
+      ],
+      sounds: [{ id: "clang", slug: "clang", title: "Clang", dataJson: { duration_seconds: 3 }, assets: [take()] }],
+    },
+  });
+  const [b1, b2] = laid.items;
+  assert.deepEqual(b1.cues[0].stored, { id: "id-b2", slug: "b2", title: "2" });
+  assert.equal(b1.lanes.sounds.length, 1);
+  assert.equal(b2.cues, undefined);
+  assert.equal(b2.lanes.sounds.length, 0);
+  assert.ok(b1.seconds >= 0.3 + 3, "the clang lengthens the beat it now plays in");
+  assert.ok(b2.seconds < 3, "and not the beat that stores it");
 });

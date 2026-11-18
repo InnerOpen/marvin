@@ -85,7 +85,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
 
 <script>
   import { type WordCue, serializeWordCues } from "@/lib/wordCues";
-  import { type CueHomeView, moveCueRow, patchedAsSent } from "@/lib/cueHomes";
+  import { type CueHomeView, type EntryApi, moveCue, type WholeEntry } from "@/lib/cueHomes";
   import { CUE_KINDS, type CueField, type CueGroup, EMPHASIS, type Effect, emphasisWords, kindOf } from "@/lib/cueKinds";
   import { fetchApi } from "@/lib/api/client";
 
@@ -154,30 +154,17 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
       write();
     };
 
-    /** A whole entry, as the entries API gives it (its title and slug go back with every PATCH, which replaces dataJson). */
-    type Whole = { title: string; slug: string; dataJson?: Record<string, unknown> | null };
     const entryPath = (id: string) => `/api/platform/entries/${encodeURIComponent(id)}`;
-    /** Writes a whole record and reads it back: a reason when it did not come back as sent. */
-    const patchWhole = async (id: string, entry: Whole, dataJson: Record<string, unknown>) => {
-      await fetchApi(entryPath(id), { method: "PATCH", body: JSON.stringify({ title: entry.title, slug: entry.slug, dataJson }) });
-      const back = await fetchApi<Whole>(entryPath(id));
-      return patchedAsSent(dataJson, back.dataJson ?? null, fieldKey);
+    const api: EntryApi = {
+      get: (id) => fetchApi<WholeEntry>(entryPath(id)),
+      patch: (id, body) => fetchApi(entryPath(id), { method: "PATCH", body: JSON.stringify(body) }),
     };
 
-    /**
-     * Moves a row to the beat that holds its line now: the row as shown here is added to that beat's list, then taken out of this beat's (each a
-     * whole record, read back and checked), so a failure half way leaves it on both beats, never on neither.
-     */
+    /** Moves a row to the beat that holds its line now (lib/cueHomes.ts `moveCue`: whole records, the target first, each read back), then
+     * drops it here so this page's own save agrees. */
     const moveTo = async (cue: WordCue, home: Extract<CueHomeView, { kind: "moved" }>, status: HTMLElement) => {
-      const self = data.self!;
-      const [here, there] = await Promise.all([fetchApi<Whole>(entryPath(self.id)), fetchApi<Whole>(entryPath(home.id))]);
       const row = JSON.parse(serializeWordCues([cue]))[0];
-      const moved = moveCueRow(here.dataJson ?? {}, there.dataJson ?? {}, fieldKey, { position: cue.position, line: cue.line, word: cue.word }, row);
-      if (!moved) throw new Error("this cue is not saved on this beat yet (save the page first), or a cues list is not a list");
-      const added = await patchWhole(home.id, there, moved.target);
-      if (added) throw new Error(`${home.label} did not take it: ${added}`);
-      const removed = await patchWhole(self.id, here, moved.source);
-      if (removed) throw new Error(`it is on ${home.label} now, but this beat did not let it go (${removed}): delete it here`);
+      await moveCue(api, fieldKey, data.self!.id, home, { position: cue.position, line: cue.line, word: cue.word }, row);
       removeCue(cue);
       status.textContent = `Moved to ${home.label}.`;
     };
