@@ -29,11 +29,15 @@ export interface WordCue {
   camera?: Camera;
   /** The slug of the overlay beat whose picture comes in here. */
   pic?: string;
+  /** Seconds the cue's sound and camera move come later (+) or earlier (-) than its word, -10 to 10; missing is 0. */
+  nudge?: number;
+  /** Where the cue stands in the field's list as stored (malformed entries counted), to write back to that entry alone. */
+  position?: number;
   /** Anything else the cue carried, kept as it was. */
   rest: Record<string, unknown>;
 }
 
-const KNOWN = new Set(["line", "word", "sound", "volume", "camera", "pic"]);
+const KNOWN = new Set(["line", "word", "sound", "volume", "camera", "pic", "nudge"]);
 
 const number = (v: unknown): number | null => {
   const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
@@ -68,13 +72,14 @@ export function parseWordCues(value: unknown): WordCue[] {
   }
   if (!Array.isArray(list)) return [];
   const out: WordCue[] = [];
-  for (const raw of list) {
+  for (const [position, raw] of list.entries()) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const r = raw as Record<string, unknown>;
     const word = number(r.word ?? 0);
     if (typeof r.line !== "string" || !r.line || word === null || word < 0) continue;
     const volume = number(r.volume);
     const camera = cameraOf(r.camera);
+    const nudge = number(r.nudge);
     out.push({
       line: r.line,
       word: Math.floor(word),
@@ -82,6 +87,8 @@ export function parseWordCues(value: unknown): WordCue[] {
       ...(volume !== null ? { volume: held(volume, 0, 1) } : {}),
       ...(camera ? { camera } : {}),
       ...(typeof r.pic === "string" && r.pic ? { pic: r.pic } : {}),
+      ...(nudge ? { nudge: held(nudge, -10, 10) } : {}),
+      position,
       rest: Object.fromEntries(Object.entries(r).filter(([k]) => !KNOWN.has(k))),
     });
   }
@@ -98,6 +105,7 @@ export function serializeWordCues(cues: readonly WordCue[]): string {
     ...(c.volume !== undefined ? { volume: Number(c.volume.toFixed(3)) } : {}),
     ...(c.camera ? { camera: c.camera } : {}),
     ...(c.pic ? { pic: c.pic } : {}),
+    ...(c.nudge ? { nudge: Number(c.nudge.toFixed(3)) } : {}),
   }));
   return JSON.stringify(list, null, 2);
 }

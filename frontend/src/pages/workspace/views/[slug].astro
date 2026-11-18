@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type CueMark, type Ghost, type Group, type Item, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
+import { type Bed, type CueMark, type Ghost, type Group, type Item, type Piece, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 import { cameraWords, parseWordCues } from "@/lib/wordCues";
 
@@ -208,6 +208,7 @@ const cueTitle = (c: CueMark) =>
     `${c.text ? `After “${c.text}”` : "Before the first word"} (word ${c.word})${c.estimated ? ", placed by the text: no word timings" : ""} · ${timecode(c.at)}`,
     c.sound && `Sound: ${c.sound.title}${c.sound.heard ? "" : " (no take yet: nothing plays)"}`,
     c.camera && `Camera: ${cameraWords(c.camera as Parameters<typeof cameraWords>[0])}`,
+    c.nudge && (c.sound || c.camera) && `Its sound and camera move nudged ${nudgeWords(c.nudge)} from the word`,
     c.pic && `Picture: ${c.pic}, from ${timecode(c.picAt)}`,
   ]
     .filter(Boolean)
@@ -216,6 +217,11 @@ const cueTitle = (c: CueMark) =>
 const shortSeconds = (seconds: number) => `${seconds.toFixed(seconds < 0.1 ? 2 : 1)} s`;
 const overlapWords = (seconds: number) => `overlaps the line before by ${shortSeconds(seconds)}`;
 const ghostWords = (g: Ghost) => `natural start ${g.start.toFixed(2)} s; nudged ${nudgeWords(g.nudge)}`;
+// A sound an item's list places can be dragged: a placed one (a beat's `sounds`) gets a new `at`, one a cue on a word plays gets a `nudge` on that cue.
+const soundDrag = (lane: LaneSpec, p: Piece) => {
+  const placed = p.slot!.field === lane.placed!.field;
+  return { kind: placed ? "at" : "nudge", ...p.slot!, refKey: placed ? lane.placed!.ref : "line", key: placed ? lane.placed!.at : "nudge", start: p.start, clock: p.start - (p.at ?? 0), at: p.at ?? 0, natural: p.natural, nudge: p.nudge };
+};
 const nudgeWords = (nudge: number) => `${nudge > 0 ? "+" : "−"}${Math.abs(nudge).toFixed(3).replace(/0$/, "")} s`;
 // A bed's block clipped to a track (a scene's ambience may run on past a chapter's end).
 const clip = (b: { start: number; seconds: number }, track: { start: number; seconds: number }) => {
@@ -550,7 +556,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           </span>
                         </>
                       ))}
-                    {lane.in &&
+                    {(lane.in || lane.placed) &&
                       nudgeGhosts(lanePieces, laneRows).map((g) => (
                         <>
                           <span class:list={["tl-ghost", { busy: !g.free }]} role="img" aria-label={ghostWords(g)} title={ghostWords(g)} style={`left:${pctIn(track, g.start)};width:${pctIn(track, track.start + g.seconds)};top:${18 + g.row * 28}px`} />
@@ -581,8 +587,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         href={laneOpens[lane.id] ? laneOpens[lane.id](p.slug) : open(p.id)}
                         data-piece={p.id}
                         data-drag={nudgeField.has(lane.id) && p.seconds > 0 && itemOfPiece.has(p.id) ? JSON.stringify({ item: itemOfPiece.get(p.id), field: nudgeField.get(lane.id) }) : undefined}
+                        data-drag-sound={lane.placed && p.slot ? JSON.stringify(soundDrag(lane, p)) : undefined}
                         style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}`}
-                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}${p.cue ? `\nA cue on a word: after “${p.cue.text}” in ${p.cue.line}${p.audio ? "" : " (no take yet: nothing plays)"}` : ""}${p.nudge ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? "\nSpoken at the same time as the line before" : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}`}
+                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}${p.cue ? `\nA cue on a word: after “${p.cue.text}” in ${p.cue.line}${p.audio ? "" : " (no take yet: nothing plays)"}` : ""}${p.nudge && !p.cue ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? "\nSpoken at the same time as the line before" : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}${lane.placed && p.slot ? (p.cue ? `\n${p.nudge ? `Nudged ${nudgeWords(p.nudge)} from its word. ` : ""}Drag it to play it later or earlier than its word (it snaps to 0.05 s; hold shift for free)` : "\nDrag it to move it in its beat (it snaps to 0.05 s; hold shift for free)") : ""}`}
                       >
                         {p.wave && (
                           <svg class="tl-wave" viewBox={`0 0 ${p.wave.length} 100`} preserveAspectRatio="none" aria-hidden="true"><polygon points={wavePolygon(p.wave)} /></svg>
@@ -598,6 +605,12 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                             {[c.sound && "♪", c.camera && "✣", c.pic && "▣"].filter(Boolean).join("") || "•"}
                           </span>
                         )),
+                      )}
+                    {lane.placed &&
+                      lanePieces.map((p, n) =>
+                        p.cue && p.slot && p.nudge ? (
+                          <button type="button" class="tl-unnudge" data-unnudge-cue={JSON.stringify(soundDrag(lane, p))} style={`left:${pctIn(track, p.start)}${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}`} title={`Put this sound back on its word (it is nudged ${nudgeWords(p.nudge)})`} aria-label={`Clear the nudge of ${p.title}`}>↺</button>
+                        ) : null,
                       )}
                     {nudgeField.has(lane.id) &&
                       lanePieces.map((p, n) =>
@@ -1339,7 +1352,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece.placed.recorded { border-color: var(--ink); }
   .tl-piece.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   /* a line that can be nudged moves under the mouse; while it does, its nudge shows above it */
-  .tl-piece[data-drag] { cursor: grab; user-select: none; }
+  .tl-piece[data-drag], .tl-piece[data-drag-sound] { cursor: grab; user-select: none; }
   /* where a nudged line would have played: a faint dashed outline behind the blocks, an arrow from its left edge to where the line starts now */
   .tl-ghost { position: absolute; height: 24px; min-width: 12px; box-sizing: border-box; border: 1px dashed color-mix(in srgb, var(--ink) 45%, transparent); border-radius: 6px; opacity: 0.55; }
   .tl-ghost.busy { pointer-events: none; } /* its slot holds other lines: drawn behind them, never in the way of a click */
