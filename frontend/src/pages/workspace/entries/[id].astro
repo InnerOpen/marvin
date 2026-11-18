@@ -18,7 +18,10 @@ import { buttonHref } from "@/lib/wizard";
 import RelatedEntries from "@/components/RelatedEntries.astro";
 import { entryActions } from "@/lib/entryActions";
 import { relatedFor } from "@/lib/relatedApi";
-import { type CueSpec, cueSpecsFor } from "@/lib/cueFields";
+import { type CueSpec, cueSpecsFor, wordCueSpecsFor } from "@/lib/cueFields";
+import type { WordCueData } from "@/components/schema-fields/WordCueField.astro";
+import { chipsOf } from "@/lib/wordCues";
+import { wordTimings } from "@/lib/timeline";
 import type { CueOption } from "@/components/schema-fields/CueListField.astro";
 import { listResources } from "@/lib/api/resources";
 import { createTag, listTags, type TagRead } from "@/lib/api/tags";
@@ -382,6 +385,7 @@ const actions = entry
 // A JSON field that places other entries in time (a beat's sound effects) is edited as a list of cues when a package's timeline view
 // declares its shape for this type; the options are the entries of the referenced type, with a take to hear when they have one.
 const cues: Record<string, { spec: CueSpec; options: CueOption[] }> = {};
+const wordCues: Record<string, WordCueData> = {};
 if (entry && entryType && authToken) {
   try {
     const defs = await listViewsOfSpine(authToken, entryType.slug);
@@ -400,6 +404,33 @@ if (entry && entryType && authToken) {
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
       cues[spec.field] = { spec, options };
+    }
+    // A JSON field of cues on words (a beat's `cues`) is edited as rows: this entry's lines with their words (and the take's timing of each), the
+    // sounds a cue may play (as the sounds list offers them), and the overlay items of the same story a cue may bring in.
+    for (const ws of wordCueSpecsFor(defs, entryType.slug)) {
+      type Found = { id: string; slug: string; title: string; dataJson?: Record<string, unknown> | null; assets?: { role?: string | null; mimeType?: string | null; publicUrl?: string | null; metadataJson?: Record<string, unknown> | null }[] };
+      const query = (spec: Record<string, unknown>) =>
+        fetchApi<{ entries?: Found[] }>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec, limit: 500 }) }, authToken).then((r) => r.entries ?? [], () => [] as Found[]);
+      const of = String((entry.dataJson as Record<string, unknown> | null)?.[ws.of] ?? "");
+      const lane = { id: "lines", title: "", entry_type: ws.lines.entryType, audio: ws.lines.audio, words: ws.lines.words };
+      const order = (r: Found) => Number(r.dataJson?.[ws.lines.order ?? ""] ?? Number.POSITIVE_INFINITY);
+      const lines = (await query({ entry_type: ws.lines.entryType, fields: { [ws.lines.in]: entry.slug } }))
+        .filter((r) => !(ws.lines.off && r.dataJson?.[ws.lines.off] === true))
+        .sort((a, b) => order(a) - order(b) || a.slug.localeCompare(b.slug))
+        .map((r) => {
+          const timed = wordTimings(r, lane);
+          return { slug: r.slug, title: String(r.dataJson?.[ws.lines.text ?? ""] ?? "") || r.title, who: String(r.dataJson?.[ws.lines.who ?? ""] ?? ""), chips: chipsOf(String(r.dataJson?.[ws.lines.text ?? ""] ?? r.title), timed), timings: timed?.map((w) => ({ start: w.start, end: w.end })) ?? null };
+        });
+      const sounds = ws.sounds ? (cues[ws.sounds.field]?.options ?? []) : [];
+      const pictures = ws.startsDuring && of
+        ? (await query({ entry_type: entryType.slug, fields: { [ws.of]: of } }))
+            .filter((r) => r.dataJson?.[ws.startsDuring!] && typeof r.dataJson[ws.startsDuring!] === "object")
+            .map((r) => {
+              const at = r.dataJson![ws.startsDuring!] as { line?: unknown; word?: unknown };
+              return { id: r.id, slug: r.slug, title: `${r.dataJson?.[ws.order ?? ""] ?? ""} ${r.title}`.trim(), startsDuring: typeof at.line === "string" ? { line: at.line, word: Number(at.word) || 0 } : null };
+            })
+        : [];
+      wordCues[ws.field] = { lines, sounds, pictures, startsDuring: ws.startsDuring };
     }
   } catch {
     /* the JSON box stays */
@@ -599,6 +630,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                   assets={allAssets.map(assetItem)}
                   resources={allResources.map(resourceItem)}
                   cues={cues}
+                  wordCues={wordCues}
                   refs={refs}
                 />
               </div>

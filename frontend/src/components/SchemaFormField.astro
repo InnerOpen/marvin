@@ -7,6 +7,7 @@ import DateField from "./schema-fields/DateField.astro";
 import DateTimeField from "./schema-fields/DateTimeField.astro";
 import EmbedField from "./schema-fields/EmbedField.astro";
 import CueListField, { type CueOption } from "./schema-fields/CueListField.astro";
+import WordCueField, { type WordCueData } from "./schema-fields/WordCueField.astro";
 import JsonField from "./schema-fields/JsonField.astro";
 import LinkedItemsField from "./schema-fields/LinkedItemsField.astro";
 import type { CueSpec } from "@/lib/cueFields";
@@ -27,6 +28,7 @@ export interface Props {
   assets?: LinkedItem[];
   resources?: LinkedItem[];
   cues?: Record<string, { spec: CueSpec; options: CueOption[] }>;
+  wordCues?: Record<string, WordCueData>;
   refs?: Record<string, RefOption[]>;
   /** For a field drawn outside an entry's own form (a row of a guided step's list): its name and id, and just the control without label and help. */
   name?: string;
@@ -34,7 +36,7 @@ export interface Props {
   bare?: boolean;
 }
 
-const { field, value, error, assets = [], resources = [], cues = {}, refs = {}, name, id, bare = false } = Astro.props;
+const { field, value, error, assets = [], resources = [], cues = {}, wordCues = {}, refs = {}, name, id, bare = false } = Astro.props;
 const own = { name, id, bare }; // passed on to the types that can be drawn in a row
 ---
 
@@ -80,6 +82,7 @@ const own = { name, id, bare }; // passed on to the types that can be drawn in a
         return <LinkedItemsField field={field as any} value={value} error={error} items={resources} />;
 
       case 'json':
+        if (wordCues[field.key]) return <WordCueField field={field as any} value={value} {...wordCues[field.key]} error={error} />;
         if (cues[field.key]) return <CueListField field={field as any} value={value} spec={cues[field.key].spec} options={cues[field.key].options} error={error} />;
         return <JsonField field={field as any} value={value} error={error} />;
 

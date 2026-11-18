@@ -14,8 +14,9 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
+import { type Bed, type CueMark, type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
+import { cameraWords, parseWordCues } from "@/lib/wordCues";
 
 const authToken = getAuthToken(Astro.cookies);
 const slug = Astro.params.slug ?? "";
@@ -76,6 +77,9 @@ if (spec && authToken) {
       if (lane.placed) {
         const { field, ref } = lane.placed;
         wanted = [...new Set(rows.flatMap((r) => (Array.isArray(r.dataJson?.[field]) ? (r.dataJson![field] as unknown[]) : [])).map((x) => String((x as Record<string, unknown>)?.[ref] ?? "")))];
+        // …and the sounds the items' cues on words play, when this is the lane they play in
+        const wc = spec.spine.word_cues;
+        if (wc?.sounds === lane.id) wanted = [...new Set([...wanted, ...rows.flatMap((r) => parseWordCues(r.dataJson?.[wc.field]).map((c) => c.sound ?? ""))])];
       } else if (lane.cover) {
         // An overlay comes from the item, else the entry its `via` field names (a scene), else the view's own entry: nothing more to fetch.
         if (lane.cover.via && lane.cover.entry_type) via[lane.id] = (await bySlugs(lane.cover.entry_type, slugsIn(rows, lane.cover.via))) as LaidRow[];
@@ -198,6 +202,16 @@ const dragJson = JSON.stringify(
       .map((i) => [i.id, { clock: i.start, timing: i.timing, lines: lanes.filter((l) => l.in).flatMap((l) => (i.lanes[l.id] ?? []).filter((p) => p.seconds > 0)).map((p) => ({ id: p.id, seconds: p.seconds, nudge: p.nudge, together: p.together, natural: p.natural, start: p.start })) }]),
   ),
 ).replace(/</g, "\\u003c");
+// A cue on a word, as its marker on the line reads: what plays or moves there, and where.
+const cueTitle = (c: CueMark) =>
+  [
+    `${c.text ? `After “${c.text}”` : "Before the first word"} (word ${c.word})${c.estimated ? ", placed by the text: no word timings" : ""} · ${timecode(c.at)}`,
+    c.sound && `Sound: ${c.sound.title}${c.sound.heard ? "" : " (no take yet: nothing plays)"}`,
+    c.camera && `Camera: ${cameraWords(c.camera as Parameters<typeof cameraWords>[0])}`,
+    c.pic && `Picture: ${c.pic}, from ${timecode(c.picAt)}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 const nudgeWords = (nudge: number) => `${nudge > 0 ? "+" : "−"}${Math.abs(nudge).toFixed(3).replace(/0$/, "")} s`;
 // A bed's block clipped to a track (a scene's ambience may run on past a chapter's end).
 const clip = (b: { start: number; seconds: number }, track: { start: number; seconds: number }) => {
@@ -525,13 +539,13 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     ))}
                     {lanePieces.map((p, n) => (
                       <a
-                        class:list={["tl-piece", { estimated: p.estimated && !p.unmeasured, unmeasured: p.unmeasured, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
+                        class:list={["tl-piece", { estimated: p.estimated && !p.unmeasured, unmeasured: p.unmeasured, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null, cued: !!p.cue, unheard: !!p.cue && !p.audio }]}
                         role="listitem"
                         href={laneOpens[lane.id] ? laneOpens[lane.id](p.slug) : open(p.id)}
                         data-piece={p.id}
                         data-drag={nudgeField.has(lane.id) && p.seconds > 0 && itemOfPiece.has(p.id) ? JSON.stringify({ item: itemOfPiece.get(p.id), field: nudgeField.get(lane.id) }) : undefined}
                         style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}`}
-                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}${p.nudge ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? "\nSpoken at the same time as the line before" : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}`}
+                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}${p.cue ? `\nA cue on a word: after “${p.cue.text}” in ${p.cue.line}${p.audio ? "" : " (no take yet: nothing plays)"}` : ""}${p.nudge ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? "\nSpoken at the same time as the line before" : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}`}
                       >
                         {p.wave && (
                           <svg class="tl-wave" viewBox={`0 0 ${p.wave.length} 100`} preserveAspectRatio="none" aria-hidden="true"><polygon points={wavePolygon(p.wave)} /></svg>
@@ -540,6 +554,14 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         <span>{firstWords(p.text || p.title)}</span>
                       </a>
                     ))}
+                    {spec.spine.word_cues?.lane === lane.id &&
+                      track.items.flatMap((item) =>
+                        (item.cues ?? []).map((c) => (
+                          <span class:list={["tl-cue", { estimated: c.estimated, unheard: !!c.sound && !c.sound.heard }]} role="img" aria-label={cueTitle(c)} title={cueTitle(c)} style={`left:${pctIn(track, c.at)};top:${18 + (laneRows[lanePieces.findIndex((p) => p.id === c.piece)] ?? 0) * 28 - 6}px`}>
+                            {[c.sound && "♪", c.camera && "✣", c.pic && "▣"].filter(Boolean).join("") || "•"}
+                          </span>
+                        )),
+                      )}
                     {nudgeField.has(lane.id) &&
                       lanePieces.map((p, n) =>
                         p.nudge && p.seconds > 0 ? (
@@ -1281,6 +1303,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   /* a line that can be nudged moves under the mouse; while it does, its nudge shows above it */
   .tl-piece[data-drag] { cursor: grab; user-select: none; }
+  /* a cue on a word: a flag on its line at the word, and its sound in the sounds lane (dimmed until the sound has a take) */
+  .tl-cue { position: absolute; z-index: 2; transform: translateX(-50%); padding: 0 3px; min-width: 10px; height: 14px; border-radius: 3px; background: var(--ink); color: var(--panel); font-size: 10px; line-height: 14px; text-align: center; cursor: help; }
+  .tl-cue::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 22px; background: color-mix(in srgb, var(--ink) 45%, transparent); }
+  .tl-cue.estimated { opacity: 0.75; }
+  .tl-cue.unheard, .tl-piece.unheard { opacity: 0.5; }
   .tl-piece.is-dragging { cursor: grabbing; z-index: 3; box-shadow: 0 2px 8px rgb(0 0 0 / 0.3); overflow: visible; }
   .tl-piece.is-dragging::after { content: attr(data-nudge-tip); position: absolute; left: 0; bottom: calc(100% + 3px); padding: 1px 6px; border-radius: 4px; background: var(--ink); color: var(--panel); font-size: 11px; white-space: nowrap; }
   .tl-unnudge { position: absolute; top: 18px; transform: translateX(-100%); z-index: 2; width: 18px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 6px 0 0 6px; background: var(--panel); color: var(--ink); font-size: 12px; line-height: 1; cursor: pointer; opacity: 0.75; }

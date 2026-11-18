@@ -1,0 +1,311 @@
+---
+/**
+ * WordCueField: a JSON list of cues on words (a beat's `cues`: lib/wordCues.ts), edited as rows instead of raw JSON. Each row picks one of the
+ * entry's lines and a place among its words (the gap a cue sits in: `word` is how many words come before it), and what happens there: a sound
+ * (with its level), a camera move and a picture (an overlay beat of the same story). A sound plays at the end of the word before the cue and a
+ * picture comes in at the start of the word after, as the render does; with a take's word timings the row says when. The shape comes from the
+ * package's timeline view (`spine.word_cues`); the page fetches the lines, sounds and pictures. The field's real input is the hidden textarea.
+ */
+import type { CueOption } from "@/components/schema-fields/CueListField.astro";
+import { parseWordCues, serializeWordCues } from "@/lib/wordCues";
+
+/** A line a cue may sit on: its words as the render counts them, and the take's timing of each when it has them. */
+export interface WordCueLine {
+  slug: string;
+  title: string;
+  who: string;
+  chips: string[];
+  timings: { start: number; end: number }[] | null;
+}
+
+/** A picture a cue may bring in: an overlay item of the same story, and where it comes in now. */
+export interface WordCuePicture {
+  id: string;
+  slug: string;
+  title: string;
+  startsDuring: { line: string; word: number } | null;
+}
+
+/** What the rows offer: the entry's lines, the sounds, the pictures, and the field on a picture's entry that says where it comes in
+ * (`starts_during`), so a row can move it to the cue. */
+export interface WordCueData {
+  lines: WordCueLine[];
+  sounds: CueOption[];
+  pictures: WordCuePicture[];
+  startsDuring?: string;
+}
+
+export interface Props extends WordCueData {
+  field: { key: string; label: string; required?: boolean; helpText?: string };
+  value?: unknown;
+  error?: string;
+}
+
+const { field, value, lines, sounds, pictures, startsDuring, error } = Astro.props;
+const cues = parseWordCues(value);
+const inputId = `field-${field.key}`;
+const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
+---
+
+<div class="field-group word-cue-field" data-word-cues data-starts-during={startsDuring}>
+  <label for={inputId}>
+    {field.label}
+    {field.required && <span class="required">*</span>}
+  </label>
+  <textarea id={inputId} name={`dataJson.${field.key}`} class="json-field" hidden data-wc-json>{serializeWordCues(cues)}</textarea>
+  <script type="application/json" data-wc-data set:html={json({ cues, lines, sounds, pictures })} />
+  <ol class="wc-rows" data-wc-rows></ol>
+  <div class="wc-actions">
+    <button type="button" class="button secondary" data-wc-add disabled={lines.length === 0}>Add a cue</button>
+    {lines.length === 0 && <span class="field-help">This has no lines yet: a cue sits on a word of one of them.</span>}
+  </div>
+  <p class="field-help">
+    {field.helpText ||
+      "A cue sits between two words of a line: click a word to put it after that word (or a gap). Its sound plays at the end of the word before it and its camera move starts there; its picture comes in at the start of the word after it. The timeline shows each one on its line."}
+  </p>
+  {error && <p class="field-error">{error}</p>}
+</div>
+
+<script>
+  import { CAMERA_DEFAULTS, type Camera, type CameraKind, type WordCue, serializeWordCues } from "@/lib/wordCues";
+  import { fetchApi } from "@/lib/api/client";
+
+  interface Line {
+    slug: string;
+    title: string;
+    who: string;
+    chips: string[];
+    timings: { start: number; end: number }[] | null;
+  }
+  interface Sound {
+    slug: string;
+    name: string;
+    audioUrl?: string | null;
+    seconds?: number | null;
+  }
+  interface Picture {
+    id: string;
+    slug: string;
+    title: string;
+    startsDuring: { line: string; word: number } | null;
+  }
+
+  const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> & { dataset?: Record<string, string> } = {}, ...kids: (Node | string)[]) => {
+    const { dataset, ...rest } = props;
+    const node = Object.assign(document.createElement(tag), rest);
+    if (dataset) Object.assign(node.dataset, dataset);
+    node.append(...kids);
+    return node;
+  };
+  const option = (value: string, text: string, selected: boolean) => el("option", { value, textContent: text, selected });
+  const secs = (n: number) => `${n.toFixed(2)} s`;
+
+  document.querySelectorAll<HTMLElement>("[data-word-cues]").forEach((root) => {
+    const jsonBox = root.querySelector<HTMLTextAreaElement>("[data-wc-json]")!;
+    const rowsBox = root.querySelector<HTMLOListElement>("[data-wc-rows]")!;
+    const data = JSON.parse(root.querySelector("[data-wc-data]")?.textContent || "{}") as { cues: WordCue[]; lines: Line[]; sounds: Sound[]; pictures: Picture[] };
+    const startsField = root.dataset.startsDuring || "";
+    const lineOf = (slug: string) => data.lines.find((l) => l.slug === slug);
+    const cues: WordCue[] = data.cues.map((c) => ({ ...c }));
+
+    const write = () => {
+      jsonBox.value = serializeWordCues(cues);
+      jsonBox.dispatchEvent(new Event("input", { bubbles: true }));
+      jsonBox.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+
+    /** Where the cue falls in the take, when the line has word timings: the end of the word before it, and the start of the word after it. */
+    const whenText = (cue: WordCue) => {
+      const line = lineOf(cue.line);
+      if (!line) return "";
+      const before = cue.word > 0 ? line.chips[Math.min(cue.word, line.chips.length) - 1] : "";
+      const where = before ? `after “${before}”` : "before the first word";
+      const t = line.timings;
+      if (!t?.length) return `${where} · placed by the text until the line has a take with word timings`;
+      const end = cue.word > 0 ? t[Math.min(cue.word, t.length) - 1].end : 0;
+      const start = cue.word < t.length ? t[cue.word].start : t[t.length - 1].end;
+      return `${where} · sound and camera at ${secs(end)}, a picture at ${secs(start)} into the take`;
+    };
+
+    const wordsOf = (cue: WordCue, repaint: () => void) => {
+      const line = lineOf(cue.line);
+      const box = el("div", { className: "wc-words", role: "group", ariaLabel: "Where among the words" });
+      if (!line) {
+        box.append(el("span", { className: "field-help", textContent: cue.line ? `The line ${cue.line} is not one of this entry's lines.` : "Pick a line." }));
+        return box;
+      }
+      const gap = (k: number) =>
+        el("button", { type: "button", className: `wc-gap${cue.word === k ? " is-on" : ""}`, title: k === 0 ? "Before the first word" : `After “${line.chips[k - 1]}”`, ariaLabel: k === 0 ? "Before the first word" : `After ${line.chips[k - 1]}`, ariaPressed: String(cue.word === k), onclick: () => ((cue.word = k), repaint()) });
+      box.append(gap(0));
+      line.chips.forEach((word, i) => {
+        box.append(el("button", { type: "button", className: `wc-word${i < cue.word ? " is-before" : ""}`, textContent: word, title: `Put the cue after “${word}”`, onclick: () => ((cue.word = i + 1), repaint()) }), gap(i + 1));
+      });
+      return box;
+    };
+
+    const cameraBox = (cue: WordCue, repaint: () => void) => {
+      const box = el("span", { className: "wc-camera" });
+      const kind = el("select", { ariaLabel: "Camera move", title: "A camera move at the end of the word before the cue, on top of the beat's own" }, option("", "No camera move", !cue.camera), option("punch", "Punch (a quick zoom in)", cue.camera?.kind === "punch"), option("shake", "Shake", cue.camera?.kind === "shake"), option("nudge", "Nudge (drift toward a point)", cue.camera?.kind === "nudge"));
+      kind.onchange = () => {
+        cue.camera = kind.value ? ({ kind: kind.value as CameraKind } as Camera) : undefined;
+        if (!cue.camera) delete cue.camera;
+        repaint();
+      };
+      box.append(kind);
+      const num = (label: string, value: number | undefined, placeholder: number, min: number, max: number, step: number, set: (n: number | undefined) => void) => {
+        const input = el("input", { type: "number", className: "wc-num", min: String(min), max: String(max), step: String(step), placeholder: String(placeholder), value: value === undefined ? "" : String(value), ariaLabel: label, title: `${label} (empty: ${placeholder})` });
+        input.oninput = () => {
+          const n = input.value.trim() === "" ? undefined : Number(input.value);
+          set(n === undefined || !Number.isFinite(n) ? undefined : Math.min(Math.max(n, min), max));
+          write();
+        };
+        return input;
+      };
+      const cam = cue.camera;
+      if (cam?.kind === "punch") box.append(num("How far in, 1 to 1.5", cam.amount, CAMERA_DEFAULTS.punch, 1, 1.5, 0.01, (n) => (n === undefined ? delete cam.amount : (cam.amount = n))));
+      if (cam?.kind === "shake") box.append(num("How hard, % of the frame, 0 to 10", cam.amount, CAMERA_DEFAULTS.shake, 0, 10, 0.1, (n) => (n === undefined ? delete cam.amount : (cam.amount = n))));
+      if (cam?.kind === "nudge") {
+        box.append(num("Toward x, 0 (left) to 1 (right)", cam.x, CAMERA_DEFAULTS.x, 0, 1, 0.05, (n) => (n === undefined ? delete cam.x : (cam.x = n))));
+        box.append(num("Toward y, 0 (top) to 1 (bottom)", cam.y, CAMERA_DEFAULTS.y, 0, 1, 0.05, (n) => (n === undefined ? delete cam.y : (cam.y = n))));
+      }
+      return box;
+    };
+
+    const soundBox = (cue: WordCue, repaint: () => void) => {
+      const box = el("span", { className: "wc-sound" });
+      const known = data.sounds.some((s) => s.slug === cue.sound);
+      const pick = el(
+        "select",
+        { ariaLabel: "Sound", title: "A sound that plays at the end of the word before the cue" },
+        option("", "No sound", !cue.sound),
+        ...(cue.sound && !known ? [option(cue.sound, `${cue.sound} (not in the library)`, true)] : []),
+        ...data.sounds.map((s) => option(s.slug, `${s.name}${s.seconds ? ` · ${s.seconds.toFixed(1)} s` : ""}${s.audioUrl ? "" : " · no take yet"}`, s.slug === cue.sound)),
+      );
+      pick.onchange = () => {
+        if (pick.value) cue.sound = pick.value;
+        else delete cue.sound;
+        repaint();
+      };
+      box.append(pick);
+      const sound = data.sounds.find((s) => s.slug === cue.sound);
+      if (sound?.audioUrl) box.append(el("audio", { controls: true, preload: "none", src: sound.audioUrl, className: "wc-audio" }));
+      if (cue.sound) {
+        const level = el("input", { type: "number", className: "wc-num", min: "0", max: "1", step: "0.05", placeholder: "own", value: cue.volume === undefined ? "" : String(cue.volume), ariaLabel: "Level of this cue, 0 to 1 (empty: the sound's own)", title: "Level of this cue, 0 to 1 (empty: the sound's own)" });
+        level.oninput = () => {
+          const n = level.value.trim() === "" ? undefined : Number(level.value);
+          if (n === undefined || !Number.isFinite(n)) delete cue.volume;
+          else cue.volume = Math.min(Math.max(n, 0), 1);
+          write();
+        };
+        box.append(el("label", { className: "wc-level" }, "level ", level));
+      }
+      return box;
+    };
+
+    const pictureBox = (cue: WordCue, repaint: () => void) => {
+      const box = el("span", { className: "wc-picture" });
+      const known = data.pictures.some((p) => p.slug === cue.pic);
+      const pick = el(
+        "select",
+        { ariaLabel: "Picture", title: "An overlay beat whose picture comes in at the start of the word after the cue" },
+        option("", data.pictures.length ? "No picture" : "No picture (the story has no overlay beats)", !cue.pic),
+        ...(cue.pic && !known ? [option(cue.pic, `${cue.pic} (not found)`, true)] : []),
+        ...data.pictures.map((p) => option(p.slug, p.title, p.slug === cue.pic)),
+      );
+      pick.onchange = () => {
+        if (pick.value) cue.pic = pick.value;
+        else delete cue.pic;
+        repaint();
+      };
+      box.append(pick);
+      // The render brings a picture in where its own beat says (`starts_during`), not where this note is: offer to move it here when they differ.
+      const picture = data.pictures.find((p) => p.slug === cue.pic);
+      if (picture && startsField && (picture.startsDuring?.line !== cue.line || picture.startsDuring?.word !== cue.word)) {
+        const there = picture.startsDuring ? `word ${picture.startsDuring.word} of ${lineOf(picture.startsDuring.line)?.title ?? picture.startsDuring.line}` : "no word yet";
+        const move = el("button", { type: "button", className: "button secondary wc-move", textContent: "Bring it in here", title: `${picture.title} now comes in at ${there}. This writes this line and word into it (saved at once).` });
+        move.onclick = async () => {
+          move.disabled = true;
+          try {
+            const path = `/api/platform/entries/${encodeURIComponent(picture.id)}`;
+            const entry = await fetchApi<{ title: string; slug: string; dataJson?: Record<string, unknown> }>(path);
+            const at = { line: cue.line, word: cue.word };
+            await fetchApi(path, { method: "PATCH", body: JSON.stringify({ title: entry.title, slug: entry.slug, dataJson: { ...(entry.dataJson ?? {}), [startsField]: at } }) });
+            picture.startsDuring = at;
+            repaint();
+          } catch (e) {
+            move.disabled = false;
+            move.title = `Could not move it: ${e instanceof Error ? e.message : "it did not change"}`;
+          }
+        };
+        box.append(el("span", { className: "field-help wc-note", textContent: `It comes in at ${there}.` }), move);
+      }
+      return box;
+    };
+
+    const rowOf = (cue: WordCue): HTMLLIElement => {
+      const li = el("li", { className: "wc-row" });
+      const repaint = () => {
+        li.replaceWith(rowOf(cue));
+        write();
+      };
+      const linePick = el(
+        "select",
+        { className: "wc-line", ariaLabel: "Line" },
+        ...(cue.line && !lineOf(cue.line) ? [option(cue.line, `${cue.line} (not one of these lines)`, true)] : []),
+        ...data.lines.map((l) => option(l.slug, `${l.who ? `${l.who}: ` : ""}${l.title}`, l.slug === cue.line)),
+      );
+      linePick.onchange = () => {
+        cue.line = linePick.value;
+        cue.word = Math.min(cue.word, lineOf(cue.line)?.chips.length ?? 0);
+        repaint();
+      };
+      const remove = el("button", { type: "button", className: "wc-remove", textContent: "×", ariaLabel: "Remove this cue", title: "Remove this cue" });
+      remove.onclick = () => {
+        cues.splice(cues.indexOf(cue), 1);
+        li.remove();
+        write();
+      };
+      li.append(
+        el("div", { className: "wc-head" }, linePick, remove),
+        wordsOf(cue, repaint),
+        el("p", { className: "field-help wc-when", textContent: whenText(cue) }),
+        el("div", { className: "wc-what" }, soundBox(cue, repaint), cameraBox(cue, repaint), pictureBox(cue, repaint)),
+      );
+      return li;
+    };
+
+    rowsBox.append(...cues.map(rowOf));
+    root.querySelector<HTMLButtonElement>("[data-wc-add]")?.addEventListener("click", () => {
+      const cue: WordCue = { line: data.lines[0]?.slug ?? "", word: 0, rest: {} };
+      cues.push(cue);
+      rowsBox.append(rowOf(cue));
+      write();
+    });
+  });
+</script>
+
+<style is:global>
+  .word-cue-field .wc-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .word-cue-field .wc-row { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .word-cue-field .wc-head { display: flex; gap: 8px; align-items: center; }
+  .word-cue-field select, .word-cue-field .wc-num { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); min-width: 0; }
+  .word-cue-field .wc-line { flex: 1 1 auto; }
+  .word-cue-field .wc-num { width: 5.5em; }
+  .word-cue-field .wc-words { display: flex; flex-wrap: wrap; align-items: center; row-gap: 4px; line-height: 1.6; }
+  .word-cue-field .wc-word { border: 0; background: transparent; color: var(--ink); font: inherit; padding: 1px 3px; border-radius: 4px; cursor: pointer; }
+  .word-cue-field .wc-word.is-before { color: var(--muted); }
+  .word-cue-field .wc-word:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  .word-cue-field .wc-gap { width: 9px; height: 1.4em; padding: 0; border: 0; background: transparent; cursor: pointer; position: relative; }
+  .word-cue-field .wc-gap:hover::after, .word-cue-field .wc-gap.is-on::after { content: ""; position: absolute; left: 3px; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: var(--muted); }
+  .word-cue-field .wc-gap.is-on::after { background: var(--accent); }
+  .word-cue-field .wc-gap.is-on::before { content: "▾"; position: absolute; left: -1px; top: -0.95em; font-size: 11px; color: var(--accent); }
+  .word-cue-field .wc-when { margin: 0; }
+  .word-cue-field .wc-what { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .word-cue-field .wc-sound, .word-cue-field .wc-camera, .word-cue-field .wc-picture { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .word-cue-field .wc-level { display: inline-flex; gap: 4px; align-items: center; font-size: 0.875rem; color: var(--muted); }
+  .word-cue-field .wc-audio { height: 28px; max-width: 220px; }
+  .word-cue-field .wc-note { margin: 0; }
+  .word-cue-field .wc-remove { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); cursor: pointer; }
+  .word-cue-field .wc-remove:hover { color: var(--color-error); border-color: var(--color-error); }
+  .word-cue-field .wc-actions { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+</style>

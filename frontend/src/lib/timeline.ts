@@ -7,6 +7,8 @@
  * nothing here fetches; the page hands in rows and gets back what to draw.
  */
 
+import { chipsOf, parseWordCues } from "./wordCues.ts";
+
 export interface SecondsSpec {
   hold?: string;
   lead?: string;
@@ -50,6 +52,10 @@ export interface SpineSpec {
    * the beat before), at the start of the word after `word` words, and adds no time of its own; its own hold keeps it up that long from the word.
    * Must match the render (ScreenplayStudio render: manifest `starts_during`). */
   starts_during?: string;
+  /** A JSON list on each item of cues on words (`[{line, word, sound?, volume?, camera?, pic?}]`, lib/wordCues.ts): each sits at a word of a piece
+   * of the `in` lane `lane`; a cue's sound (an entry of the placed lane `sounds`) plays in that lane at the end of the word before it, as the render
+   * plays it (marvin_pull `_cue_sounds`), and lengthens the item as a placed sound does. The entry page edits the field as rows. */
+  word_cues?: { field: string; lane: string; sounds?: string };
 }
 
 export interface CardSpec {
@@ -245,6 +251,23 @@ export interface Piece {
   natural: number;
   /** The take's word timings, when the lane names them and the take has them (delivery tags such as `[sighs]` left out). */
   words: Word[] | null;
+  /** For a sound played by a cue on a word: the line (its title) and the word it plays after. */
+  cue?: { line: string; word: number; text: string };
+}
+
+/** A cue on a word, where it falls: on the piece (its id), at the end of the word before it (`at`, where its sound and camera move start) and the
+ * start of the word after it (`picAt`, where a picture comes in); `estimated` when those come from the text, not the take's timings. */
+export interface CueMark {
+  piece: string;
+  word: number;
+  /** The word the cue comes after ("" before the first). */
+  text: string;
+  at: number;
+  picAt: number;
+  estimated: boolean;
+  sound: { slug: string; title: string; heard: boolean } | null;
+  camera: { kind: string; amount?: number; x?: number; y?: number } | null;
+  pic: string | null;
 }
 
 /** A sound running under a stretch of the timeline: a scene's ambience across its beats, a story's music under everything. */
@@ -329,6 +352,8 @@ export interface Item {
   /** True when any timed piece in it is estimated (so its length may change). */
   estimated: boolean;
   lanes: Record<string, Piece[]>;
+  /** Its cues on words (`spine.word_cues`) whose piece is laid, in the order written. */
+  cues?: CueMark[];
   /** The silences its timed pieces were laid with (missing on a card), to lay them again while one is dragged. */
   timing?: { lead: number; gap: number; tail: number };
   /** Set on an item whose picture comes in at a word of a piece laid before it (`spine.starts_during`): that piece, the word, and where on the
@@ -635,6 +660,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   const inLanes = lanes.filter((l) => l.in);
   const placedLanes = lanes.filter((l) => l.placed);
   const bedLanes = lanes.filter((l) => l.bed);
+  const laneOf = (id: string | undefined) => (id ? placedLanes.find((l) => l.id === id) : undefined);
   const laneRows = (lane: LaneSpec) => [...(rows.lanes[lane.id] ?? [])].filter((r) => !isOff(r, lane)).sort(byOrder(lane.order));
   const bySlug = (lane: LaneSpec) => new Map(laneRows(lane).map((r) => [r.slug, r] as const));
 
@@ -741,6 +767,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
         }
         item.lanes[lane.id] = pieces;
       }
+      reach = Math.max(reach, wordCuesOf(item, row, spec, said, laneOf(spec.spine.word_cues?.sounds), bySlug, clock));
       if (reach > item.seconds - item.pause) item.seconds = reach + item.pause; // the render: max(hold, speech, the end of the last sound) and then the pause
       cuts.push({ start: clock, seconds: item.seconds, firstWord: timed[0]?.start ?? null, lead: pictureLeadOf(row, spec.spine.seconds, rows.entry), anchor: overlay?.at ?? null });
       clock += item.seconds;
@@ -1149,6 +1176,51 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
     together: lane.simultaneous ? field(row, lane.simultaneous) === true : false,
     words: wordTimings(row, lane),
   };
+}
+
+/**
+ * An item's cues on words (`spine.word_cues`), as the render places them (marvin_pull `_cues`, `word_place`): each on a piece laid so far, at the
+ * end of the word before it. A cue's sound joins the sounds lane at that time (its own level replacing the sound's, as a placed cue's does) and
+ * counts toward the item's length when it has a take; one with none is drawn as needing one. A cue on a piece that is not laid is left out, as the
+ * render leaves out a cue on a line with no take. Returns how far into the item its last cue sound runs.
+ */
+function wordCuesOf(item: Item, row: Row, spec: TimelineSpec, said: Map<string, Piece>, sounds: LaneSpec | undefined, bySlug: (lane: LaneSpec) => Map<string, Row>, clock: number): number {
+  const wc = spec.spine.word_cues;
+  if (!wc) return 0;
+  const known = sounds ? bySlug(sounds) : new Map<string, Row>();
+  const marks: CueMark[] = [];
+  let reach = 0;
+  for (const cue of parseWordCues(field(row, wc.field))) {
+    const piece = said.get(cue.line);
+    if (!piece) continue;
+    const after = wordAt(piece, cue.word, true);
+    const next = wordAt(piece, cue.word, false);
+    const chips = chipsOf(piece.text, piece.words);
+    const target = cue.sound ? known.get(cue.sound) : undefined;
+    const at = piece.start + after.at;
+    const heard = !!target && !!assetUrl(target, sounds?.audio, "audio/");
+    marks.push({
+      piece: piece.id,
+      word: cue.word,
+      text: cue.word > 0 ? (chips[Math.min(cue.word, chips.length) - 1] ?? "") : "",
+      at,
+      picAt: piece.start + next.at,
+      estimated: after.estimated || piece.estimated,
+      sound: cue.sound ? { slug: cue.sound, title: target?.title ?? cue.sound, heard } : null,
+      camera: cue.camera ?? null,
+      pic: cue.pic ?? null,
+    });
+    if (!sounds || !target) continue;
+    const length = pieceSeconds(target, sounds);
+    const offset = at - clock;
+    const sound = pieceOf(target, sounds, length?.seconds ?? 0, length?.estimated ?? false, clock + Math.max(offset, 0), Number(Math.max(offset, 0).toFixed(3))); // never before its beat's sound starts, as the render places it
+    if (cue.volume !== undefined) sound.volume = cue.volume;
+    sound.cue = { line: piece.title, word: cue.word, text: marks[marks.length - 1].text };
+    (item.lanes[sounds.id] ??= []).push(sound);
+    if (heard && length) reach = Math.max(reach, offset + length.seconds);
+  }
+  if (marks.length) item.cues = marks;
+  return reach;
 }
 
 /** An item that comes in at a word of a piece already laid (`spine.starts_during`), as the render places it (marvin_pull: _starts_during): at the

@@ -46,6 +46,11 @@ A timeline definition::
 - ``spine.starts_during`` is a field on each item holding ``{line, word}``: the item is an overlay whose picture comes in at that word of an
   ``in`` lane's piece laid before it (at the start of the word after ``word`` words: from the take's word timings, else from the text). It adds
   no time of its own; its own ``hold`` keeps it up that long from the word. An item whose piece is not laid before it is an ordinary item.
+- ``spine.word_cues`` ({field, lane, sounds?}) names a JSON list on each item of cues on words, ``[{line, word, sound?, volume?, camera?,
+  pic?}]``: ``line`` a piece of the ``in`` lane ``lane`` (its slug), ``word`` how many of its words come before the cue, ``sound`` an entry of
+  the ``placed`` lane ``sounds`` that plays at the end of the word before (at ``volume``, 0 to 1, else its own), ``camera`` a move there
+  ({kind: punch|shake|nudge, amount?, x?, y?}) and ``pic`` the item whose picture comes in at the start of the word after. The Timeline draws
+  each cue on its piece and its sound in the sounds lane (lengthening the item as a placed sound does); the item's page edits the field as rows.
 - On an ``in`` lane, ``nudge`` is a field holding seconds a piece starts later (+) or earlier (-) than it falls (-10 to 10; the pieces after it
   follow it and the item lasts until its latest piece ends), ``simultaneous`` a boolean field that starts it with the piece before (dual
   dialogue), and ``words`` the key in the recording's asset metadata holding its word timings ([{text, start, end}]). The render must lay
@@ -177,7 +182,26 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         seen.add(lid)
         if problem := _check_lane(lane, f"lane {lid!r} of {label}"):
             return problem
+    if problem := _check_word_cues(spine.get("word_cues"), lanes, f"{label} spine"):
+        return problem
     return _check_actions(payload.get("actions"), label)
+
+
+def _check_word_cues(spec: Any, lanes: list[dict], label: str) -> str | None:
+    """`spine.word_cues`: {field, lane, sounds?}: a JSON list on each item of cues on words of the `in` lane `lane`, with sounds from the
+    placed lane `sounds`."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict) or set(spec) - {"field", "lane", "sounds"}:
+        return f"{label}: word_cues is {{field, lane, sounds?}}"
+    if problem := _field(spec, "field", f"{label} word_cues", required=True):
+        return problem
+    shapes = {lane.get("id"): ("in" if lane.get("in") is not None else "placed" if lane.get("placed") is not None else "") for lane in lanes}
+    if shapes.get(spec.get("lane")) != "in":
+        return f"{label}: word_cues.lane must be the id of a lane with `in` (the pieces the cues sit on)"
+    if spec.get("sounds") is not None and shapes.get(spec.get("sounds")) != "placed":
+        return f"{label}: word_cues.sounds must be the id of a lane with `placed` (the sounds a cue plays)"
+    return None
 
 
 MAX_BANDS = 2
