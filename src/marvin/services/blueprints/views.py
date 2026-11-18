@@ -37,7 +37,19 @@ A timeline definition::
   field, ``text`` a text shown when there is no picture, ``status`` a status field drawn as a dot. ``seconds`` names the fields that time an
   item: ``hold`` is how long an item with nothing in its lanes lasts (the view's default when the item sets none) and, when the item sets its own,
   the least it lasts even with pieces in its lanes (the picture stays up after the last one); ``lead``, ``gap`` and ``tail`` are the
-  silences around and between the pieces of a lane that has ``seconds``; ``defaults`` fill in when a field is empty.
+  silences around and between the pieces of a lane that has ``seconds``; ``defaults`` fill in when a field is empty. ``seconds.entry``
+  ({hold?, lead?, gap?, tail?, picture_lead?}) names fields on the view's entry that set them for every item that sets none (a story's
+  ``line_lead``): the item's own field wins, then the entry's, then ``defaults``. ``seconds.picture_lead`` is a field on each item: its picture
+  comes in that many seconds before its first word (a silent item's, before it starts) while the sound stays put, never closer than half a
+  second after the picture before; empty is where its sound starts and 0 is its first word. The pictures are cut from the sound, so the film
+  is as long either way, and the strip, beds, overlays, marks, bands and chapters follow the pictures, as the render does.
+- ``spine.starts_during`` is a field on each item holding ``{line, word}``: the item is an overlay whose picture comes in at that word of an
+  ``in`` lane's piece laid before it (at the start of the word after ``word`` words: from the take's word timings, else from the text). It adds
+  no time of its own; its own ``hold`` keeps it up that long from the word. An item whose piece is not laid before it is an ordinary item.
+- On an ``in`` lane, ``nudge`` is a field holding seconds a piece starts later (+) or earlier (-) than it falls (-10 to 10; the pieces after it
+  follow it and the item lasts until its latest piece ends), ``simultaneous`` a boolean field that starts it with the piece before (dual
+  dialogue), and ``words`` the key in the recording's asset metadata holding its word timings ([{text, start, end}]). The render must lay
+  pieces the same way.
 - A ``lane`` is a child type drawn under the spine, in one of four shapes. ``in`` names the field that holds the spine item's slug (a line
   belongs to a beat; ``of`` is then required and scopes the lane's entries to the view's entry). ``placed`` says the spine item lists them:
   ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at`` (the entries come by
@@ -103,6 +115,8 @@ VIEW_KINDS = ("timeline",)
 MAX_LANES = 6
 MAX_ACTIONS = 6
 SECONDS_KEYS = ("hold", "lead", "gap", "tail")
+ENTRY_SECONDS_KEYS = (*SECONDS_KEYS, "picture_lead")
+IN_LANE_KEYS = ("nudge", "simultaneous", "words")
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _ID = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
@@ -263,7 +277,7 @@ def _check_review(spine: dict, label: str) -> str | None:
 def _check_spine(spine: dict, label: str) -> str | None:
     if (problem := _slug(spine, "entry_type", label)) or (problem := _field(spine, "of", label, required=True)):
         return problem
-    if problem := _fields(spine, ("order", "picture", "text", "status", "title"), label):
+    if problem := _fields(spine, ("order", "picture", "text", "status", "title", "starts_during"), label):
         return problem
     group = spine.get("group")
     if group is not None:
@@ -278,7 +292,12 @@ def _check_spine(spine: dict, label: str) -> str | None:
         return None
     if not isinstance(seconds, dict):
         return f"{label}: seconds names the fields that time an item, {{hold, lead, gap, tail, defaults}}"
-    if problem := _fields(seconds, SECONDS_KEYS, f"{label} seconds"):
+    if problem := _fields(seconds, (*SECONDS_KEYS, "picture_lead"), f"{label} seconds"):
+        return problem
+    entry = seconds.get("entry", {})
+    if not isinstance(entry, dict) or any(k not in ENTRY_SECONDS_KEYS for k in entry):
+        return f"{label}: seconds.entry names fields on the view's entry for {', '.join(ENTRY_SECONDS_KEYS)}"
+    if problem := _fields(entry, ENTRY_SECONDS_KEYS, f"{label} seconds.entry"):
         return problem
     defaults = seconds.get("defaults", {})
     if not isinstance(defaults, dict) or any(k not in SECONDS_KEYS for k in defaults):
@@ -377,7 +396,10 @@ def _check_lane(lane: dict, label: str) -> str | None:
             return f"{label}: open is {{wizard}}, the guided setup a piece opens on instead of its own page"
         if problem := _slug(opens, "wizard", f"{label} open"):
             return problem
-    return _fields(lane, ("order", "off", "text", "who", "audio", "waveform", "seconds", "volume", "loop", "estimate_from", "status"), label)
+    if shapes != ["in"] and any(lane.get(k) is not None for k in IN_LANE_KEYS):
+        return f"{label}: {', '.join(IN_LANE_KEYS)} are for an `in` lane (pieces timed one after another)"
+    keys = ("order", "off", "text", "who", "audio", "waveform", "seconds", "volume", "loop", "estimate_from", "status", *IN_LANE_KEYS)
+    return _fields(lane, keys, label)
 
 
 def _check_cover(cover: Any, label: str) -> str | None:

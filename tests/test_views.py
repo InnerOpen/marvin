@@ -499,3 +499,36 @@ def test_a_wrong_cue_level_key_says_which_key():
 def test_a_lane_may_name_the_field_holding_a_recordings_peaks_for_its_waveform():
     assert _bad(lambda p: p["lanes"][0].update(waveform="waveform")) is None
     assert "waveform" in (_bad(lambda p: p["lanes"][0].update(waveform="not a field")) or "")  # a field name, like audio
+
+
+def test_a_timeline_without_the_timing_keys_is_checked_as_before():
+    # a view written before picture leads, nudges and overlays (the Studio's up to v213) is still good, with or without `seconds`
+    assert payload_problem(TIMELINE, "story-timeline") is None
+    assert _bad(lambda p: p["spine"].pop("seconds")) is None
+
+
+def test_a_timeline_may_name_the_entrys_silences_a_picture_lead_overlays_and_line_nudges():
+    def timed(p):
+        entry = {"lead": "line_lead", "gap": "line_gap", "tail": "line_tail", "picture_lead": "picture_lead"}
+        p["spine"]["seconds"].update(picture_lead="picture_lead", entry=entry)
+        p["spine"]["starts_during"] = "starts_during"
+        p["lanes"][0].update(nudge="nudge", simultaneous="simultaneous", words="words")
+
+    assert _bad(timed) is None
+
+
+@pytest.mark.parametrize(
+    ("mutate", "words"),
+    [
+        (lambda p: p["spine"]["seconds"].update(picture_lead="Bad Key"), "seconds: picture_lead must be a field key"),
+        (lambda p: p["spine"]["seconds"].update(entry="line_lead"), "seconds.entry names fields"),
+        (lambda p: p["spine"]["seconds"].update(entry={"pause": "line_pause"}), "seconds.entry names fields"),
+        (lambda p: p["spine"]["seconds"].update(entry={"lead": "Bad Key"}), "seconds.entry: lead must be a field key"),
+        (lambda p: p["spine"].update(starts_during="Bad Key"), "starts_during must be a field key"),
+        (lambda p: p["lanes"][0].update(nudge="Bad Key"), "nudge must be a field key"),
+        (lambda p: p["lanes"][0].update(simultaneous=True), "simultaneous must be a field key"),
+        (lambda p: p["lanes"][1].update(nudge="nudge"), "are for an `in` lane"),
+    ],
+)
+def test_a_wrong_timing_key_says_what_is_wrong(mutate, words):
+    assert words in (_bad(mutate) or "")
