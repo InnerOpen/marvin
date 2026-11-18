@@ -86,6 +86,18 @@ field gets it as a plain attachment in the role typed, or none. The Workflow Lib
 uploaded** (`entry-from-upload`) does the same automatically: every image upload becomes a draft of the chosen type with
 the picture in the chosen image field. Unreleased (2026-11-02).
 
+**Record a video from the camera.** A file field that takes video (`accept` with `video/*`, or nothing, which takes anything)
+has **Record video…** in its upload dialog, as a sound field has **Record audio…**; a field that takes both offers both, and a
+sound-only field keeps only the audio recorder. The upload button of a video field reads **Upload or record a video…**. The
+recorder lets you pick the camera and the microphone (remembered in this browser, with the count-down choice), shows the live
+picture, can count down 3, 2, 1, and records only when you press **Record**. It shows the time against a 10-minute limit and
+stops by itself there, or earlier if the take nears the 100 MB an upload can carry (it records at about 1 Mbps, so ten
+minutes come to roughly 85 MB). Play the take back, then **Keep** or **Retake**; a kept take is uploaded and chosen like a
+picked file, attached in the field's role when you save, as MP4 where the browser can make it, else WebM. The asset's
+metadata keeps `recording` (`kind: video`, format, camera and microphone, size, frame rate, length, and `stopped` when it
+stopped by itself). It works on an entry's page and in a guided setup's form step. A refused or missing camera says so
+("Allow the camera for this site…"), and closing the dialog always lets go of the camera. Unreleased (2026-11-18).
+
 ## Rendered images
 
 A **Process an image** step can **render a template**: a built-in quote card, card, retro poster, trading card, meme,

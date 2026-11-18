@@ -93,13 +93,11 @@
 
 <script>
   import {
+    MICROPHONE_WORDS,
     canPauseReliably,
     cueCards,
     fileFor,
-    stampedName,
-    formatClock,
     levelOf,
-    looksTruncated,
     meterPosition,
     pickMimeType,
     recordingMetadata,
@@ -107,6 +105,7 @@
     storedCueScale,
     type RecordingSettings,
   } from "@/lib/audioRecorder";
+  import { createStopwatch, deviceError, deviceOptions, formatClock, looksTruncated, readStored, stampedName, writeStored } from "@/lib/recording";
 
   /** A chunk a second: Safari 26 hands back empty chunks under that (WebKit 301507), and Chrome needs no finer. */
   const TIMESLICE_MS = 1000;
@@ -129,14 +128,8 @@
   const scriptPanel = el<HTMLElement>("script");
   const cueList = el<HTMLElement>("cues");
   const SCALE_KEY = "audio-recorder-script-scale";
-  const remembered = () => {
-    try {
-      return localStorage.getItem(SCALE_KEY);
-    } catch {
-      return null; // storage can be refused (a private window): the text just starts at the default size
-    }
-  };
-  let cueScale = storedCueScale(remembered());
+  // Storage can be refused (a private window): the text then just starts at the default size.
+  let cueScale = storedCueScale(readStored(() => localStorage, SCALE_KEY));
   const buttons = {
     discard: el<HTMLButtonElement>("discard"),
     again: el<HTMLButtonElement>("again"),
@@ -166,8 +159,7 @@
   let takeUrl = "";
   let decodedSeconds: number | null = null;
   // The clock counts only time spent recording: what came before the last pause, plus the stretch since.
-  let elapsedBefore = 0;
-  let runningSince: number | null = null;
+  const stopwatch = createStopwatch(() => performance.now());
   let peak = 0;
   let clippedInTake = false;
   const metadataByFile = new WeakMap<File, Record<string, unknown>>();
@@ -192,8 +184,6 @@
     status.textContent = state === "failed" ? "" : message;
   }
 
-  const elapsed = () => elapsedBefore + (runningSince === null ? 0 : (performance.now() - runningSince) / 1000);
-
   function constraints(): MediaTrackConstraints {
     const on = (name: Constraint) => toggles.find((t) => t.dataset.arConstraint === name)!.checked;
     return {
@@ -203,14 +193,6 @@
       noiseSuppression: on("noiseSuppression"),
       channelCount: { ideal: 1 },
     };
-  }
-
-  function whyNot(e: unknown): string {
-    const name = e instanceof DOMException ? e.name : "";
-    if (name === "NotAllowedError") return "The microphone was refused. Allow it for this site in the browser's settings, then try again.";
-    if (name === "NotFoundError" || name === "OverconstrainedError") return "No microphone was found. Plug one in, or pick another, then try again.";
-    if (name === "NotReadableError") return "The microphone is busy with another app. Close it, then try again.";
-    return e instanceof Error ? e.message : "The microphone could not be opened.";
   }
 
   function stopStream() {
@@ -237,7 +219,7 @@
       if (request !== streamRequest || !dialog.open) return opened.getTracks().forEach((t) => t.stop());
       stream = opened;
     } catch (e) {
-      if (request === streamRequest) show("failed", whyNot(e));
+      if (request === streamRequest) show("failed", deviceError(e, MICROPHONE_WORDS));
       return;
     }
     analyser ??= Object.assign(audio.createAnalyser(), { fftSize: FFT_SIZE });
@@ -249,15 +231,9 @@
 
   /** The microphones, named: browsers give labels only once a page may use the microphone, so this runs after it opens. */
   async function listDevices() {
-    const inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput");
     const current = stream?.getAudioTracks()[0]?.getSettings().deviceId ?? device.value;
-    device.replaceChildren(
-      ...inputs.map((d, i) => {
-        const option = new Option(d.label || `Microphone ${i + 1}`, d.deviceId);
-        option.selected = d.deviceId === current;
-        return option;
-      }),
-    );
+    const choices = deviceOptions(await navigator.mediaDevices.enumerateDevices(), "audioinput", "Microphone", current);
+    device.replaceChildren(...choices.map((c) => Object.assign(new Option(c.label, c.value), { selected: c.selected })));
   }
 
   const samples = new Float32Array(FFT_SIZE);
@@ -273,7 +249,7 @@
     if (live) {
       peak = Math.max(peak, level.peak);
       clippedInTake ||= level.clipped;
-      clock.textContent = formatClock(elapsed());
+      clock.textContent = formatClock(stopwatch.elapsed());
     }
     const style = getComputedStyle(dialog);
     colours ??= { level: style.getPropertyValue("--color-primary").trim() || "#3b82f6", peak: style.color, clip: style.getPropertyValue("--color-error").trim() || "#dc2626" };
@@ -318,8 +294,7 @@
       noiseSuppression: applied.noiseSuppression,
       autoGainControl: applied.autoGainControl,
     };
-    elapsedBefore = 0;
-    runningSince = performance.now();
+    stopwatch.start();
     recorder.start(TIMESLICE_MS);
     show("recording", "Recording…");
   }
@@ -327,19 +302,17 @@
   function pauseOrResume() {
     if (recorder?.state === "recording") {
       recorder.pause();
-      elapsedBefore = elapsed();
-      runningSince = null;
+      stopwatch.pause();
       show("paused", "Paused.");
     } else if (recorder?.state === "paused") {
       recorder.resume();
-      runningSince = performance.now();
+      stopwatch.resume();
       show("recording", "Recording…");
     }
   }
 
   function stop() {
-    elapsedBefore = elapsed();
-    runningSince = null;
+    stopwatch.stop();
     if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 
@@ -351,8 +324,8 @@
     if (settings) settings.mimeType = mimeType || settings.mimeType;
     takeUrl = URL.createObjectURL(take);
     playback.src = takeUrl;
-    clock.textContent = formatClock(elapsedBefore);
-    show("recorded", `Take: ${formatClock(elapsedBefore)}. Play it back, then keep it or record again.`);
+    clock.textContent = formatClock(stopwatch.elapsed());
+    show("recorded", `Take: ${formatClock(stopwatch.elapsed())}. Play it back, then keep it or record again.`);
     void checkLength(take);
   }
 
@@ -365,8 +338,8 @@
     } catch {
       return; // some browsers can't decode their own recording format; the clock's length stands
     }
-    if (take === blob && looksTruncated(decodedSeconds, elapsedBefore)) {
-      status.textContent = `This take plays only ${formatClock(decodedSeconds)} of the ${formatClock(elapsedBefore)} recorded: the browser cut it short. Record it again.`;
+    if (take === blob && looksTruncated(decodedSeconds, stopwatch.elapsed())) {
+      status.textContent = `This take plays only ${formatClock(decodedSeconds)} of the ${formatClock(stopwatch.elapsed())} recorded: the browser cut it short. Record it again.`;
     }
   }
 
@@ -381,7 +354,7 @@
   function useTake() {
     if (!take || !settings) return;
     const file = fileFor(take, mimeType, options.suggestedName || stampedName());
-    const facts = recordingMetadata(settings, { durationSeconds: decodedSeconds ?? elapsedBefore, peak, clipped: clippedInTake });
+    const facts = recordingMetadata(settings, { durationSeconds: decodedSeconds ?? stopwatch.elapsed(), peak, clipped: clippedInTake });
     metadataByFile.set(file, { ...(options.metadata ?? {}), ...facts });
     kept = file;
     dialog.close();
@@ -433,11 +406,7 @@
   function resize(direction: 1 | -1) {
     cueScale = stepCueScale(cueScale, direction);
     dialog.style.setProperty("--ar-scale", String(cueScale));
-    try {
-      localStorage.setItem(SCALE_KEY, String(cueScale));
-    } catch {
-      /* the size just is not remembered */
-    }
+    writeStored(() => localStorage, SCALE_KEY, String(cueScale));
   }
 
   function open(opts: Options = {}): Promise<File | null> {

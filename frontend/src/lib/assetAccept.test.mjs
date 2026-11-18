@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { acceptTokens, kindOfAccept, matchesAccept, uploadAccept, uploadWords } from "./assetAccept.ts";
+import { acceptTokens, acceptsVideo, kindOfAccept, matchesAccept, uploadAccept, uploadWords } from "./assetAccept.ts";
 
 test("nothing accepted means everything fits", () => {
   assert.equal(matchesAccept("", { mimeType: "image/png", name: "a.png" }), true);
@@ -55,4 +55,23 @@ test("a field that is not an entry's own (no role) does not promise an attachmen
   const sound = uploadWords("audio", false, null);
   assert.match(sound.intro, /uploaded to your assets now and chosen here/);
   assert.doesNotMatch(sound.intro, /attached|when you save/);
+});
+
+test("acceptsVideo: a field offers the camera when it takes video, or anything at all", () => {
+  assert.equal(acceptsVideo("video/*"), true);
+  assert.equal(acceptsVideo("audio/*,video/*"), true); // both buttons: record a sound or a video
+  assert.equal(acceptsVideo("video/mp4,image/gif"), true);
+  assert.equal(acceptsVideo(".mp4"), true);
+  assert.equal(acceptsVideo(""), true); // takes anything
+  assert.equal(acceptsVideo(null), true);
+});
+
+test("acceptsVideo: a sound-only or picture-and-document field gets no camera", () => {
+  assert.equal(acceptsVideo("audio/*"), false); // keeps only the audio recorder
+  assert.equal(acceptsVideo("image/*,application/pdf"), false);
+});
+
+test("a video field's upload button says it can record", () => {
+  assert.equal(uploadWords("video", false, "clip").open, "Upload or record a video…");
+  assert.match(uploadWords("video", true, "clip").intro, /record one with the camera/);
 });

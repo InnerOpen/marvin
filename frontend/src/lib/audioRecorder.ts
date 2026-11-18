@@ -1,5 +1,10 @@
 // The pure parts of the audio recorder (components/AudioRecorder.astro): which format to ask MediaRecorder for, what to
-// name the file it makes, the facts kept with a take, and the level meter's sums. Pure, so node can test them.
+// name the file it makes, the facts kept with a take, and the level meter's sums. Pure, so node can test them. What it shares with
+// the video recorder (the take's name and clock, the device list, the upload) is in lib/recording.ts.
+
+import { type DeviceWords, containerOf, safeBaseName } from "./recording.ts";
+
+export { TRUNCATION_TOLERANCE_SECONDS, containerOf, formatClock, looksTruncated, stampedName } from "./recording.ts";
 
 /** Asked for in this order. WebM/Opus first: Chrome, Firefox and Safari 18.4+ make it, and Safari 26.0–26.1 cut MP4
  * recordings short (WebKit 299164). MP4/AAC is what older Safari makes; Ogg/Opus covers Firefox builds without WebM. */
@@ -11,42 +16,13 @@ const CONTAINER_OF: Record<string, string> = { webm: "webm", mp4: "mp4", ogg: "o
 const EXTENSION_OF: Record<string, string> = { webm: "webm", mp4: "m4a", ogg: "ogg", wav: "wav" };
 /** For a type the browser didn't name: WebM is what every MediaRecorder but an old Safari's makes by default. */
 const FALLBACK_CONTAINER = "webm";
-const FALLBACK_NAME = "recording";
 
 /** A sample at or past this (of full scale, 1.0) counts as clipped: the converter has run out of room. */
 export const CLIP_LEVEL = 0.99;
-/** Seconds a take may be shorter, once decoded, than the dialog's own clock said before it looks cut short. */
-export const TRUNCATION_TOLERANCE_SECONDS = 1;
-
-const SECONDS_PER_MINUTE = 60;
-const SECONDS_PER_HOUR = 3600;
 
 /** The first candidate the browser says it can record, or "" to let it choose. */
 export function pickMimeType(isSupported: (type: string) => boolean): string {
   return MIME_CANDIDATES.find((type) => isSupported(type)) ?? "";
-}
-
-/** `audio/webm;codecs=opus` -> `webm`: the container, whatever the `audio/` or `video/` in front and the codecs after. */
-export function containerOf(mimeType: string): string {
-  const essence = mimeType.split(";")[0].trim().toLowerCase();
-  return essence.includes("/") ? essence.split("/")[1] : "";
-}
-
-/** A name for a recording nobody named: "recording-2026-11-16-1932", so a list of them is told apart (not twelve "recording.webm"). */
-export function stampedName(now: Date = new Date()): string {
-  const two = (n: number) => String(n).padStart(2, "0");
-  return `${FALLBACK_NAME}-${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}`;
-}
-
-/** A name with nothing a path or the SDK would object to: "Line 7 · take 3" -> "line-7-take-3". */
-function safeBaseName(baseName: string): string {
-  const slug = baseName
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || FALLBACK_NAME;
 }
 
 /** The recording as a named File. Its type is always `audio/<container>` without the codecs, whatever the browser said
@@ -93,28 +69,12 @@ export function meterPosition(level: number, floorDb: number = METER_FLOOR_DB): 
   return Math.min(1, Math.max(0, (db - floorDb) / -floorDb));
 }
 
-/** `m:ss`, or `h:mm:ss` past an hour. */
-export function formatClock(seconds: number): string {
-  const whole = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
-  const h = Math.floor(whole / SECONDS_PER_HOUR);
-  const m = Math.floor((whole % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
-  const s = whole % SECONDS_PER_MINUTE;
-  const ss = String(s).padStart(2, "0");
-  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
-}
-
 /** Pause can be trusted except in WebKit, where it leaves stray or huge chunks and lets sound through (WebKit 243837,
  * 279432). Every iOS browser is WebKit. */
 export function canPauseReliably(userAgent: string): boolean {
   if (/iPhone|iPad|iPod/.test(userAgent)) return false;
   const isSafari = /Safari\//.test(userAgent) && !/Chrome\/|Chromium\/|Edg\/|Firefox\/|OPR\//.test(userAgent);
   return !isSafari;
-}
-
-/** True when the decoded take is clearly shorter than the time recorded (Safari 26.0–26.1 cut MP4 takes short). */
-export function looksTruncated(decodedSeconds: number | null, recordedSeconds: number): boolean {
-  if (decodedSeconds === null || !Number.isFinite(decodedSeconds)) return false;
-  return recordedSeconds - decodedSeconds > TRUNCATION_TOLERANCE_SECONDS;
 }
 
 /** What the microphone gave (MediaStreamTrack.getSettings(), plus the device's label) and the format recorded. */
@@ -158,6 +118,14 @@ export function recordingMetadata(settings: RecordingSettings, stats: RecordingS
     },
   };
 }
+
+/** What the dialog says when the microphone would not open. */
+export const MICROPHONE_WORDS: DeviceWords = {
+  refused: "The microphone was refused. Allow it for this site in the browser's settings, then try again.",
+  missing: "No microphone was found. Plug one in, or pick another, then try again.",
+  busy: "The microphone is busy with another app. Close it, then try again.",
+  failed: "The microphone could not be opened.",
+};
 
 /** One card of the script the recorder shows to read from: a label ("Words") and the text. */
 export interface CueCard {

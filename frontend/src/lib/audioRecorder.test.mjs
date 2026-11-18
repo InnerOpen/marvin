@@ -1,7 +1,7 @@
 // The audio recorder's pure parts (audioRecorder.ts). Run with `npm test`.
 
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { describe, it, test } from "node:test";
 
 import {
   CUE_SCALES,
