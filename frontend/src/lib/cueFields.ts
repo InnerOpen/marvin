@@ -22,11 +22,27 @@ export interface CueSpec {
   filter?: Record<string, string>;
 }
 
+interface LaneLike {
+  id?: string;
+  title?: string;
+  entry_type?: string;
+  in?: string;
+  of?: string;
+  placed?: { field: string; ref: string; at: string; volume?: string; filter?: Record<string, unknown> };
+  audio?: string;
+  seconds?: string;
+  text?: string;
+  who?: string;
+  words?: string;
+  order?: string;
+  off?: string;
+}
+
 interface ViewLike {
   definition?: {
     kind?: string;
-    spine?: { entry_type?: string };
-    lanes?: { id?: string; title?: string; entry_type?: string; placed?: { field: string; ref: string; at: string; volume?: string; filter?: Record<string, unknown> }; audio?: string; seconds?: string }[];
+    spine?: { entry_type?: string; of?: string; order?: string; picture?: string; starts_during?: string; word_cues?: { field?: string; lane?: string; sounds?: string } };
+    lanes?: LaneLike[];
   };
 }
 
@@ -111,4 +127,43 @@ export function serializeCues(cues: readonly Cue[], spec: Pick<CueSpec, "ref" | 
     .sort((a, b) => a.at - b.at)
     .map((c) => ({ ...c.rest, [spec.ref]: c.ref, [spec.at]: Number(c.at.toFixed(3)), ...(spec.volume && c.level !== null ? { [spec.volume]: Number(c.level.toFixed(3)) } : {}) }));
   return JSON.stringify(rows, null, 2);
+}
+
+/** A list of cues on words on an entry of the spine type (`spine.word_cues`, lib/wordCues.ts): what its page needs to edit it as rows. */
+export interface WordCueSpec {
+  /** The JSON field on the entry being edited. */
+  field: string;
+  /** The lines the cues sit on: their type, the field on a line holding this entry's slug, and their text, take, word timings and order. */
+  lines: { entryType: string; in: string; text?: string; who?: string; audio?: string; words?: string; order?: string; off?: string };
+  /** The sounds a cue may play (the placed lane's type, take, length and filter), as the sounds list offers them; missing when the view names none. */
+  sounds?: CueSpec;
+  /** The field on an entry of this type holding the view's entry's slug (a beat's story), its order and picture fields, and the field that makes one
+   * an overlay (`starts_during`): the pictures a cue may bring in are the view's entry's items that have one. */
+  of: string;
+  order?: string;
+  picture?: string;
+  startsDuring?: string;
+}
+
+/** The cue-on-word lists an entry of `typeSlug` carries, from the views whose spine is that type and declares `word_cues`; one per field. */
+export function wordCueSpecsFor(views: readonly ViewLike[], typeSlug: string): WordCueSpec[] {
+  const out = new Map<string, WordCueSpec>();
+  for (const view of views) {
+    const def = view.definition;
+    const wc = def?.spine?.word_cues;
+    if (def?.kind !== "timeline" || def.spine?.entry_type !== typeSlug || !wc?.field || !def.spine.of || out.has(wc.field)) continue;
+    const lane = (def.lanes ?? []).find((l) => l.id === wc.lane && l.in && l.entry_type);
+    if (!lane) continue;
+    const sounds = wc.sounds ? cueSpecsFor([{ definition: { ...def, lanes: (def.lanes ?? []).filter((l) => l.id === wc.sounds) } }], typeSlug)[0] : undefined;
+    out.set(wc.field, {
+      field: wc.field,
+      lines: { entryType: lane.entry_type!, in: lane.in!, text: lane.text, who: lane.who, audio: lane.audio, words: lane.words, order: lane.order, off: lane.off },
+      ...(sounds ? { sounds } : {}),
+      of: def.spine.of,
+      order: def.spine.order,
+      picture: def.spine.picture,
+      startsDuring: def.spine.starts_during,
+    });
+  }
+  return [...out.values()];
 }

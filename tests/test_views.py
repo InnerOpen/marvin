@@ -532,3 +532,23 @@ def test_a_timeline_may_name_the_entrys_silences_a_picture_lead_overlays_and_lin
 )
 def test_a_wrong_timing_key_says_what_is_wrong(mutate, words):
     assert words in (_bad(mutate) or "")
+
+
+def test_a_timeline_may_name_a_list_of_cues_on_words():
+    assert _bad(lambda p: p["spine"].update(word_cues={"field": "cues", "lane": "lines", "sounds": "sounds"})) is None
+    assert _bad(lambda p: p["spine"].update(word_cues={"field": "cues", "lane": "lines"})) is None
+
+
+@pytest.mark.parametrize(
+    ("word_cues", "words"),
+    [
+        ("cues", "word_cues is {field, lane, sounds?}"),
+        ({"field": "cues", "lane": "lines", "extra": 1}, "word_cues is {field, lane, sounds?}"),
+        ({"lane": "lines"}, "word_cues needs field"),
+        ({"field": "cues", "lane": "sounds"}, "word_cues.lane must be the id of a lane with `in`"),
+        ({"field": "cues", "lane": "nope"}, "word_cues.lane must be the id of a lane with `in`"),
+        ({"field": "cues", "lane": "lines", "sounds": "lines"}, "word_cues.sounds must be the id of a lane with `placed`"),
+    ],
+)
+def test_a_wrong_word_cues_says_what_is_wrong(word_cues, words):
+    assert words in (_bad(lambda p: p["spine"].update(word_cues=word_cues)) or "")

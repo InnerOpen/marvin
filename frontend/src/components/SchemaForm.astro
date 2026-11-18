@@ -2,6 +2,7 @@
 import AudioRecorder from "@/components/AudioRecorder.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
 import { type CueOption } from "./schema-fields/CueListField.astro";
+import type { WordCueData } from "./schema-fields/WordCueField.astro";
 import SchemaFormField from "./SchemaFormField.astro";
 import FieldTurns from "./schema-fields/FieldTurns.astro";
 import { type PairField, exclusiveState, partnersOf } from "@/lib/exclusiveFields";
@@ -37,11 +38,13 @@ export interface Props {
   resources?: LinkedItem[];
   /** JSON fields that place other entries in time (a beat's sounds), edited as cue lists: by field key, the shape and the options. */
   cues?: Record<string, { spec: CueSpec; options: CueOption[] }>;
+  /** JSON fields that hold cues on words of the entry's lines (a beat's `cues`), edited as rows: by field key, what the rows offer. */
+  wordCues?: Record<string, WordCueData>;
   /** Text fields that hold another entry's slug (`ref`), offered as a pick list: by field key, that type's entries (lib/refFieldsApi.ts). */
   refs?: Record<string, RefOption[]>;
 }
 
-const { schema, values = {}, errors = {}, assets = [], resources = [], cues = {}, refs = {} } = Astro.props;
+const { schema, values = {}, errors = {}, assets = [], resources = [], cues = {}, wordCues = {}, refs = {} } = Astro.props;
 // An asset field can upload from its own dialog, which sends a picture through the page's cropper: one cropper per page, only when needed.
 const hasAssetField = (schema.fields ?? []).some((f: { type?: string }) => f.type === "asset" || f.type === "asset-list");
 
@@ -74,7 +77,7 @@ const turnsOf = (key: string) => (pairStates[key] ? { field: pairFields.find((f)
 <div class="schema-form">
   {segments.map((seg) =>
     seg.group === null ? (
-      <FieldTurns turns={turnsOf(seg.fields[0].key)}><SchemaFormField field={seg.fields[0] as any} value={getFieldValue(seg.fields[0].key)} error={getFieldError(seg.fields[0].key)} assets={assets} resources={resources} cues={cues} refs={refs} /></FieldTurns>
+      <FieldTurns turns={turnsOf(seg.fields[0].key)}><SchemaFormField field={seg.fields[0] as any} value={getFieldValue(seg.fields[0].key)} error={getFieldError(seg.fields[0].key)} assets={assets} resources={resources} cues={cues} wordCues={wordCues} refs={refs} /></FieldTurns>
     ) : (
       <details class="field-section" open={seg.open}>
         <summary>
@@ -83,7 +86,7 @@ const turnsOf = (key: string) => (pairStates[key] ? { field: pairFields.find((f)
         </summary>
         <div class="field-section-body">
           {seg.fields.map((f) => (
-            <FieldTurns turns={turnsOf(f.key)}><SchemaFormField field={f as any} value={getFieldValue(f.key)} error={getFieldError(f.key)} assets={assets} resources={resources} cues={cues} refs={refs} /></FieldTurns>
+            <FieldTurns turns={turnsOf(f.key)}><SchemaFormField field={f as any} value={getFieldValue(f.key)} error={getFieldError(f.key)} assets={assets} resources={resources} cues={cues} wordCues={wordCues} refs={refs} /></FieldTurns>
           ))}
         </div>
       </details>
