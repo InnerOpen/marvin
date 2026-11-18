@@ -86,17 +86,33 @@ field gets it as a plain attachment in the role typed, or none. The Workflow Lib
 uploaded** (`entry-from-upload`) does the same automatically: every image upload becomes a draft of the chosen type with
 the picture in the chosen image field. Unreleased (2026-11-02).
 
-**Record a video from the camera.** A file field that takes video (`accept` with `video/*`, or nothing, which takes anything)
-has **Record video…** in its upload dialog, as a sound field has **Record audio…**; a field that takes both offers both, and a
-sound-only field keeps only the audio recorder. The upload button of a video field reads **Upload or record a video…**. The
-recorder lets you pick the camera and the microphone (remembered in this browser, with the count-down choice), shows the live
-picture, can count down 3, 2, 1, and records only when you press **Record**. It shows the time against a 10-minute limit and
-stops by itself there, or earlier if the take nears the 100 MB an upload can carry (it records at about 1 Mbps, so ten
-minutes come to roughly 85 MB). Play the take back, then **Keep** or **Retake**; a kept take is uploaded and chosen like a
-picked file, attached in the field's role when you save, as MP4 where the browser can make it, else WebM. The asset's
-metadata keeps `recording` (`kind: video`, format, camera and microphone, size, frame rate, length, and `stopped` when it
-stopped by itself). It works on an entry's page and in a guided setup's form step. A refused or missing camera says so
-("Allow the camera for this site…"), and closing the dialog always lets go of the camera. Unreleased (2026-11-18).
+**One way to add a file, everywhere.** Every place that takes a file — an entry's file field (and the same control in a guided
+form step or a gallery's file box), the **Assets → Upload** page, and a guided setup's drop zones (an upload step, a gallery's
+upload, a choose step's "start from a file") — offers the same things in the same order and words, decided only by the file
+types it accepts: upload first, then **Record audio…**, then **Record video…**.
+
+| Accepts | Offers | Hint under the drop zone |
+|---|---|---|
+| sound only | Upload an audio file, Record audio… | Audio files only |
+| video only | Upload a video, Record video… | Video files only |
+| pictures only | Upload an image (no recorder) | Images only |
+| sound and video | Upload a file, Record audio…, Record video… | Audio or video files only |
+| documents (PDF, JSON, text…) | Upload a file | e.g. PDF files only |
+| anything (no `accept`; the Upload page) | Upload any file, Record audio…, Record video… | Any file |
+
+A sound-only place never offers the camera. On an entry's field the recorders sit beside **Choose…** and **Upload…** (and again
+under the dialog's drop zone); a take goes into the upload dialog like a picked file. A picked or dropped file of the wrong type is
+refused with the same words everywhere ("clip.mov can't go here: audio files only."); a recorder's take never is. The Upload page
+now takes any file (the server's own type and size limits still answer). The entry page's **Add Asset** in the sidebar only picks
+from the library, as before. Unreleased (2026-11-18).
+
+**Record a video from the camera.** The video recorder lets you pick the camera and the microphone (remembered in this browser,
+with the count-down choice), shows the live picture, can count down 3, 2, 1, and records only when you press **Record**. It shows
+the time against a 10-minute limit and stops by itself there, or earlier if the take nears the 100 MB an upload can carry (it
+records at about 1 Mbps, so ten minutes come to roughly 85 MB). Play the take back, then **Keep** or **Retake**; a kept take is
+uploaded like a picked file, as MP4 where the browser can make it, else WebM. The asset's metadata keeps `recording` (`kind:
+video`, format, camera and microphone, size, frame rate, length, and `stopped` when it stopped by itself). A refused or missing
+camera says so ("Allow the camera for this site…"), and closing the dialog always lets go of the camera. Unreleased (2026-11-18).
 
 ## Rendered images
 

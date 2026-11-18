@@ -10,7 +10,7 @@
  * field sends `linked-field:uploaded` ({ id, file }, bubbling) before it takes the id, for a page that wants the file itself.
  */
 import PlayButton from "@/components/PlayButton.astro";
-import { acceptsVideo, matchesAccept, uploadAccept, kindOfAccept, uploadWords } from "@/lib/assetAccept";
+import { DROP_LINE, RECORD_LABELS, acceptFamilies, matchesAccept, uploadChoices, uploadIntro } from "@/lib/assetAccept";
 import { type LinkedItem, canAdd, chosen, idsOf, serialize } from "@/lib/linkedItems";
 
 export interface Props {
@@ -44,7 +44,7 @@ export interface Props {
   nameFrom?: string;
   /** Fields of the same form (`dataJson.<field>` inputs) whose text the recorder shows large to read from, as they stand when it opens. */
   script?: { label: string; field: string }[];
-  /** The line in the drop box, in place of the usual one for the kind of file. */
+  /** A line of the page's own in the drop box, under the hint every upload surface shows for its accept ("Audio files only"). */
   hint?: string;
 }
 
@@ -65,10 +65,13 @@ const openHref = (id: string) => `/workspace/${isAsset ? "assets" : "resources"}
 const role = (field as { role?: string | null }).role?.trim() || field.key;
 const accept = isAsset ? (field.accept ?? "").trim() : "";
 const offType = (item: LinkedItem) => !!accept && !matchesAccept(accept, item);
-const kind = isAsset ? kindOfAccept(accept) : "any";
-// A field that takes video records from the camera too (components/VideoRecorder.astro); one that takes sound and video offers both.
-const recordsVideo = isAsset && acceptsVideo(accept);
-const words = uploadWords(kind, multiple, own ? role : null);
+// What the field offers comes from its accept alone, as on every upload surface (lib/assetAccept.ts uploadChoices): its upload button,
+// the drop zone's hint, and Record audio… / Record video… (components/AudioRecorder.astro, VideoRecorder.astro), shown once the page
+// has that recorder.
+const choices = uploadChoices(accept, multiple);
+const families = acceptFamilies(accept);
+const takesPictures = !families || families.includes("image"); // alt text is for a picture only
+const intro = uploadIntro(accept, own ? role : null);
 const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id)).length : 0;
 // A one-file field whose file is text (`preview: "text"`, a script) can be read here: loaded when the reader is first opened.
 const reader = isAsset && !multiple && field.preview === "text";
@@ -127,8 +130,11 @@ const reader = isAsset && !multiple && field.preview === "text";
       </div>
     </details>
     {isAsset && (
-      <button type="button" class:list={["button", "secondary", "li-upload-open", { "li-hidden": !addable }]} data-linked-upload-open>{words.open}</button>
+      <button type="button" class:list={["button", "secondary", "li-upload-open", { "li-hidden": !addable }]} data-linked-upload-open>{choices.upload}…</button>
     )}
+    {isAsset && choices.record.map((r) => (
+      <button type="button" class:list={["button", "secondary", "li-record-open", { "li-hidden": !addable }]} data-linked-record={r} hidden>{RECORD_LABELS[r]}</button>
+    ))}
     </div>
   )}
 
@@ -136,17 +142,18 @@ const reader = isAsset && !multiple && field.preview === "text";
     <dialog class="li-upload" data-linked-upload aria-labelledby={`${inputId}-upload-title`}>
       <div class="li-upload-body">
         <h3 id={`${inputId}-upload-title`}>Upload {field.label}</h3>
-        <p class="field-help">{words.intro}</p>
+        <p class="field-help">{intro}</p>
         <div class="li-dropzone" data-linked-dropzone role="button" tabindex="0" aria-label={multiple ? "Choose files, or drop them here" : "Choose a file, or drop one here"}>
-          <input type="file" data-linked-upload-file accept={uploadAccept(accept)} multiple={multiple} hidden />
+          <input type="file" data-linked-upload-file accept={accept || undefined} multiple={multiple} hidden />
           <div class="li-dropzone-empty" data-linked-dropzone-empty>
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="17 8 12 3 7 8"></polyline>
               <line x1="12" y1="3" x2="12" y2="15"></line>
             </svg>
-            <p><strong>Click to upload or drag and drop</strong></p>
-            <p class="field-help">{hint ?? words.drop}</p>
+            <p><strong>{DROP_LINE}</strong></p>
+            <p class="field-help">{choices.hint}</p>
+            {hint && <p class="field-help">{hint}</p>}
           </div>
           <div class="li-upload-preview" data-linked-upload-preview hidden>
             <img alt="" />
@@ -157,17 +164,16 @@ const reader = isAsset && !multiple && field.preview === "text";
             </div>
           </div>
         </div>
-        {(kind === "audio" || kind === "any" || recordsVideo) && (
+        {choices.record.length > 0 && (
           <div class="li-records">
-            {(kind === "audio" || kind === "any") && <button type="button" class="button secondary li-record" data-linked-record>Record audio…</button>}
-            {recordsVideo && <button type="button" class="button secondary li-record" data-linked-record-video hidden>Record video…</button>}
+            {choices.record.map((r) => <button type="button" class="button secondary li-record" data-linked-record={r} hidden>{RECORD_LABELS[r]}</button>)}
           </div>
         )}
         <label class="li-upload-keep" data-linked-upload-keep hidden><input type="checkbox" data-linked-upload-keep-on /> Also keep the original file (a second, full-size asset; the cropped picture is saved as a version made from it)</label>
         <label class="li-upload-label">Name {multiple && <small>(one file; several are each named after their file)</small>}
           <input type="text" data-linked-upload-name maxlength="200" />
         </label>
-        <label class="li-upload-label" hidden={kind === "audio" || kind === "video"}>Alt text <small>(what the picture shows, for people who cannot see it)</small>
+        <label class="li-upload-label" hidden={!takesPictures}>Alt text <small>(what the picture shows, for people who cannot see it)</small>
           <input type="text" data-linked-upload-alt maxlength="500" />
         </label>
         <label class="li-upload-label">Description <small>(optional)</small>
@@ -238,6 +244,8 @@ const reader = isAsset && !multiple && field.preview === "text";
   .li-field .li-picker summary { list-style: none; display: inline-flex; width: max-content; cursor: pointer; }
   .li-field .li-picker summary::-webkit-details-marker { display: none; }
   .li-field .li-hidden { display: none !important; }
+  /* The page's .button sets a display of its own, which would otherwise beat the hidden attribute (a recorder not on this page). */
+  .li-field .li-actions [hidden] { display: none; }
   .li-field .li-panel { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .li-field .li-showall { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0; font-size: 0.8125rem; color: var(--muted); cursor: pointer; }
   .li-field .li-search { width: 100%; box-sizing: border-box; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 0.875rem; }
@@ -354,7 +362,7 @@ const reader = isAsset && !multiple && field.preview === "text";
 </script>
 
 <script>
-  import { matchesAccept } from "@/lib/assetAccept";
+  import { fileFits, matchesAccept, wrongFileMessage } from "@/lib/assetAccept";
   import { assetItem, canAdd, matches, nameFromFile, serialize, uploadSlug } from "@/lib/linkedItems";
   import { fetchApi } from "@/lib/api/client";
   import { uploadTooBig } from "@/lib/uploadLimit";
@@ -439,7 +447,7 @@ const reader = isAsset && !multiple && field.preview === "text";
       options.forEach((o) => (o.hidden = current.includes(o.dataset.id!) || (o.dataset.off === "1" && !showAll) || !matches({ id: o.dataset.id!, name: o.dataset.name || "", meta: o.dataset.meta }, search.value)));
       none.hidden = options.some((o) => !o.hidden) || options.length === 0;
       choose.classList.toggle("li-hidden", !canAdd(current.length, multiple, max));
-      root.querySelector("[data-linked-upload-open]")?.classList.toggle("li-hidden", !canAdd(current.length, multiple, max));
+      root.querySelectorAll(".li-actions [data-linked-upload-open], .li-actions [data-linked-record]").forEach((b) => b.classList.toggle("li-hidden", !canAdd(current.length, multiple, max)));
       if (!canAdd(current.length, multiple, max)) picker.open = false;
     }
 
@@ -554,12 +562,15 @@ const reader = isAsset && !multiple && field.preview === "text";
         });
       /** The chosen or dropped files, one after another through the cropper (a modal of its own over this dialog, so the dialog steps
        * aside meanwhile), as many as the field has room for. */
-      const take = async (files: FileList | File[] | null | undefined) => {
+      const take = async (files: FileList | File[] | null | undefined, fromRecorder = false) => {
         const room = multiple ? (max ? Math.max(0, max - ids().length) : Infinity) : 1;
         const picked = [...(files ?? [])].slice(0, room);
-        // A file over what one upload can carry is refused now, with what to do, instead of "Uploading…" for minutes and then nothing.
-        const tooBig = picked.map(uploadTooBig).filter((m): m is string => !!m);
-        const list = picked.filter((f) => !uploadTooBig(f));
+        // A file over what one upload can carry is refused now, with what to do, instead of "Uploading…" for minutes and then nothing. A
+        // picked or dropped file of the wrong type is refused with the message every upload surface uses (a recorder's take never is).
+        const accept = root.dataset.accept ?? "";
+        const why = (f: File) => uploadTooBig(f) ?? (fromRecorder || fileFits(accept, f) ? null : wrongFileMessage(accept, f.name));
+        const tooBig = picked.map(why).filter((m): m is string => !!m);
+        const list = picked.filter((f) => !why(f));
         if (!list.length) {
           if (tooBig.length) {
             error.textContent = tooBig.join(" ");
@@ -580,10 +591,13 @@ const reader = isAsset && !multiple && field.preview === "text";
           error.hidden = false;
         }
       };
-      openUpload.addEventListener("click", () => {
+      const startUpload = () => {
         reset();
         if (root.dataset.nameFrom) name.value = named(); // named for what it is for (a card, the one being added), not for the file
         picker.open = false;
+      };
+      openUpload.addEventListener("click", () => {
+        startUpload();
         dialog.showModal();
       });
       dialog.addEventListener("dragover", (e) => e.preventDefault());
@@ -625,33 +639,33 @@ const reader = isAsset && !multiple && field.preview === "text";
         if (!recorded) return;
         if (!name.value.trim()) name.value = label;
         file.value = ""; // "Change file" and the rest now mean the take, not an earlier pick
-        take([recorded]);
+        take([recorded], true);
       };
-      dialog.querySelector<HTMLButtonElement>("[data-linked-record]")?.addEventListener("click", async () => {
-        const recorder = audioRecorder();
-        if (!recorder) return;
-        const label = takeLabel();
-        // What the form says now (the words or the direction may have changed for this take) is what the recorder shows to read from.
-        const form = root.closest("form");
-        const script = (JSON.parse(root.dataset.script || "[]") as { label: string; field: string }[]).map(({ label, field }) => ({
-          label,
-          text: form?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="dataJson.${field}"]`)?.value ?? "",
-        }));
-        useRecording(await recorder.open({ suggestedName: label, ...(script.length ? { script } : {}) }), label);
-      });
-      // Record from the camera: shown once the page's video recorder is there (a page without one keeps only Upload).
-      const recordVideo = dialog.querySelector<HTMLButtonElement>("[data-linked-record-video]");
-      if (recordVideo) {
-        const reveal = () => (recordVideo.hidden = !videoRecorder());
-        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", reveal);
-        else setTimeout(reveal);
-        recordVideo.addEventListener("click", async () => {
-          const recorder = videoRecorder();
+      // Record audio… / Record video… (beside Upload, and in the dialog under the drop zone): the page's recorder opens over the page
+      // or the dialog and hands back a File, which goes the way of a picked one, named after the entry when it has a title. Each button
+      // shows once its recorder is on the page (their scripts may run after this one).
+      const recordButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-linked-record]")];
+      const recorderOf = (kind: string | undefined) => (kind === "video" ? videoRecorder() : audioRecorder());
+      const revealRecord = () => recordButtons.forEach((b) => (b.hidden = !recorderOf(b.dataset.linkedRecord)));
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", revealRecord);
+      else setTimeout(revealRecord);
+      recordButtons.forEach((button) =>
+        button.addEventListener("click", async () => {
+          const kind = button.dataset.linkedRecord;
+          const recorder = recorderOf(kind);
           if (!recorder) return;
+          if (!dialog.contains(button)) startUpload(); // from beside Upload: the dialog starts afresh, as Upload's own button does
           const label = takeLabel();
-          useRecording(await recorder.open({ suggestedName: label }), label);
-        });
-      }
+          // What the form says now (the words or the direction may have changed for this take) is what the sound recorder shows to read from.
+          const form = root.closest("form");
+          const script = (JSON.parse(root.dataset.script || "[]") as { label: string; field: string }[]).map(({ label, field }) => ({
+            label,
+            text: form?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="dataJson.${field}"]`)?.value ?? "",
+          }));
+          const withScript = kind !== "video" && script.length ? { script } : {};
+          useRecording(await recorder.open({ suggestedName: label, ...withScript }), label);
+        }),
+      );
       again.addEventListener("click", () => take(file.files?.length ? file.files : ready.map((r) => r.original ?? r.send)));
       type Made = { id: string; name: string; mimeType?: string | null; publicUrl?: string | null; altText?: string | null };
       const send = (f: File, slug: string, title: string, metadata?: Record<string, unknown>) => {
