@@ -186,16 +186,16 @@ const reader = isAsset && !multiple && field.preview === "text";
 
 <style is:global>
   /* Global, scoped by the .li-field wrapper: the picker script adds cards after render, and Astro's scoped styles would miss them. */
-  .li-field { display: grid; gap: 0.5rem; }
+  .li-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
   .li-field > label { font-weight: 600; font-size: 0.875rem; color: var(--ink); }
   .li-field .required { color: var(--color-error); margin-left: 2px; }
   .li-field .count-hint { font-weight: 400; color: var(--muted); margin-left: 6px; font-size: 0.8em; }
-  .li-field .li-chosen, .li-field .li-options { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .li-field .li-chosen, .li-field .li-options { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .li-field .li-chosen:empty { display: none; }
-  .li-field .li-card { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .li-field .li-card { display: flex; align-items: center; min-width: 0; gap: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
   .li-field .li-thumb { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 6px; overflow: hidden; display: grid; place-items: center; background: var(--panel); font-size: 18px; }
   .li-field .li-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .li-field .li-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .li-field .li-text { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .li-field .li-text strong { font-size: 0.875rem; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .li-field .li-text .li-open { color: inherit; text-decoration: none; }
   .li-field .li-text .li-open:hover, .li-field .li-text .li-open:focus-visible { color: var(--accent); text-decoration: underline; }
@@ -231,7 +231,7 @@ const reader = isAsset && !multiple && field.preview === "text";
   .li-field .li-picker summary { list-style: none; display: inline-flex; width: max-content; cursor: pointer; }
   .li-field .li-picker summary::-webkit-details-marker { display: none; }
   .li-field .li-hidden { display: none !important; }
-  .li-field .li-panel { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); display: grid; gap: 8px; }
+  .li-field .li-panel { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .li-field .li-showall { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0; font-size: 0.8125rem; color: var(--muted); cursor: pointer; }
   .li-field .li-search { width: 100%; box-sizing: border-box; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 0.875rem; }
   .li-field .li-options { max-height: 280px; overflow: auto; }
