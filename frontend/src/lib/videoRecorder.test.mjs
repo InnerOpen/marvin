@@ -20,9 +20,16 @@ import {
 } from "./videoRecorder.ts";
 
 describe("pickVideoMimeType", () => {
-  test("test_pick_prefers_mp4_where_supported", () => {
+  test("test_pick_prefers_h264_aac_mp4_where_supported", () => {
     assert.equal(
       pickVideoMimeType(() => true),
+      "video/mp4;codecs=avc1,mp4a.40.2",
+    );
+  });
+
+  test("test_pick_takes_the_browsers_own_mp4_before_webm", () => {
+    assert.equal(
+      pickVideoMimeType((t) => t === "video/mp4" || t.startsWith("video/webm")),
       "video/mp4",
     );
   });

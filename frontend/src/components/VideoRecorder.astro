@@ -315,7 +315,7 @@
   /** A take the browser cut short shows in its own length (an MP4 knows it; a recorder's WebM says Infinity and is left alone). */
   playback.addEventListener("loadedmetadata", () => {
     if (take && looksTruncated(playback.duration, stopwatch.elapsed())) {
-      status.textContent = `This take plays only ${formatClock(playback.duration)} of the ${formatClock(stopwatch.elapsed())} recorded: the browser cut it short. Retake it.`;
+      status.textContent = `${stoppedWords(stopped)}This take plays only ${formatClock(playback.duration)} of the ${formatClock(stopwatch.elapsed())} recorded: the browser cut it short. Retake it.`;
     }
   });
 

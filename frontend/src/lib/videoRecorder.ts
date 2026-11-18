@@ -5,9 +5,11 @@
 import { type DeviceWords, containerOf, safeBaseName } from "./recording.ts";
 import { UPLOAD_LIMIT_BYTES } from "./uploadLimit.ts";
 
-/** Asked for in this order: MP4 where the browser makes it (Safari, recent Chrome), which plays everywhere; else WebM, VP9
- * before VP8 (smaller at the same look). A bare `video/webm` lets an older browser choose its own codecs. */
+/** Asked for in this order: MP4 where the browser makes it. H.264 with AAC first, which plays everywhere (Safari, iOS); then
+ * the browser's own MP4 (Safari's is H.264/AAC; Chrome without an AAC encoder gives VP9/Opus in MP4). Else WebM, VP9 before
+ * VP8 (smaller at the same look); a bare `video/webm` lets an older browser choose its own codecs. */
 export const VIDEO_MIME_CANDIDATES = [
+  "video/mp4;codecs=avc1,mp4a.40.2",
   "video/mp4",
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
