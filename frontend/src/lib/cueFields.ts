@@ -86,9 +86,10 @@ export interface Cue {
   rest: Record<string, unknown>;
 }
 
+/** Seconds into the entry; negative is before it (a sound that starts over the beat before, as the render plays it). */
 const num = (v: unknown): number => {
   const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
-  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : 0;
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
 };
 
 /** The field's value as cues: a JSON text or an already-parsed list; anything that is not a list of objects is no cues. */

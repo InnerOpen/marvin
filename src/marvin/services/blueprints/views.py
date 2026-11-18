@@ -50,19 +50,21 @@ A timeline definition::
   pic?}]``: ``line`` a piece of the ``in`` lane ``lane`` (its slug), ``word`` how many of its words come before the cue, ``sound`` an entry of
   the ``placed`` lane ``sounds`` that plays at the end of the word before (at ``volume``, 0 to 1, else its own), ``camera`` a move there
   ({kind: punch|shake|nudge|whip-pan|sway, amount?, x?, y?, seconds?}) and ``pic`` the item whose picture comes in at the start of the word
-  after. ``look`` ({kind: flash|dip|freeze|tint|blur|vignette|glitch, amount?, seconds?, color?}) changes the picture from there, ``mix``
+  after. ``look`` ({kind: flash|burn|dip|freeze|tint|blur|vignette|glitch, amount?, seconds?, color?}) changes the picture from there, ``mix``
   ({kind: dead-air|duck, seconds?, amount?}) what is heard under the voice, and ``emphasis`` (true or {scale?}) marks the word after it in the
   captions; ``nudge`` (seconds) moves all of these but the picture. The kinds, their numbers and defaults live in the frontend's
   ``lib/cueKinds.ts``; the editor offers only those enabled there. The Timeline draws each cue on its piece, its sound in the sounds lane
   (lengthening the item as a placed sound does) and dead air or a duck over the bed lanes (changing no timing); the item's page edits the field
-  as rows, keeping keys and kinds it does not know.
+  as rows, keeping keys and kinds it does not know. A cue plays in the item that holds its line now: a row left on another item when its line
+  was moved is drawn there, marked, and its own item's page offers to move it.
 - On an ``in`` lane, ``nudge`` is a field holding seconds a piece starts later (+) or earlier (-) than it falls (-10 to 10; the pieces after it
   follow it and the item lasts until its latest piece ends), ``simultaneous`` a boolean field that starts it with the piece before (dual
   dialogue), and ``words`` the key in the recording's asset metadata holding its word timings ([{text, start, end}]). The render must lay
   pieces the same way.
 - A ``lane`` is a child type drawn under the spine, in one of four shapes. ``in`` names the field that holds the spine item's slug (a line
   belongs to a beat; ``of`` is then required and scopes the lane's entries to the view's entry). ``placed`` says the spine item lists them:
-  ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at`` (the entries come by
+  ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at``, negative to start
+  before the item over the one before, never before the film starts (the entries come by
   those slugs, so a library sound shared by stories is found; ``of`` is optional; ``volume`` names the key inside each cue that holds its
   own level (0 to 1), which replaces the sound's own for that cue and gets a slider in the cue editor; ``filter`` limits what the item's
   page offers to pick to entries whose fields hold those values, e.g. ``{"kind": "effect"}``). ``bed`` is a sound that runs under a stretch:

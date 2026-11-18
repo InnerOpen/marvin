@@ -214,6 +214,7 @@ const cueTitle = (c: CueMark) =>
     c.emphasis && `${emphasisWords(c.emphasis)}: the word after it stands out in the captions`,
     c.nudge && (c.sound || c.camera || c.look || c.mix || c.emphasis) && `What it plays and changes is nudged ${nudgeWords(c.nudge)} from the word`,
     c.pic && `Picture: ${c.pic}, from ${timecode(c.picAt)}`,
+    c.stored && `Stored on beat ${c.stored.title}: its line was moved here, so it plays here. Open beat ${c.stored.title} to move it.`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -286,6 +287,8 @@ const fadeRamps = (b: Bed, track: { start: number; seconds: number }) => {
 // A cue's flag is as wide as its glyphs: its chips (a look, a change to the mix, emphasis) start just right of it.
 const cueGlyphs = (c: CueMark) => [c.sound && "♪", c.camera && "✣", c.pic && "▣"].filter(Boolean).join("") || "•";
 const chipOffset = (c: CueMark) => 5 + 3.5 * [...cueGlyphs(c)].length;
+// A cue stored on another beat than the one that holds its line now (the line was moved): it plays here, as the render applies it.
+const orphanWords = (c: CueMark) => (c.stored ? `This cue is stored on beat ${c.stored.title}, but its line is now in this beat, so it plays here. Open beat ${c.stored.title} to move it.` : "");
 // Dead air or a duck as a stretch over a bed lane (ambience, music): what the film does to them there. It moves nothing.
 const mixesIn = (track: { start: number; seconds: number; items: Item[] }) => mixStretches(track.items).filter((m) => clip(m, track).seconds > 0);
 const bedsIn = (lane: LaneSpec, track: { start: number; seconds: number }) =>
@@ -609,7 +612,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         data-drag={nudgeField.has(lane.id) && p.seconds > 0 && itemOfPiece.has(p.id) ? JSON.stringify({ item: itemOfPiece.get(p.id), field: nudgeField.get(lane.id) }) : undefined}
                         data-drag-sound={lane.placed && p.slot ? JSON.stringify(soundDrag(lane, p)) : undefined}
                         style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}`}
-                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}${p.cue ? `\nA cue on a word: after “${p.cue.text}” in ${p.cue.line}${p.audio ? "" : " (no take yet: nothing plays)"}` : ""}${p.nudge && !p.cue ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? "\nSpoken at the same time as the line before" : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}${lane.placed && p.slot ? (p.cue ? `\n${p.nudge ? `Nudged ${nudgeWords(p.nudge)} from its word. ` : ""}Drag it to play it later or earlier than its word (it snaps to 0.05 s; hold shift for free)` : "\nDrag it to move it in its beat (it snaps to 0.05 s; hold shift for free)") : ""}`}
+                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}${p.cue ? `\nA cue on a word: after “${p.cue.text}” in ${p.cue.line}${p.audio ? "" : " (no take yet: nothing plays)"}` : ""}${p.nudge && !p.cue ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? "\nSpoken at the same time as the line before" : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}${lane.placed && p.slot ? (p.cue ? `\n${p.nudge ? `Nudged ${nudgeWords(p.nudge)} from its word. ` : ""}Drag it to play it later or earlier than its word (it snaps to 0.05 s; hold shift for free)` : "\nDrag it to move it: it may start before its beat, over the one before, but not before the film starts (it snaps to 0.05 s; hold shift for free)") : ""}`}
                       >
                         {p.wave && (
                           <svg class="tl-wave" viewBox={`0 0 ${p.wave.length} 100`} preserveAspectRatio="none" aria-hidden="true"><polygon points={wavePolygon(p.wave)} /></svg>
@@ -621,7 +624,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     {spec.spine.word_cues?.lane === lane.id &&
                       track.items.flatMap((item) =>
                         (item.cues ?? []).map((c) => (
-                          <span class:list={["tl-cue", { estimated: c.estimated, unheard: !!c.sound && !c.sound.heard }]} role="img" aria-label={cueTitle(c)} title={cueTitle(c)} style={`left:${pctIn(track, c.at)};top:${18 + (laneRows[lanePieces.findIndex((p) => p.id === c.piece)] ?? 0) * 28 - 6}px`}>
+                          <span class:list={["tl-cue", { estimated: c.estimated, unheard: !!c.sound && !c.sound.heard, orphan: !!c.stored }]} role="img" aria-label={cueTitle(c)} title={cueTitle(c)} style={`left:${pctIn(track, c.at)};top:${18 + (laneRows[lanePieces.findIndex((p) => p.id === c.piece)] ?? 0) * 28 - 6}px`}>
                             {cueGlyphs(c)}
                           </span>
                         )),
@@ -629,11 +632,14 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     {spec.spine.word_cues?.lane === lane.id &&
                       track.items.flatMap((item) =>
                         (item.cues ?? []).map((c) =>
-                          cueChips(c).length ? (
-                            <span class="tl-cue-fx" style={`left:${pctIn(track, c.at)};margin-left:${chipOffset(c)}px;top:${18 + (laneRows[lanePieces.findIndex((p) => p.id === c.piece)] ?? 0) * 28 - 6}px`}>
+                          cueChips(c).length || c.stored ? (
+                            <span class:list={["tl-cue-fx", { orphan: !!c.stored }]} style={`left:${pctIn(track, c.at)};margin-left:${chipOffset(c)}px;top:${18 + (laneRows[lanePieces.findIndex((p) => p.id === c.piece)] ?? 0) * 28 - 6}px`}>
                               {cueChips(c).map((x) => (
                                 <span class:list={["tl-fx", x.group, { unknown: x.unknown, pending: x.pending }]} role="img" aria-label={x.words} title={x.words}>{x.chip}</span>
                               ))}
+                              {c.stored && (
+                                <span class="tl-fx stored" role="img" aria-label={orphanWords(c)} title={orphanWords(c)}>from beat {c.stored.title}</span>
+                              )}
                             </span>
                           ) : null,
                         ),
@@ -1417,6 +1423,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-fx.camera { background: color-mix(in srgb, var(--ink) 12%, var(--panel)); border-color: var(--line); }
   .tl-fx.pending { opacity: 0.7; font-style: italic; }
   .tl-fx.unknown { opacity: 0.7; border-style: dotted; border-color: var(--muted); }
+  /* a cue whose row is stored on another beat (its line was moved here): dimmed, with a chip that says where it is stored */
+  .tl-cue.orphan { opacity: 0.55; outline: 1px dashed var(--ink); outline-offset: 1px; }
+  .tl-cue-fx.orphan .tl-fx { opacity: 0.6; }
+  .tl-fx.stored { border-style: dashed; border-color: var(--muted); background: var(--panel); font-style: italic; }
   /* dead air or a duck over a bed lane: hatched where it goes silent, dimmed where it dips; it moves nothing */
   .tl-mix { position: absolute; top: 16px; bottom: 2px; z-index: 3; pointer-events: none; box-sizing: border-box; border-left: 1px dashed var(--ink); border-right: 1px dashed var(--ink); }
   .tl-mix.dead-air { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--panel) 75%, transparent) 0 4px, color-mix(in srgb, var(--ink) 30%, transparent) 4px 6px); }

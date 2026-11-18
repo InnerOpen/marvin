@@ -257,12 +257,12 @@ export function wireLineDrags(root: HTMLElement, items: Record<string, DragItem>
       el,
       (seconds, free) => {
         if (d.kind === "at") {
-          value = atAfterDrag(d.at, seconds, free);
+          value = atAfterDrag(d.at, seconds, free, -d.clock); // before its beat, as far back as the film's start
           el.style.left = leftIn(el, d.clock + value);
           return `at ${value.toFixed(3).replace(/0$/, "")} s`;
         }
         value = nudgeAfterDrag(d.natural, d.start + seconds, free);
-        el.style.left = leftIn(el, Math.max(d.natural + value, d.clock));
+        el.style.left = leftIn(el, Math.max(d.natural + value, 0)); // before its beat if need be, never before the film starts
         return words(value);
       },
       async () => {

@@ -8,7 +8,8 @@
  */
 
 import { type Effect, effectChip, effectWords, kindOf, mixSeconds } from "./cueKinds.ts";
-import { chipsOf, parseWordCues } from "./wordCues.ts";
+import { type StoredCue, cuesByHolder } from "./cueHomes.ts";
+import { chipsOf } from "./wordCues.ts";
 
 export interface SecondsSpec {
   hold?: string;
@@ -262,10 +263,12 @@ export interface Piece {
 /** A unique key for a piece on the page: a placed piece by its item and list position (one sound can be placed twice), any other by its id. */
 export const pieceKey = (p: Pick<Piece, "id" | "slot">): string => (p.slot ? `${p.slot.item}:${p.slot.field}:${p.slot.index}` : p.id);
 
-/** Where a placed sound dragged by `seconds` lands: its `at` in the item moved and snapped to NUDGE_SNAP (thousandths when `free`), never below 0. */
-export function atAfterDrag(at: number, seconds: number, free = false): number {
+/** Where a placed sound dragged by `seconds` lands: its `at` in the item moved and snapped to NUDGE_SNAP (thousandths when `free`). It may be
+ * negative, starting before its item over the one before, as the render plays it, but never before the film starts: `earliest` is minus the
+ * item's start (0 for the first item, and by default). */
+export function atAfterDrag(at: number, seconds: number, free = false, earliest = 0): number {
   const step = free ? 0.001 : NUDGE_SNAP;
-  return Math.max(0, Math.round(Math.round((at + seconds) / step) * step * 1000) / 1000);
+  return Math.max(Math.min(earliest, 0), Math.round(Math.round((at + seconds) / step) * step * 1000) / 1000) + 0; // + 0: never -0
 }
 
 /**
@@ -308,13 +311,15 @@ export interface CueMark {
   nudge: number;
   /** How the picture looks from it (a flash, a tint): drawn on its flag, it changes no timing. Missing for none. */
   look?: Effect;
-  /** A change to what is heard under the voice (dead air, a duck), and the stretch of the film it lasts, from its word plus its nudge (never
-   * before its item's sound starts, as a cue's sound): drawn over the bed lanes, it changes no timing. Missing for none; a kind the render does
+  /** A change to what is heard under the voice (dead air, a duck), and the stretch of the film it lasts, from its word plus its nudge (before its
+   * item when nudged that far, never before the film starts, as a cue's sound): drawn over the bed lanes, it changes no timing. Missing for none; a kind the render does
    * not know has no stretch. */
   mix?: Effect;
   mixSpan?: { start: number; seconds: number };
   /** The word after it stands out in the captions. Missing for none. */
   emphasis?: true | Record<string, unknown>;
+  /** Set when its row is stored on another beat than the one that holds its line now (the line was moved): that beat, its number as `title`. */
+  stored?: { id: string; slug: string; title: string };
 }
 
 /** A change to the mix over a stretch of the film (lib/cueKinds.ts `MIX`), to draw over the lanes it changes (the beds: ambience, music). */
@@ -752,6 +757,11 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   // The pause where a scene ends: after an item whose next item is in another scene. The rows come in the order the render plays them.
   const flat = groups.flatMap((g) => g.rows);
   const nextOf = new Map(flat.map((r, i) => [r.id, flat[i + 1]] as const));
+  // Cues on words play in the beat that holds their line now, wherever their row is stored (a line moved to another beat leaves its cue behind).
+  const wordCueLane = spec.spine.word_cues ? inLanes.find((l) => l.id === spec.spine.word_cues!.lane) : undefined;
+  const beatOfLine = new Map(wordCueLane ? laneRows(wordCueLane).map((r) => [r.slug, str(field(r, wordCueLane.in))] as const) : []);
+  const cuesHeld = spec.spine.word_cues ? cuesByHolder(flat.map((r) => ({ slug: r.slug, cues: field(r, spec.spine.word_cues!.field) })), beatOfLine) : new Map<string, StoredCue[]>();
+  const rowBySlug = new Map(flat.map((r) => [r.slug, r] as const));
   const pauseSeconds = spec.spine.scene_break && rows.entry ? num(field(rows.entry, spec.spine.scene_break.seconds)) : null;
   const pauseAfter = (row: Row): number => {
     const next = nextOf.get(row.id);
@@ -823,7 +833,8 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
           if (typeof ref !== "object" || ref === null) continue;
           const target = known.get(str((ref as Record<string, unknown>)[lane.placed!.ref]));
           if (!target) continue;
-          const at = Math.max(0, num((ref as Record<string, unknown>)[lane.placed!.at]) ?? 0);
+          // before its item when negative, reaching back over the one before, as the render plays it; never before the film starts
+          const at = Math.max(-clock, num((ref as Record<string, unknown>)[lane.placed!.at]) ?? 0) + 0; // + 0: never -0
           const length = pieceSeconds(target, lane);
           const piece = pieceOf(target, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + at, at);
           const own = lane.placed!.volume ? level((ref as Record<string, unknown>)[lane.placed!.volume]) : null;
@@ -836,7 +847,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
         }
         item.lanes[lane.id] = pieces;
       }
-      reach = Math.max(reach, wordCuesOf(item, row, spec, said, laneOf(spec.spine.word_cues?.sounds), bySlug, clock));
+      reach = Math.max(reach, wordCuesOf(item, cuesHeld.get(row.slug) ?? [], rowBySlug, spec, said, laneOf(spec.spine.word_cues?.sounds), bySlug, clock));
       if (reach > item.seconds - item.pause) item.seconds = reach + item.pause; // the render: max(hold, speech, the end of the last sound) and then the pause
       cuts.push({ start: clock, seconds: item.seconds, firstWord: timed[0] ? timed[0].natural : null, lead: pictureLeadOf(row, spec.spine.seconds, rows.entry), anchor: overlay?.at ?? null });
       clock += item.seconds;
@@ -1251,18 +1262,20 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
  * An item's cues on words (`spine.word_cues`), as the render places them (marvin_pull `_cues`, `word_place`): each on a piece laid so far, at the
  * end of the word before it. A cue's sound joins the sounds lane at that time (its own level replacing the sound's, as a placed cue's does) and
  * counts toward the item's length when it has a take; one with none is drawn as needing one. A cue on a piece that is not laid is left out, as the
- * render leaves out a cue on a line with no take. A look, a change to the mix or emphasis rides on the mark and lengthens nothing. Returns how
- * far into the item its last cue sound runs.
+ * render leaves out a cue on a line with no take. A look, a change to the mix or emphasis rides on the mark and lengthens nothing. `held` are
+ * the cues whose line this item holds, wherever their row is stored (lib/cueHomes.ts `cuesByHolder`, as the render applies them from Studio
+ * v221): one stored on another beat is marked with it. Returns how far into the item its last cue sound runs.
  */
-function wordCuesOf(item: Item, row: Row, spec: TimelineSpec, said: Map<string, Piece>, sounds: LaneSpec | undefined, bySlug: (lane: LaneSpec) => Map<string, Row>, clock: number): number {
+function wordCuesOf(item: Item, held: readonly StoredCue[], rowBySlug: ReadonlyMap<string, Row>, spec: TimelineSpec, said: Map<string, Piece>, sounds: LaneSpec | undefined, bySlug: (lane: LaneSpec) => Map<string, Row>, clock: number): number {
   const wc = spec.spine.word_cues;
   if (!wc) return 0;
   const known = sounds ? bySlug(sounds) : new Map<string, Row>();
   const marks: CueMark[] = [];
   let reach = 0;
-  for (const cue of parseWordCues(field(row, wc.field))) {
+  for (const { cue, stored } of held) {
     const piece = said.get(cue.line);
-    if (!piece) continue;
+    const store = rowBySlug.get(stored);
+    if (!piece || !store) continue;
     const after = wordAt(piece, cue.word, true);
     const next = wordAt(piece, cue.word, false);
     const chips = chipsOf(piece.text, piece.words);
@@ -1282,18 +1295,20 @@ function wordCuesOf(item: Item, row: Row, spec: TimelineSpec, said: Map<string, 
       nudge: cue.nudge ?? 0,
       ...(cue.look ? { look: cue.look } : {}),
       ...(cue.mix ? { mix: cue.mix } : {}),
-      ...(cue.mix && kindOf("mix", cue.mix.kind) ? { mixSpan: { start: clock + Math.max(at + (cue.nudge ?? 0) - clock, 0), seconds: mixSeconds(cue.mix) } } : {}),
+      ...(cue.mix && kindOf("mix", cue.mix.kind) ? { mixSpan: { start: Math.max(at + (cue.nudge ?? 0), 0) + 0, seconds: mixSeconds(cue.mix) } } : {}),
       ...(cue.emphasis ? { emphasis: cue.emphasis } : {}),
+      ...(stored !== item.slug ? { stored: { id: store.id, slug: store.slug, title: str(field(store, spec.spine.order)) || store.title } } : {}),
     });
     if (!sounds || !target) continue;
     const length = pieceSeconds(target, sounds);
-    const nudge = cue.nudge ?? 0; // this much later (or earlier) than its word: the render plays the cue's sound and camera move there
-    const natural = clock + Math.max(at - clock, 0);
-    const offset = at + nudge - clock;
-    const sound = pieceOf(target, sounds, length?.seconds ?? 0, length?.estimated ?? false, clock + Math.max(offset, 0), Number(Math.max(offset, 0).toFixed(3))); // never before its beat's sound starts, as the render places it
+    const nudge = cue.nudge ?? 0; // this much later (or earlier) than its word: the render plays the cue's sound there
+    const natural = at;
+    // Before its beat when nudged that far, over the beat before; never before the film starts (Studio manifest.plan: max(word + nudge, 0)).
+    const offset = Math.max(at + nudge - clock, -clock) + 0;
+    const sound = pieceOf(target, sounds, length?.seconds ?? 0, length?.estimated ?? false, clock + offset, Number(offset.toFixed(3)));
     sound.nudge = nudge;
     sound.natural = natural;
-    sound.slot = { item: row.id, field: wc.field, index: cue.position ?? 0, ref: cue.line };
+    sound.slot = { item: store.id, field: wc.field, index: cue.position ?? 0, ref: cue.line }; // a drag writes to the beat that stores it
     if (cue.volume !== undefined) sound.volume = cue.volume;
     sound.cue = { line: piece.title, word: cue.word, text: marks[marks.length - 1].text };
     item.lanes[sounds.id] = [...(item.lanes[sounds.id] ?? []), sound];
