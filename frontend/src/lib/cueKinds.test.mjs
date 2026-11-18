@@ -212,7 +212,7 @@ test("layout: a cue's look, mix and emphasis ride on its mark; dead air lasts it
   close(stretch.seconds, 2);
 });
 
-test("layout: dead air or a duck with no seconds lasts the render's 1.5 s, and a nudge never takes it before its beat starts", () => {
+test("layout: dead air or a duck with no seconds lasts the render's 1.5 s, and a nudge never takes it before the film starts", () => {
   const laid = layout(spec, rows([{ line: "l1", word: 3, mix: { kind: "duck" }, nudge: -5 }]));
   const [stretch] = mixStretches(laid.items);
   close(stretch.start, laid.items[0].start);

@@ -262,7 +262,7 @@ export function wireLineDrags(root: HTMLElement, items: Record<string, DragItem>
           return `at ${value.toFixed(3).replace(/0$/, "")} s`;
         }
         value = nudgeAfterDrag(d.natural, d.start + seconds, free);
-        el.style.left = leftIn(el, Math.max(d.natural + value, d.clock));
+        el.style.left = leftIn(el, Math.max(d.natural + value, 0)); // before its beat if need be, never before the film starts
         return words(value);
       },
       async () => {

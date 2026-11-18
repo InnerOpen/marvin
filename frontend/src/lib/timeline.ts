@@ -311,8 +311,8 @@ export interface CueMark {
   nudge: number;
   /** How the picture looks from it (a flash, a tint): drawn on its flag, it changes no timing. Missing for none. */
   look?: Effect;
-  /** A change to what is heard under the voice (dead air, a duck), and the stretch of the film it lasts, from its word plus its nudge (never
-   * before its item's sound starts, as a cue's sound): drawn over the bed lanes, it changes no timing. Missing for none; a kind the render does
+  /** A change to what is heard under the voice (dead air, a duck), and the stretch of the film it lasts, from its word plus its nudge (before its
+   * item when nudged that far, never before the film starts, as a cue's sound): drawn over the bed lanes, it changes no timing. Missing for none; a kind the render does
    * not know has no stretch. */
   mix?: Effect;
   mixSpan?: { start: number; seconds: number };
@@ -1295,16 +1295,17 @@ function wordCuesOf(item: Item, held: readonly StoredCue[], rowBySlug: ReadonlyM
       nudge: cue.nudge ?? 0,
       ...(cue.look ? { look: cue.look } : {}),
       ...(cue.mix ? { mix: cue.mix } : {}),
-      ...(cue.mix && kindOf("mix", cue.mix.kind) ? { mixSpan: { start: clock + Math.max(at + (cue.nudge ?? 0) - clock, 0), seconds: mixSeconds(cue.mix) } } : {}),
+      ...(cue.mix && kindOf("mix", cue.mix.kind) ? { mixSpan: { start: Math.max(at + (cue.nudge ?? 0), 0) + 0, seconds: mixSeconds(cue.mix) } } : {}),
       ...(cue.emphasis ? { emphasis: cue.emphasis } : {}),
       ...(stored !== item.slug ? { stored: { id: store.id, slug: store.slug, title: str(field(store, spec.spine.order)) || store.title } } : {}),
     });
     if (!sounds || !target) continue;
     const length = pieceSeconds(target, sounds);
-    const nudge = cue.nudge ?? 0; // this much later (or earlier) than its word: the render plays the cue's sound and camera move there
-    const natural = clock + Math.max(at - clock, 0);
-    const offset = at + nudge - clock;
-    const sound = pieceOf(target, sounds, length?.seconds ?? 0, length?.estimated ?? false, clock + Math.max(offset, 0), Number(Math.max(offset, 0).toFixed(3))); // never before its beat's sound starts, as the render places it
+    const nudge = cue.nudge ?? 0; // this much later (or earlier) than its word: the render plays the cue's sound there
+    const natural = at;
+    // Before its beat when nudged that far, over the beat before; never before the film starts (Studio manifest.plan: max(word + nudge, 0)).
+    const offset = Math.max(at + nudge - clock, -clock) + 0;
+    const sound = pieceOf(target, sounds, length?.seconds ?? 0, length?.estimated ?? false, clock + offset, Number(offset.toFixed(3)));
     sound.nudge = nudge;
     sound.natural = natural;
     sound.slot = { item: store.id, field: wc.field, index: cue.position ?? 0, ref: cue.line }; // a drag writes to the beat that stores it
