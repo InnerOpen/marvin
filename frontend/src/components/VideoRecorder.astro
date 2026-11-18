@@ -1,0 +1,398 @@
+---
+/**
+ * VideoRecorder: a dialog that records a take from a camera and its microphone and hands it back as a File, for any upload on
+ * the page to send as it would a picked file, as AudioRecorder does for sound. Put it on a page once (SchemaForm does when a
+ * file field takes video) and call
+ *
+ *   const file = await window.VideoRecorder.open({ suggestedName, metadata }); // null when nothing was kept
+ *   const facts = window.VideoRecorder.metadataOf(file); // { ...metadata, recording: { kind: "video", mime, camera, … } }
+ *
+ * It records only after Record is pressed (after a 3-2-1 when asked for), stops itself at ten minutes or near the upload limit,
+ * and lets go of the camera whenever the dialog closes. The chosen camera, microphone and count-down are remembered.
+ * lib/videoRecorder.ts and lib/recording.ts have the pure parts.
+ */
+---
+
+<dialog class="video-recorder" id="videoRecorder" aria-labelledby="videoRecorderTitle">
+  <div class="vr-body">
+    <h3 id="videoRecorderTitle">Record video</h3>
+    <div class="vr-devices">
+      <label class="vr-label">Camera
+        <select data-vr-camera><option value="">Default camera</option></select>
+      </label>
+      <label class="vr-label">Microphone
+        <select data-vr-microphone><option value="">Default microphone</option></select>
+      </label>
+    </div>
+    <div class="vr-stage">
+      <video data-vr-preview muted playsinline autoplay aria-label="What the camera sees"></video>
+      <video data-vr-playback controls playsinline hidden aria-label="The take"></video>
+      <p class="vr-countdown" data-vr-countdown aria-live="assertive" hidden></p>
+      <span class="vr-rec" data-vr-rec hidden>● REC</span>
+    </div>
+    <label class="vr-option"><input type="checkbox" data-vr-countdown-on /> Count down 3, 2, 1 before recording</label>
+    <p class="vr-clock" data-vr-clock>0:00</p>
+    <p class="vr-status" data-vr-status role="status"></p>
+    <p class="field-error" data-vr-error hidden></p>
+    <div class="vr-actions">
+      <button type="button" class="button secondary" data-vr-discard>Cancel</button>
+      <button type="button" class="button secondary" data-vr-retake hidden>Retake</button>
+      <button type="button" class="button" data-vr-record>Record</button>
+      <button type="button" class="button" data-vr-stop hidden>Stop</button>
+      <button type="button" class="button" data-vr-keep hidden>Keep</button>
+    </div>
+  </div>
+</dialog>
+
+<style is:global>
+  /* Global, scoped by the dialog's class: the dialog sits in the top layer over whichever page or dialog opened it. */
+  .video-recorder { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; background: var(--panel); color: var(--ink); }
+  .video-recorder::backdrop { background: rgb(0 0 0 / 0.45); }
+  /* The page's .button sets a display of its own, which would otherwise beat the hidden attribute. */
+  .video-recorder [hidden] { display: none; }
+  .video-recorder .vr-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 20px; }
+  .video-recorder h3 { margin: 0; font-size: 1.1rem; }
+  .video-recorder .vr-devices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 12px; }
+  .video-recorder .vr-label { display: grid; gap: 4px; font-size: 0.875rem; font-weight: 600; min-width: 0; }
+  .video-recorder select { width: 100%; min-width: 0; font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+  .video-recorder .vr-stage { position: relative; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #000; }
+  .video-recorder .vr-stage video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  /* The live picture is shown as a mirror, as people expect to see themselves; the take itself is not mirrored. */
+  .video-recorder [data-vr-preview] { transform: scaleX(-1); }
+  .video-recorder .vr-countdown { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; font-size: clamp(4rem, 18vw, 8rem); font-weight: 700; color: #fff; text-shadow: 0 2px 12px rgb(0 0 0 / 0.6); background: rgb(0 0 0 / 0.25); }
+  .video-recorder .vr-countdown[hidden] { display: none; }
+  .video-recorder .vr-rec { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 4px; background: var(--color-error, #dc2626); color: #fff; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; }
+  .video-recorder .vr-option { display: flex; gap: 6px; align-items: center; font-size: 0.8125rem; }
+  .video-recorder .vr-clock { margin: 0; font-size: 1.5rem; font-variant-numeric: tabular-nums; text-align: center; }
+  .video-recorder .vr-clock small { font-size: 0.875rem; color: var(--muted); }
+  .video-recorder.vr-recording .vr-clock { color: var(--color-error); }
+  .video-recorder .vr-status { margin: 0; font-size: 0.8125rem; color: var(--muted); }
+  .video-recorder .vr-status:empty { display: none; }
+  .video-recorder .field-error { margin: 0; font-size: 0.8125rem; color: var(--color-error); }
+  .video-recorder .vr-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+</style>
+
+<script>
+  import { createStopwatch, deviceError, deviceOptions, formatClock, looksTruncated, readStored, stampedName, writeStored } from "@/lib/recording";
+  import {
+    AUDIO_BITS_PER_SECOND,
+    CAMERA_WORDS,
+    MAX_VIDEO_SECONDS,
+    VIDEO_BITS_PER_SECOND,
+    countdownFrom,
+    parseDeviceChoice,
+    pickVideoMimeType,
+    stopReason,
+    stoppedWords,
+    videoConstraints,
+    videoFileFor,
+    videoRecordingMetadata,
+    type VideoSettings,
+  } from "@/lib/videoRecorder";
+
+  /** A chunk a second, as the audio recorder asks (Safari 26 hands back empty chunks under that, WebKit 301507). */
+  const TIMESLICE_MS = 1000;
+  /** How often the clock and the ten-minute limit are looked at. A timer, not an animation frame: those stop in a hidden tab. */
+  const TICK_MS = 250;
+  const COUNT_MS = 1000;
+  const CHOICE_KEY = "video-recorder-devices";
+
+  type Options = { suggestedName?: string; metadata?: Record<string, unknown> };
+  type State = "starting" | "ready" | "counting" | "recording" | "recorded" | "failed";
+
+  const dialog = document.getElementById("videoRecorder") as HTMLDialogElement;
+  const el = <T extends HTMLElement>(name: string) => dialog.querySelector<T>(`[data-vr-${name}]`)!;
+  const camera = el<HTMLSelectElement>("camera");
+  const microphone = el<HTMLSelectElement>("microphone");
+  const preview = el<HTMLVideoElement>("preview");
+  const playback = el<HTMLVideoElement>("playback");
+  const countdownText = el<HTMLElement>("countdown");
+  const rec = el<HTMLElement>("rec");
+  const countdownOn = el<HTMLInputElement>("countdown-on");
+  const clock = el<HTMLElement>("clock");
+  const status = el<HTMLElement>("status");
+  const error = el<HTMLElement>("error");
+  const buttons = {
+    discard: el<HTMLButtonElement>("discard"),
+    retake: el<HTMLButtonElement>("retake"),
+    record: el<HTMLButtonElement>("record"),
+    stop: el<HTMLButtonElement>("stop"),
+    keep: el<HTMLButtonElement>("keep"),
+  };
+  const store = () => localStorage;
+
+  // One dialog session: the camera stream (kept for the whole session: an iOS home-screen app asks again for every new one), the
+  // recorder, the count-down, and the take once stopped.
+  let options: Options = {};
+  let settle: ((file: File | null) => void) | null = null;
+  let kept: File | null = null;
+  let stream: MediaStream | null = null;
+  let streamRequest = 0;
+  let recorder: MediaRecorder | null = null;
+  let chunks: Blob[] = [];
+  let bytes = 0;
+  let mimeType = "";
+  let settings: VideoSettings | null = null;
+  let take: Blob | null = null;
+  let takeUrl = "";
+  let stopped: "time" | "size" | null = null;
+  let ticker = 0;
+  let counting = 0;
+  /** A device picked in this session is asked for exactly; until then the remembered ones are asked for loosely. */
+  let pickedHere = false;
+  const stopwatch = createStopwatch(() => performance.now());
+  const metadataByFile = new WeakMap<File, Record<string, unknown>>();
+  const limit = ` / ${formatClock(MAX_VIDEO_SECONDS)}`;
+
+  function show(state: State, message = "") {
+    const live = state === "recording" || state === "counting";
+    buttons.record.hidden = live || state === "recorded";
+    buttons.record.disabled = state === "starting";
+    buttons.record.textContent = state === "failed" ? "Try again" : "Record";
+    buttons.stop.hidden = !live;
+    buttons.stop.textContent = state === "counting" ? "Stop the count-down" : "Stop";
+    buttons.retake.hidden = buttons.keep.hidden = state !== "recorded";
+    buttons.discard.textContent = state === "recorded" ? "Discard" : "Cancel";
+    camera.disabled = microphone.disabled = live;
+    countdownOn.disabled = live;
+    preview.hidden = state === "recorded";
+    playback.hidden = state !== "recorded";
+    rec.hidden = state !== "recording";
+    dialog.classList.toggle("vr-recording", state === "recording");
+    error.hidden = state !== "failed";
+    if (state === "failed") error.textContent = message;
+    status.textContent = state === "failed" ? "" : message;
+  }
+
+  function paintClock() {
+    clock.textContent = formatClock(stopwatch.elapsed());
+    clock.append(Object.assign(document.createElement("small"), { textContent: limit }));
+  }
+
+  function remember() {
+    writeStored(store, CHOICE_KEY, JSON.stringify({ cameraId: camera.value, microphoneId: microphone.value, countdown: countdownOn.checked }));
+  }
+
+  function stopStream() {
+    preview.srcObject = null;
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
+  }
+
+  /** Opens (or reopens, after a change of device) the camera and microphone and shows the picture. Called from the opening and
+   * from clicks only. */
+  async function startStream() {
+    const request = ++streamRequest;
+    stopStream();
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      show("failed", "This browser can't record here: recording needs a secure (https) page and a browser with MediaRecorder.");
+      return;
+    }
+    show("starting", "Waiting for the camera…");
+    try {
+      const opened = await navigator.mediaDevices.getUserMedia(videoConstraints({ cameraId: camera.value, microphoneId: microphone.value, remembered: !pickedHere }));
+      if (request !== streamRequest || !dialog.open) return opened.getTracks().forEach((t) => t.stop());
+      stream = opened;
+    } catch (e) {
+      if (request === streamRequest) show("failed", deviceError(e, CAMERA_WORDS));
+      return;
+    }
+    preview.srcObject = stream;
+    void preview.play().catch(() => {}); // autoplay covers it; a refused play() of a muted preview changes nothing
+    await listDevices();
+    show("ready", "Ready.");
+  }
+
+  /** The cameras and microphones, named: browsers give labels only once a page may use them, so this runs after they open. */
+  async function listDevices() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const fill = (select: HTMLSelectElement, kind: string, noun: string, current: string) => {
+      const choices = deviceOptions(devices, kind, noun, current);
+      if (choices.length) select.replaceChildren(...choices.map((c) => Object.assign(new Option(c.label, c.value), { selected: c.selected })));
+    };
+    fill(camera, "videoinput", "Camera", stream?.getVideoTracks()[0]?.getSettings().deviceId ?? camera.value);
+    fill(microphone, "audioinput", "Microphone", stream?.getAudioTracks()[0]?.getSettings().deviceId ?? microphone.value);
+  }
+
+  /** Record pressed: after the count-down when it is on, else at once. Nothing records without this click. */
+  function record() {
+    if (!stream) return void startStream();
+    const steps = countdownOn.checked ? countdownFrom() : [];
+    if (!steps.length) return begin();
+    show("counting", "Get ready…");
+    const next = (i: number) => {
+      if (i >= steps.length) {
+        countdownText.hidden = true;
+        counting = 0;
+        return begin();
+      }
+      countdownText.textContent = String(steps[i]);
+      countdownText.hidden = false;
+      counting = window.setTimeout(() => next(i + 1), COUNT_MS);
+    };
+    next(0);
+  }
+
+  function cancelCountdown() {
+    clearTimeout(counting);
+    counting = 0;
+    countdownText.hidden = true;
+  }
+
+  function begin() {
+    if (!stream || !dialog.open) return;
+    chunks = [];
+    bytes = 0;
+    mimeType = "";
+    stopped = null;
+    const picked = pickVideoMimeType((t) => MediaRecorder.isTypeSupported(t));
+    try {
+      recorder = new MediaRecorder(stream, {
+        ...(picked ? { mimeType: picked } : {}),
+        videoBitsPerSecond: VIDEO_BITS_PER_SECOND,
+        audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
+      });
+    } catch (e) {
+      return show("failed", e instanceof Error ? e.message : "This browser can't record from the camera.");
+    }
+    // The type is read while recording: once stopped, `recorder.mimeType` may be blank again (the spec resets it).
+    recorder.onstart = () => (mimeType = recorder?.mimeType || mimeType);
+    recorder.ondataavailable = (e) => {
+      if (!e.data.size) return;
+      chunks.push(e.data);
+      bytes += e.data.size;
+      mimeType ||= e.data.type;
+      autoStop();
+    };
+    recorder.onstop = finish;
+    recorder.onerror = () => show("failed", "The recording stopped with an error. Try again.");
+    const video = stream.getVideoTracks()[0];
+    const audio = stream.getAudioTracks()[0];
+    const applied = video?.getSettings() ?? {};
+    settings = { mimeType: picked, camera: video?.label, microphone: audio?.label, width: applied.width, height: applied.height, frameRate: applied.frameRate };
+    stopwatch.start();
+    recorder.start(TIMESLICE_MS);
+    ticker = window.setInterval(() => {
+      paintClock();
+      autoStop();
+    }, TICK_MS);
+    paintClock();
+    show("recording", "Recording…");
+  }
+
+  /** Ten minutes, or about as big as one upload: the take stops by itself and is kept to play back. */
+  function autoStop() {
+    if (recorder?.state !== "recording") return;
+    const reason = stopReason(stopwatch.elapsed(), bytes);
+    if (!reason) return;
+    stopped = reason;
+    stop();
+  }
+
+  function stop() {
+    if (counting) {
+      cancelCountdown();
+      return show("ready", "Ready.");
+    }
+    clearInterval(ticker);
+    stopwatch.stop();
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+  }
+
+  /** The recorder has handed over its last chunk: the take, ready to play back. */
+  function finish() {
+    recorder = null;
+    clearInterval(ticker);
+    if (!dialog.open) return;
+    take = new Blob(chunks, { type: mimeType });
+    if (settings) settings.mimeType = mimeType || settings.mimeType;
+    takeUrl = URL.createObjectURL(take);
+    playback.src = takeUrl;
+    paintClock();
+    show("recorded", `${stoppedWords(stopped)}Take: ${formatClock(stopwatch.elapsed())}. Play it back, then keep it or retake it.`);
+  }
+
+  /** A take the browser cut short shows in its own length (an MP4 knows it; a recorder's WebM says Infinity and is left alone). */
+  playback.addEventListener("loadedmetadata", () => {
+    if (take && looksTruncated(playback.duration, stopwatch.elapsed())) {
+      status.textContent = `This take plays only ${formatClock(playback.duration)} of the ${formatClock(stopwatch.elapsed())} recorded: the browser cut it short. Retake it.`;
+    }
+  });
+
+  function dropTake() {
+    if (takeUrl) URL.revokeObjectURL(takeUrl);
+    playback.removeAttribute("src");
+    playback.load();
+    take = null;
+    takeUrl = "";
+  }
+
+  function keep() {
+    if (!take || !settings) return;
+    const file = videoFileFor(take, mimeType, options.suggestedName || stampedName());
+    const facts = videoRecordingMetadata(settings, { durationSeconds: stopwatch.elapsed(), stopped });
+    metadataByFile.set(file, { ...(options.metadata ?? {}), ...facts });
+    kept = file;
+    dialog.close();
+  }
+
+  /** Esc, Cancel, Discard and Keep all end here: stop any count-down, let go of the camera and answer the caller. */
+  function cleanUp() {
+    streamRequest++;
+    cancelCountdown();
+    clearInterval(ticker);
+    if (recorder) {
+      recorder.onstop = recorder.ondataavailable = null;
+      if (recorder.state !== "inactive") recorder.stop();
+      recorder = null;
+    }
+    stopStream();
+    dropTake();
+    stopwatch.reset();
+    settle?.(kept);
+    settle = null;
+  }
+
+  function open(opts: Options = {}): Promise<File | null> {
+    if (dialog.open) return Promise.resolve(null);
+    options = opts;
+    kept = null;
+    pickedHere = false;
+    const choice = parseDeviceChoice(readStored(store, CHOICE_KEY));
+    // The remembered devices go in as the selects' values until the real list arrives, so the first request asks for them.
+    camera.replaceChildren(new Option("Default camera", choice.cameraId));
+    microphone.replaceChildren(new Option("Default microphone", choice.microphoneId));
+    countdownOn.checked = choice.countdown;
+    stopwatch.reset();
+    paintClock();
+    dialog.showModal();
+    void startStream();
+    return new Promise((resolve) => (settle = resolve));
+  }
+
+  buttons.record.addEventListener("click", record);
+  buttons.stop.addEventListener("click", stop);
+  buttons.keep.addEventListener("click", keep);
+  buttons.discard.addEventListener("click", () => dialog.close());
+  buttons.retake.addEventListener("click", () => {
+    dropTake();
+    stopwatch.reset();
+    paintClock();
+    show("ready", "Ready.");
+  });
+  [camera, microphone].forEach((select) =>
+    select.addEventListener("change", () => {
+      pickedHere = true;
+      remember();
+      void startStream();
+    }),
+  );
+  countdownOn.addEventListener("change", remember);
+  // Esc mid-take or with a take not yet kept asks first: a take is easy to lose and not always easy to do again.
+  dialog.addEventListener("cancel", (e) => {
+    if ((recorder || take) && !confirm("Discard this take?")) e.preventDefault();
+  });
+  dialog.addEventListener("close", cleanUp);
+
+  (window as unknown as { VideoRecorder: unknown }).VideoRecorder = { open, metadataOf: (f: File) => metadataByFile.get(f) ?? null };
+</script>

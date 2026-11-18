@@ -10,7 +10,7 @@
  * field sends `linked-field:uploaded` ({ id, file }, bubbling) before it takes the id, for a page that wants the file itself.
  */
 import PlayButton from "@/components/PlayButton.astro";
-import { matchesAccept, uploadAccept, kindOfAccept, uploadWords } from "@/lib/assetAccept";
+import { acceptsVideo, matchesAccept, uploadAccept, kindOfAccept, uploadWords } from "@/lib/assetAccept";
 import { type LinkedItem, canAdd, chosen, idsOf, serialize } from "@/lib/linkedItems";
 
 export interface Props {
@@ -66,6 +66,8 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
 const accept = isAsset ? (field.accept ?? "").trim() : "";
 const offType = (item: LinkedItem) => !!accept && !matchesAccept(accept, item);
 const kind = isAsset ? kindOfAccept(accept) : "any";
+// A field that takes video records from the camera too (components/VideoRecorder.astro); one that takes sound and video offers both.
+const recordsVideo = isAsset && acceptsVideo(accept);
 const words = uploadWords(kind, multiple, own ? role : null);
 const otherTypes = accept ? items.filter((i) => offType(i) && !ids.includes(i.id)).length : 0;
 // A one-file field whose file is text (`preview: "text"`, a script) can be read here: loaded when the reader is first opened.
@@ -155,7 +157,12 @@ const reader = isAsset && !multiple && field.preview === "text";
             </div>
           </div>
         </div>
-        {(kind === "audio" || kind === "any") && <button type="button" class="button secondary li-record" data-linked-record>Record audio…</button>}
+        {(kind === "audio" || kind === "any" || recordsVideo) && (
+          <div class="li-records">
+            {(kind === "audio" || kind === "any") && <button type="button" class="button secondary li-record" data-linked-record>Record audio…</button>}
+            {recordsVideo && <button type="button" class="button secondary li-record" data-linked-record-video hidden>Record video…</button>}
+          </div>
+        )}
         <label class="li-upload-keep" data-linked-upload-keep hidden><input type="checkbox" data-linked-upload-keep-on /> Also keep the original file (a second, full-size asset; the cropped picture is saved as a version made from it)</label>
         <label class="li-upload-label">Name {multiple && <small>(one file; several are each named after their file)</small>}
           <input type="text" data-linked-upload-name maxlength="200" />
@@ -226,7 +233,7 @@ const reader = isAsset && !multiple && field.preview === "text";
   .li-field .li-upload-filename { margin: 0; font-size: 0.8125rem; color: var(--muted); word-break: break-all; }
   .li-field .li-upload-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
   .li-field .li-upload-actions { display: flex; justify-content: flex-end; gap: 8px; }
-  .li-field .li-record { justify-self: start; }
+  .li-field .li-records { display: flex; flex-wrap: wrap; gap: 8px; justify-self: start; }
   .li-field .li-upload-keep { display: flex; gap: 8px; align-items: flex-start; font-size: 0.8125rem; color: var(--muted); }
   .li-field .li-picker summary { list-style: none; display: inline-flex; width: max-content; cursor: pointer; }
   .li-field .li-picker summary::-webkit-details-marker { display: none; }
@@ -351,13 +358,16 @@ const reader = isAsset && !multiple && field.preview === "text";
   import { assetItem, canAdd, matches, nameFromFile, serialize, uploadSlug } from "@/lib/linkedItems";
   import { fetchApi } from "@/lib/api/client";
   import { uploadTooBig } from "@/lib/uploadLimit";
+  import { recordingFactsOf, uploadFields } from "@/lib/recording";
 
-  type AudioRecorderApi = {
+  type RecorderApi = {
     open: (o: { suggestedName?: string; script?: { label: string; text: string }[] }) => Promise<File | null>;
     metadataOf: (f: File) => Record<string, unknown> | null;
   };
-  /** The page's recorder (components/AudioRecorder.astro), looked up when needed: its script may run after this one. */
-  const audioRecorder = () => (window as unknown as { AudioRecorder?: AudioRecorderApi }).AudioRecorder;
+  type Recorders = { AudioRecorder?: RecorderApi; VideoRecorder?: RecorderApi };
+  /** The page's recorders (components/AudioRecorder.astro, VideoRecorder.astro), looked up when needed: their scripts may run after this one. */
+  const audioRecorder = () => (window as unknown as Recorders).AudioRecorder;
+  const videoRecorder = () => (window as unknown as Recorders).VideoRecorder;
 
   // Each field keeps its ids in the hidden input; the cards and the option list are redrawn from it, so the page's own
   // "unsaved changes" tracking (a change event on the input) keeps working.
@@ -610,41 +620,52 @@ const reader = isAsset && !multiple && field.preview === "text";
       file.addEventListener("change", () => take(file.files));
       // Record a take: the page's recorder (SchemaForm puts one on the page) opens over this dialog and hands back a File,
       // which goes the way of a picked one, named after the entry when it has a title.
+      const takeLabel = () => `${named() || root.dataset.label || "Recording"} · take ${ids().length + 1}`;
+      const useRecording = (recorded: File | null, label: string) => {
+        if (!recorded) return;
+        if (!name.value.trim()) name.value = label;
+        file.value = ""; // "Change file" and the rest now mean the take, not an earlier pick
+        take([recorded]);
+      };
       dialog.querySelector<HTMLButtonElement>("[data-linked-record]")?.addEventListener("click", async () => {
         const recorder = audioRecorder();
         if (!recorder) return;
-        const label = `${named() || root.dataset.label || "Recording"} · take ${ids().length + 1}`;
+        const label = takeLabel();
         // What the form says now (the words or the direction may have changed for this take) is what the recorder shows to read from.
         const form = root.closest("form");
         const script = (JSON.parse(root.dataset.script || "[]") as { label: string; field: string }[]).map(({ label, field }) => ({
           label,
           text: form?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="dataJson.${field}"]`)?.value ?? "",
         }));
-        const recorded = await recorder.open({ suggestedName: label, ...(script.length ? { script } : {}) });
-        if (!recorded) return;
-        if (!name.value.trim()) name.value = label;
-        file.value = ""; // "Change file" and the rest now mean the take, not an earlier pick
-        take([recorded]);
+        useRecording(await recorder.open({ suggestedName: label, ...(script.length ? { script } : {}) }), label);
       });
+      // Record from the camera: shown once the page's video recorder is there (a page without one keeps only Upload).
+      const recordVideo = dialog.querySelector<HTMLButtonElement>("[data-linked-record-video]");
+      if (recordVideo) {
+        const reveal = () => (recordVideo.hidden = !videoRecorder());
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", reveal);
+        else setTimeout(reveal);
+        recordVideo.addEventListener("click", async () => {
+          const recorder = videoRecorder();
+          if (!recorder) return;
+          const label = takeLabel();
+          useRecording(await recorder.open({ suggestedName: label }), label);
+        });
+      }
       again.addEventListener("click", () => take(file.files?.length ? file.files : ready.map((r) => r.original ?? r.send)));
       type Made = { id: string; name: string; mimeType?: string | null; publicUrl?: string | null; altText?: string | null };
       const send = (f: File, slug: string, title: string, metadata?: Record<string, unknown>) => {
         const body = new FormData();
-        body.append("file", f);
-        body.append("slug", slug);
-        body.append("name", title);
-        if (alt.value.trim()) body.append("alt_text", alt.value.trim());
-        if (description.value.trim()) body.append("description", description.value.trim());
-        if (metadata) body.append("metadata", JSON.stringify(metadata));
+        for (const [key, value] of uploadFields({ file: f, slug, name: title, altText: alt.value, description: description.value, metadata })) body.append(key, value);
         return fetchApi<Made>("/api/platform/assets/upload", { method: "POST", body });
       };
       const taken = (e: unknown) => /exist|taken|duplicate|unique|409|conflict/i.test(e instanceof Error ? e.message : String(e));
       /** One ready file up: its original first when kept (sent once, with a stamped slug), then the file with a nice slug, retried with a
-       * stamp when that one is taken. A recorded take carries its recording facts (device, format, length, peak). */
+       * stamp when that one is taken. A recorded take carries its recording facts (device, format, length; a sound's peak). */
       const uploadOne = async (r: Ready, title: string): Promise<Made> => {
         const source = r.original && !keep.hidden && keepOn.checked ? await send(r.original, uploadSlug(`${title} original`), `${title} (original)`) : null;
         const lineage = source ? { derived_from: source.id, derivation: "edited:cropper" } : null;
-        const recording = audioRecorder()?.metadataOf(r.send) ?? null;
+        const recording = recordingFactsOf(r.send, [audioRecorder(), videoRecorder()]);
         const meta = lineage || recording ? { ...recording, ...lineage } : undefined;
         try {
           return await send(r.send, uploadSlug(title, ""), title, meta);

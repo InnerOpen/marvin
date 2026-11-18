@@ -36,6 +36,15 @@ export function kindOfAccept(accept: string | null | undefined): AcceptKind {
   return only === "audio" || only === "image" || only === "video" ? only : "any";
 }
 
+const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov", ".webm"]);
+
+/** Whether a field could take a video recorded from the camera: it takes anything (no `accept`), or one of its tokens names video.
+ *  A field of pictures and documents does not, whatever "any" kindOfAccept gives it. */
+export function acceptsVideo(accept: string | null | undefined): boolean {
+  const tokens = acceptTokens(accept);
+  return tokens.length === 0 || tokens.some((t) => t.startsWith("video/") || VIDEO_EXTENSIONS.has(t));
+}
+
 /** The words of an asset field's upload dialog for a kind of file: what it is called, the line under the title, and the line in the drop box. */
 export function uploadWords(kind: AcceptKind, multiple: boolean, role: string | null): { noun: string; open: string; intro: string; drop: string } {
   // No role: the field is not an entry's own (a guided setup's file box), so nothing is attached on a save.
@@ -59,8 +68,8 @@ export function uploadWords(kind: AcceptKind, multiple: boolean, role: string | 
   if (kind === "video") {
     return {
       noun: "video",
-      open: multiple ? "Upload videos…" : "Upload a video…",
-      intro: `A new video for this field. ${attached}`,
+      open: multiple ? "Upload or record videos…" : "Upload or record a video…",
+      intro: `A new video for this field: record one with the camera, or upload a file. ${attached}`,
       drop: multiple ? "Videos; several at once, each becomes an asset." : "One video.",
     };
   }

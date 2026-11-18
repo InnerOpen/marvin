@@ -1,5 +1,6 @@
 ---
 import AudioRecorder from "@/components/AudioRecorder.astro";
+import VideoRecorder from "@/components/VideoRecorder.astro";
 import FileDrop from "@/components/FileDrop.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
 import JobResult from "@/components/JobResult.astro";
@@ -17,7 +18,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { acceptKind, acceptsAudio } from "@/lib/acceptKind";
 import { getAuthToken } from "@/lib/api/client";
 import { type MarvinAsset, getAssets } from "@/lib/api/platform";
-import { kindOfAccept, matchesAccept } from "@/lib/assetAccept";
+import { acceptsVideo, kindOfAccept, matchesAccept } from "@/lib/assetAccept";
 import { assetItem } from "@/lib/linkedItems";
 import { type RefOption, withCurrent } from "@/lib/refFields";
 import { refOptionsFor } from "@/lib/refFieldsApi";
@@ -483,9 +484,11 @@ const cardFiles = (step?.kind === "gallery" ? ((step.card_actions ?? []) as { la
   a.file ? [{ n, label: a.label, accept: a.file.accept ?? "audio/*", choose: !!a.file.assets }] : [],
 );
 // The page has the recorder once when a box takes a sound, and the cropper when one takes a picture, as an entry's page does.
-const boxKinds = [...cardFiles.map((c) => c.accept), ...(addAccept ? [addAccept] : [])].map(kindOfAccept);
+const boxAccepts = [...cardFiles.map((c) => c.accept), ...(addAccept ? [addAccept] : [])];
+const boxKinds = boxAccepts.map(kindOfAccept);
 const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept) || boxKinds.some((k) => k === "audio" || k === "any");
 const takesPicture = boxKinds.some((k) => k === "image" || k === "any");
+const takesVideo = boxAccepts.some(acceptsVideo); // a box that takes video records from the camera too
 // The add form's save buttons, and how its file box can be filled: a button that needs the file says what it is waiting for.
 const addButtons = ((step?.add?.buttons ?? [{ label: "Add" }]) as { label: string; file?: string; skip_required?: boolean; paid?: unknown }[]).map((b, n) => ({ ...b, n, needs: b.file, paid: paidOf(b.paid) }));
 // A button that sends to a paid outside service is kept out of the form's own row of buttons: a section of its own under the form, with
@@ -1122,6 +1125,7 @@ const readFrom: { label: string; field: string }[] = ((step?.add?.file?.script ?
   }
   {def && takesRecording && <AudioRecorder />}
   {def && takesPicture && <ImageCropper />}
+  {def && takesVideo && <VideoRecorder />}
 </AppLayout>
 
 <script>
