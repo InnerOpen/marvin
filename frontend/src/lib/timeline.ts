@@ -7,6 +7,7 @@
  * nothing here fetches; the page hands in rows and gets back what to draw.
  */
 
+import { RING } from "./cueFields.ts";
 import { type Effect, effectChip, effectWords, kindOf, mixSeconds } from "./cueKinds.ts";
 import { type StoredCue, cuesByHolder } from "./cueHomes.ts";
 import { chipsOf } from "./wordCues.ts";
@@ -54,9 +55,9 @@ export interface SpineSpec {
    * the beat before), at the start of the word after `word` words, and adds no time of its own; its own hold keeps it up that long from the word.
    * Must match the render (ScreenplayStudio render: manifest `starts_during`). */
   starts_during?: string;
-  /** A JSON list on each item of cues on words (`[{line, word, sound?, volume?, camera?, look?, mix?, emphasis?, pic?, nudge?}]`, lib/wordCues.ts): each sits at a word of a piece
+  /** A JSON list on each item of cues on words (`[{line, word, sound?, volume?, ring?, camera?, look?, mix?, emphasis?, pic?, nudge?}]`, lib/wordCues.ts): each sits at a word of a piece
    * of the `in` lane `lane`; a cue's sound (an entry of the placed lane `sounds`) plays in that lane at the end of the word before it, as the render
-   * plays it (marvin_pull `_cue_sounds`), and lengthens the item as a placed sound does. The entry page edits the field as rows. */
+   * plays it (marvin_pull `_cue_sounds`), and lengthens the item as a placed sound does (unless it rings over the next beats: RING). The entry page edits the field as rows. */
   word_cues?: { field: string; lane: string; sounds?: string };
 }
 
@@ -258,7 +259,12 @@ export interface Piece {
   /** For a piece an item's JSON list places (a beat's `sounds`, or a sound of its `cues`): that item, the list field, the entry's position in it and
    * the slug it names, so the page can move it and write back just that entry. */
   slot?: { item: string; field: string; index: number; ref: string };
+  /** For a sound set to ring over the next beats (`ring: true` on its row: lib/cueFields.ts RING): where its own beat ends. It plays in full from where it is placed
+   * and does not make its beat longer (Studio v224), so past this it runs on over the beats after. */
+  ringsFrom?: number;
 }
+
+const rings = (row: Record<string, unknown>) => row[RING] === true;
 
 /** A unique key for a piece on the page: a placed piece by its item and list position (one sound can be placed twice), any other by its id. */
 export const pieceKey = (p: Pick<Piece, "id" | "slot">): string => (p.slot ? `${p.slot.item}:${p.slot.field}:${p.slot.index}` : p.id);
@@ -824,7 +830,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
       item.pause = pauseAfter(row);
       item.seconds += item.pause;
       item.estimated = timed.some((p) => p.estimated);
-      let reach = 0; // how far into the item its last placed sound runs: the render lets a beat last until that sound has finished
+      let reach = 0; // how far into the item its last placed sound runs: the render lets a beat last until that sound has finished (one that rings over the next beats aside)
       for (const lane of placedLanes) {
         const known = bySlug(lane);
         const placed = field(row, lane.placed!.field);
@@ -841,6 +847,10 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
           if (own !== null) piece.volume = own; // the cue's own loudness replaces the sound's, as in the render
           piece.slot = { item: row.id, field: lane.placed!.field, index, ref: piece.slug };
           pieces.push(piece);
+          if (rings(ref as Record<string, unknown>)) {
+            piece.ringsFrom = 0; // set to its beat's end once that is known; it plays in full but never makes its beat longer
+            continue;
+          }
           // A sound with no take yet has a width to show it needs filling in (its text, as a line has), but nothing plays, so it never lengthens its item.
           const plays = !!length && (!length.estimated || !!assetUrl(target, lane.audio, "audio/"));
           reach = Math.max(reach, at + (plays ? length!.seconds : 0));
@@ -849,6 +859,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
       }
       reach = Math.max(reach, wordCuesOf(item, cuesHeld.get(row.slug) ?? [], rowBySlug, spec, said, laneOf(spec.spine.word_cues?.sounds), bySlug, clock));
       if (reach > item.seconds - item.pause) item.seconds = reach + item.pause; // the render: max(hold, speech, the end of the last sound) and then the pause
+      for (const lane of placedLanes) for (const p of item.lanes[lane.id] ?? []) if (p.ringsFrom !== undefined) p.ringsFrom = clock + item.seconds;
       cuts.push({ start: clock, seconds: item.seconds, firstWord: timed[0] ? timed[0].natural : null, lead: pictureLeadOf(row, spec.spine.seconds, rows.entry), anchor: overlay?.at ?? null });
       clock += item.seconds;
       made.push(item);
@@ -1264,7 +1275,8 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
  * counts toward the item's length when it has a take; one with none is drawn as needing one. A cue on a piece that is not laid is left out, as the
  * render leaves out a cue on a line with no take. A look, a change to the mix or emphasis rides on the mark and lengthens nothing. `held` are
  * the cues whose line this item holds, wherever their row is stored (lib/cueHomes.ts `cuesByHolder`, as the render applies them from Studio
- * v221): one stored on another beat is marked with it. Returns how far into the item its last cue sound runs.
+ * v221): one stored on another beat is marked with it. Returns how far into the item its last cue sound runs; a sound that rings over the next
+ * beats (RING, Studio v224) is left out of that, as the render leaves it out of the beat's length.
  */
 function wordCuesOf(item: Item, held: readonly StoredCue[], rowBySlug: ReadonlyMap<string, Row>, spec: TimelineSpec, said: Map<string, Piece>, sounds: LaneSpec | undefined, bySlug: (lane: LaneSpec) => Map<string, Row>, clock: number): number {
   const wc = spec.spine.word_cues;
@@ -1312,7 +1324,8 @@ function wordCuesOf(item: Item, held: readonly StoredCue[], rowBySlug: ReadonlyM
     if (cue.volume !== undefined) sound.volume = cue.volume;
     sound.cue = { line: piece.title, word: cue.word, text: marks[marks.length - 1].text };
     item.lanes[sounds.id] = [...(item.lanes[sounds.id] ?? []), sound];
-    if (heard && length) reach = Math.max(reach, offset + length.seconds);
+    if (cue.ring) sound.ringsFrom = 0; // its beat's end, set once that is known: it rings on over the next beats instead of lengthening this one
+    else if (heard && length) reach = Math.max(reach, offset + length.seconds);
   }
   if (marks.length) item.cues = marks;
   return reach;
@@ -1404,6 +1417,18 @@ export interface Ghost {
 
 const EPS = 1e-6;
 const clash = (a: { start: number; seconds: number }, start: number, seconds: number) => a.start < start + seconds - EPS && start < a.start + a.seconds - EPS;
+
+/**
+ * How a sound that rings over the next beats (`ringsFrom` set) is drawn: at its full length from where it starts, cut only where the track ends
+ * (the film, or its chapter when chapters are stacked); `beyond` is how long it runs on past the end of its own beat and `mark` where that end is,
+ * in seconds into the bar. Null for any other piece, and for one that ends inside its beat anyway (it rings over nothing).
+ */
+export function ringSpan(p: Pick<Piece, "start" | "seconds" | "ringsFrom">, trackEnd: number): { drawn: number; beyond: number; mark: number } | null {
+  if (p.ringsFrom === undefined || !(p.seconds > 0)) return null;
+  const beyond = p.start + p.seconds - p.ringsFrom;
+  if (beyond <= EPS) return null;
+  return { drawn: Math.max(0, Math.min(p.seconds, trackEnd - p.start)), beyond, mark: p.ringsFrom - p.start };
+}
 
 /**
  * Where each nudged piece of a lane would have played (its natural start, for its length) so the drawing can show where it moved from. Pure

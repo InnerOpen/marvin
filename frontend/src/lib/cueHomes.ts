@@ -216,7 +216,7 @@ export async function strayHomes(
 /** What a cue does, in a line: "Sound clang · Camera: Punch 1.06 · Look: Flash white, 0.9, 0.25 s · Picture b04a". */
 export function cueWords(cue: WordCue, soundName: (slug: string) => string = (s) => s): string {
   return [
-    cue.sound && `Sound ${soundName(cue.sound)}`,
+    cue.sound && `Sound ${soundName(cue.sound)}${cue.ring ? " (rings over the next beats)" : ""}`,
     cue.camera && `Camera: ${cameraWords(cue.camera)}`,
     cue.look && `Look: ${effectWords("look", cue.look)}`,
     cue.mix && `Mix: ${effectWords("mix", cue.mix)}`,
