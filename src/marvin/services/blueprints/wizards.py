@@ -547,8 +547,12 @@ def _check_marks(s: _Step) -> str | None:
     marks = s.step.get("marks")
     if marks is None:
         return None
-    ok = isinstance(marks, list) and 1 <= len(marks) <= MAX_MARKS and all(
-        isinstance(m, dict) and _is_field(m.get("field")) and isinstance(m.get("text"), str) and 0 < len(m["text"].strip()) <= 24 for m in marks
+    ok = (
+        isinstance(marks, list)
+        and 1 <= len(marks) <= MAX_MARKS
+        and all(
+            isinstance(m, dict) and _is_field(m.get("field")) and isinstance(m.get("text"), str) and 0 < len(m["text"].strip()) <= 24 for m in marks
+        )
     )
     return None if ok else f"{s.label}: marks is a list of up to {MAX_MARKS} {{field, text}}, the text a few words"
 

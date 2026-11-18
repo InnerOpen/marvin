@@ -193,7 +193,9 @@ def test_a_wrong_wizard_says_what_is_wrong(mutate, words):
         lambda p: p["steps"][7].update(audio="voice_sample"),
         lambda p: p["steps"][1].update(picture="general_view", subtitle="build"),  # a pick drawn as tiles
         lambda p: p["steps"][0].update(cards=True),  # tiles for a type with no picture
-        lambda p: p["steps"][1].update(marks=[{"field": "audio", "text": "audio"}, {"field": "duration_seconds", "text": "timed"}]),  # a label where a field is filled
+        lambda p: p["steps"][1].update(
+            marks=[{"field": "audio", "text": "audio"}, {"field": "duration_seconds", "text": "timed"}]
+        ),  # a label where a field is filled
         lambda p: p.update(again={"label": "Another story", "step": "world"}),  # the button at the end that goes round once more
         lambda p: p["steps"][7]["upload"].update(accept="audio/*"),
         lambda p: p["steps"][7]["upload"].update(accept="image/png, .webp"),
