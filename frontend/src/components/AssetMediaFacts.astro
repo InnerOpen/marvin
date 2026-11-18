@@ -1,0 +1,58 @@
+---
+// A recording's facts from its metadata, a short line each: the video's (length, size, fps, sound), an `audio` block's, and how it
+// was recorded (device, microphone settings, peak, clipped). Nothing when the metadata has none of them; the full values stay in
+// the metadata list below.
+import { audioFacts, recordingFacts, videoFacts } from "@/lib/assetRecording";
+
+interface Props {
+  metadata: Record<string, unknown> | null | undefined;
+}
+const { metadata } = Astro.props;
+const lines = [
+  { label: "Video", facts: videoFacts(metadata) },
+  { label: "Audio", facts: audioFacts(metadata) },
+  { label: "Recording", facts: recordingFacts(metadata) },
+].filter((l) => l.facts.length > 0);
+---
+
+{lines.length > 0 && (
+  <dl class="media-facts">
+    {lines.map((l) => (
+      <div>
+        <dt>{l.label}</dt>
+        <dd>{l.facts.join(" · ")}</dd>
+      </div>
+    ))}
+  </dl>
+)}
+
+<style>
+  .media-facts {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 1rem 1.5rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+  }
+  .media-facts div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+  }
+  .media-facts dt {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    line-height: 1.6;
+  }
+  .media-facts dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+</style>
