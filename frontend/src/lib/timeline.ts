@@ -7,6 +7,7 @@
  * nothing here fetches; the page hands in rows and gets back what to draw.
  */
 
+import { type Effect, effectChip, effectWords, kindOf, mixSeconds } from "./cueKinds.ts";
 import { chipsOf, parseWordCues } from "./wordCues.ts";
 
 export interface SecondsSpec {
@@ -52,7 +53,7 @@ export interface SpineSpec {
    * the beat before), at the start of the word after `word` words, and adds no time of its own; its own hold keeps it up that long from the word.
    * Must match the render (ScreenplayStudio render: manifest `starts_during`). */
   starts_during?: string;
-  /** A JSON list on each item of cues on words (`[{line, word, sound?, volume?, camera?, pic?}]`, lib/wordCues.ts): each sits at a word of a piece
+  /** A JSON list on each item of cues on words (`[{line, word, sound?, volume?, camera?, look?, mix?, emphasis?, pic?, nudge?}]`, lib/wordCues.ts): each sits at a word of a piece
    * of the `in` lane `lane`; a cue's sound (an entry of the placed lane `sounds`) plays in that lane at the end of the word before it, as the render
    * plays it (marvin_pull `_cue_sounds`), and lengthens the item as a placed sound does. The entry page edits the field as rows. */
   word_cues?: { field: string; lane: string; sounds?: string };
@@ -303,8 +304,38 @@ export interface CueMark {
   sound: { slug: string; title: string; heard: boolean } | null;
   camera: { kind: string; amount?: number; x?: number; y?: number } | null;
   pic: string | null;
-  /** Seconds its sound and camera move come after (or before) the word; 0 for none. */
+  /** Seconds its sound, camera move, look, mix and emphasis come after (or before) the word; 0 for none. */
   nudge: number;
+  /** How the picture looks from it (a flash, a tint): drawn on its flag, it changes no timing. Missing for none. */
+  look?: Effect;
+  /** A change to what is heard under the voice (dead air, a duck), and the stretch of the film it lasts, from its word plus its nudge (never
+   * before its item's sound starts, as a cue's sound): drawn over the bed lanes, it changes no timing. Missing for none; a kind the render does
+   * not know has no stretch. */
+  mix?: Effect;
+  mixSpan?: { start: number; seconds: number };
+  /** The word after it stands out in the captions. Missing for none. */
+  emphasis?: true | Record<string, unknown>;
+}
+
+/** A change to the mix over a stretch of the film (lib/cueKinds.ts `MIX`), to draw over the lanes it changes (the beds: ambience, music). */
+export interface MixStretch {
+  item: string;
+  kind: string;
+  start: number;
+  seconds: number;
+  /** "dead air 1.5 s", for the block. */
+  chip: string;
+  /** "Dead air 1.5 s", for its tooltip. */
+  words: string;
+}
+
+/** The changes to the mix the cues of these items make, in the order laid. */
+export function mixStretches(items: readonly Item[]): MixStretch[] {
+  return items.flatMap((item) =>
+    (item.cues ?? []).flatMap((c) =>
+      c.mix && c.mixSpan ? [{ item: item.id, kind: c.mix.kind, ...c.mixSpan, chip: effectChip("mix", c.mix) ?? c.mix.kind, words: effectWords("mix", c.mix) }] : [],
+    ),
+  );
 }
 
 /** A sound running under a stretch of the timeline: a scene's ambience across its beats, a story's music under everything. */
@@ -1220,7 +1251,8 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
  * An item's cues on words (`spine.word_cues`), as the render places them (marvin_pull `_cues`, `word_place`): each on a piece laid so far, at the
  * end of the word before it. A cue's sound joins the sounds lane at that time (its own level replacing the sound's, as a placed cue's does) and
  * counts toward the item's length when it has a take; one with none is drawn as needing one. A cue on a piece that is not laid is left out, as the
- * render leaves out a cue on a line with no take. Returns how far into the item its last cue sound runs.
+ * render leaves out a cue on a line with no take. A look, a change to the mix or emphasis rides on the mark and lengthens nothing. Returns how
+ * far into the item its last cue sound runs.
  */
 function wordCuesOf(item: Item, row: Row, spec: TimelineSpec, said: Map<string, Piece>, sounds: LaneSpec | undefined, bySlug: (lane: LaneSpec) => Map<string, Row>, clock: number): number {
   const wc = spec.spine.word_cues;
@@ -1248,6 +1280,10 @@ function wordCuesOf(item: Item, row: Row, spec: TimelineSpec, said: Map<string, 
       camera: cue.camera ?? null,
       pic: cue.pic ?? null,
       nudge: cue.nudge ?? 0,
+      ...(cue.look ? { look: cue.look } : {}),
+      ...(cue.mix ? { mix: cue.mix } : {}),
+      ...(cue.mix && kindOf("mix", cue.mix.kind) ? { mixSpan: { start: clock + Math.max(at + (cue.nudge ?? 0) - clock, 0), seconds: mixSeconds(cue.mix) } } : {}),
+      ...(cue.emphasis ? { emphasis: cue.emphasis } : {}),
     });
     if (!sounds || !target) continue;
     const length = pieceSeconds(target, sounds);

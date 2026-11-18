@@ -162,6 +162,8 @@ The platform (admin's) workspace — `Default` on most installs — is now marke
 
 ## Smaller changes
 
+- Cues on words in a timeline view (Screenplay Studio's beat `cues`): besides a sound, a camera move and a picture, a row can now set a **look** (flash, dip, tint, vignette) and a **mix** change (dead air, duck), and pick two new camera moves (whip pan, sway). The Timeline labels each one beside the cue's flag and draws dead air or a duck over the ambience and music lanes for as long as it lasts, with no change to timing. Kinds the render does not do yet (freeze, blur, glitch, caption emphasis) and kinds Marvin does not know are kept as written and shown. See [Cues on words](blueprints.md#cues-on-words-in-a-timeline-view) (unreleased, 2026-11-18).
+
 - The entry editor's **Status** menu offers **Archived** (Editors and above); the backend has had the state all along, but the menu stopped at Published (unreleased, 2026-11-02).
 - The content model editor's type menu offers the attaching field types — **Image / file**, **Images / files**, **Resource**, **Resources** — with their **Attach as role** box; see [Field types](../reference/entry-type-fields.md) (unreleased, 2026-11-02).
 - **Automation**'s cards on the Settings page carry the same count pill as the tab, so the tab's number can be traced to its section; a flagged card opens its list filtered to Needs attention. **Delete all of these** on the *From a removed integration* section now deletes exactly what the section lists — it used to skip every row whose provider still had any connection (a sandbox replaced by production), silently (unreleased, 2026-11-02).

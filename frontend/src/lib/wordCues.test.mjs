@@ -64,7 +64,8 @@ test("cameraOf: the render's kinds and ranges", () => {
   assert.deepEqual(cameraOf({ kind: "shake", amount: "2" }), { kind: "shake", amount: 2 });
   assert.deepEqual(cameraOf({ kind: "nudge", x: 0.7, y: 1.4 }), { kind: "nudge", x: 0.7, y: 1 });
   assert.deepEqual(cameraOf({ kind: "punch" }), { kind: "punch" });
-  assert.equal(cameraOf({ kind: "zoom" }), undefined);
+  assert.deepEqual(cameraOf({ kind: "zoom", amount: 40 }), { kind: "zoom", amount: 40 }); // not a kind the render knows: kept as written
+  assert.equal(cameraOf({ amount: 2 }), undefined);
   assert.equal(cameraWords({ kind: "punch" }), "Punch 1.06");
   assert.equal(cameraWords({ kind: "nudge", x: 0.7, y: 0.4 }), "Nudge 0.7, 0.4");
 });
