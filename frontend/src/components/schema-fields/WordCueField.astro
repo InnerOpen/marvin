@@ -2,7 +2,8 @@
 /**
  * WordCueField: a JSON list of cues on words (a beat's `cues`: lib/wordCues.ts), edited as rows instead of raw JSON. Each row picks one of the
  * entry's lines and a place among its words (the gap a cue sits in: `word` is how many words come before it), and what happens there: a sound
- * (with its level), a camera move and a picture (an overlay beat of the same story). A sound plays at the end of the word before the cue and a
+ * (with its level), a camera move, a picture (an overlay beat of the same story), a look, a change to the mix and emphasis (the kinds, their
+ * numbers and defaults: lib/cueKinds.ts, only those the render does are offered). A sound plays at the end of the word before the cue and a
  * picture comes in at the start of the word after, as the render does; with a take's word timings the row says when. The shape comes from the
  * package's timeline view (`spine.word_cues`); the page fetches the lines, sounds and pictures. The field's real input is the hidden textarea.
  */
@@ -61,13 +62,14 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
   </div>
   <p class="field-help">
     {field.helpText ||
-      "A cue sits between two words of a line: click a word to put it after that word (or a gap). Its sound plays at the end of the word before it and its camera move starts there; its picture comes in at the start of the word after it. The timeline shows each one on its line."}
+      "A cue sits between two words of a line: click a word to put it after that word (or a gap). Its sound plays at the end of the word before it and its camera move, look and change to the mix start there; its picture comes in at the start of the word after it. The timeline shows each one on its line."}
   </p>
   {error && <p class="field-error">{error}</p>}
 </div>
 
 <script>
-  import { CAMERA_DEFAULTS, type Camera, type CameraKind, type WordCue, serializeWordCues } from "@/lib/wordCues";
+  import { type WordCue, serializeWordCues } from "@/lib/wordCues";
+  import { CUE_KINDS, type CueField, type CueGroup, EMPHASIS, type Effect, emphasisWords, kindOf } from "@/lib/cueKinds";
   import { fetchApi } from "@/lib/api/client";
 
   interface Line {
@@ -124,7 +126,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
       if (!t?.length) return `${where} · placed by the text until the line has a take with word timings`;
       const end = cue.word > 0 ? t[Math.min(cue.word, t.length) - 1].end : 0;
       const start = cue.word < t.length ? t[cue.word].start : t[t.length - 1].end;
-      return `${where} · sound and camera at ${secs(end)}, a picture at ${secs(start)} into the take`;
+      return `${where} · sound, camera, look and mix at ${secs(end)}, a picture at ${secs(start)} into the take`;
     };
 
     const wordsOf = (cue: WordCue, repaint: () => void) => {
@@ -143,31 +145,87 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
       return box;
     };
 
-    const cameraBox = (cue: WordCue, repaint: () => void) => {
-      const box = el("span", { className: "wc-camera" });
-      const kind = el("select", { ariaLabel: "Camera move", title: "A camera move at the end of the word before the cue, on top of the beat's own" }, option("", "No camera move", !cue.camera), option("punch", "Punch (a quick zoom in)", cue.camera?.kind === "punch"), option("shake", "Shake", cue.camera?.kind === "shake"), option("nudge", "Nudge (drift toward a point)", cue.camera?.kind === "nudge"));
+    /** A typed number, held to its range; empty leaves it out (the default, shown as the placeholder). */
+    const num = (f: CueField, value: unknown, set: (n: number | undefined) => void) => {
+      const [min, max] = [f.min ?? -Infinity, f.max ?? Infinity];
+      const fallback = f.default !== undefined ? String(f.default) : (f.unset ?? "");
+      const input = el("input", { type: "number", className: "wc-num", min: String(f.min ?? ""), max: String(f.max ?? ""), step: String(f.step ?? "any"), placeholder: f.default !== undefined ? fallback : "to end", value: typeof value === "number" ? String(value) : "", ariaLabel: f.label, title: `${f.label} (empty: ${fallback})` });
+      input.oninput = () => {
+        const n = input.value.trim() === "" ? undefined : Number(input.value);
+        set(n === undefined || !Number.isFinite(n) ? undefined : Math.min(Math.max(n, min), max));
+        write();
+      };
+      return input;
+    };
+
+    /** One of a kind's fields: a number, or a pick (a direction, a colour) whose empty choice is the default. */
+    const fieldInput = (effect: Effect, f: CueField) => {
+      const set = (v: number | string | undefined) => (v === undefined ? delete effect[f.key] : (effect[f.key] = v));
+      if (!f.choices) return num(f, effect[f.key], set);
+      const current = effect[f.key];
+      const known = f.choices.some((c) => c.value === current);
+      const fallback = f.choices.find((c) => c.value === f.default)?.label ?? String(f.default ?? "");
+      const pick = el(
+        "select",
+        { ariaLabel: f.label, title: f.label },
+        option("", `${f.label}: ${fallback}`, current === undefined),
+        ...(current !== undefined && !known ? [option(String(current), `${String(current)} (as written)`, true)] : []),
+        ...f.choices.map((c) => option(String(c.value), c.label, c.value === current)),
+      );
+      pick.onchange = () => {
+        const choice = f.choices!.find((c) => String(c.value) === pick.value);
+        set(choice ? choice.value : pick.value || undefined);
+        write();
+      };
+      return pick;
+    };
+
+    /** A camera move, a look or a change to the mix: the kinds enabled in lib/cueKinds.ts, and the numbers the chosen one takes, its
+     * defaults as placeholders. A kind not offered yet, or not known at all, stays as written and is shown as such. */
+    const effectBox = (group: CueGroup, cue: WordCue, repaint: () => void, words: { label: string; none: string; title: string }) => {
+      const box = el("span", { className: `wc-${group}`, role: "group", ariaLabel: words.label });
+      const current = cue[group] as Effect | undefined;
+      const def = current ? kindOf(group, current.kind) : undefined;
+      const kept = current && !def?.enabled ? [option(current.kind, `${def?.label ?? current.kind} (${def ? "not offered yet" : "not a kind Marvin knows"}: kept as written)`, true)] : [];
+      const kind = el("select", { ariaLabel: words.label, title: words.title }, option("", words.none, !current), ...kept, ...CUE_KINDS[group].filter((d) => d.enabled).map((d) => option(d.kind, d.label, def?.kind === d.kind && d.enabled)));
       kind.onchange = () => {
-        cue.camera = kind.value ? ({ kind: kind.value as CameraKind } as Camera) : undefined;
-        if (!cue.camera) delete cue.camera;
+        if (kind.value) cue[group] = { kind: kind.value };
+        else delete cue[group];
+        delete cue.rest[group];
         repaint();
       };
       box.append(kind);
-      const num = (label: string, value: number | undefined, placeholder: number, min: number, max: number, step: number, set: (n: number | undefined) => void) => {
-        const input = el("input", { type: "number", className: "wc-num", min: String(min), max: String(max), step: String(step), placeholder: String(placeholder), value: value === undefined ? "" : String(value), ariaLabel: label, title: `${label} (empty: ${placeholder})` });
-        input.oninput = () => {
-          const n = input.value.trim() === "" ? undefined : Number(input.value);
-          set(n === undefined || !Number.isFinite(n) ? undefined : Math.min(Math.max(n, min), max));
-          write();
-        };
-        return input;
-      };
-      const cam = cue.camera;
-      if (cam?.kind === "punch") box.append(num("How far in, 1 to 1.5", cam.amount, CAMERA_DEFAULTS.punch, 1, 1.5, 0.01, (n) => (n === undefined ? delete cam.amount : (cam.amount = n))));
-      if (cam?.kind === "shake") box.append(num("How hard, % of the frame, 0 to 10", cam.amount, CAMERA_DEFAULTS.shake, 0, 10, 0.1, (n) => (n === undefined ? delete cam.amount : (cam.amount = n))));
-      if (cam?.kind === "nudge") {
-        box.append(num("Toward x, 0 (left) to 1 (right)", cam.x, CAMERA_DEFAULTS.x, 0, 1, 0.05, (n) => (n === undefined ? delete cam.x : (cam.x = n))));
-        box.append(num("Toward y, 0 (top) to 1 (bottom)", cam.y, CAMERA_DEFAULTS.y, 0, 1, 0.05, (n) => (n === undefined ? delete cam.y : (cam.y = n))));
+      if (current && def?.enabled) box.append(...def.fields.map((f) => fieldInput(current, f)));
+      return box;
+    };
+
+    const cameraBox = (cue: WordCue, repaint: () => void) => effectBox("camera", cue, repaint, { label: "Camera move", none: "No camera move", title: "A camera move at the end of the word before the cue, on top of the beat's own" });
+    const lookBox = (cue: WordCue, repaint: () => void) => effectBox("look", cue, repaint, { label: "Look", none: "No look", title: "How the picture looks from the end of the word before the cue (a flash, a dip, a tint)" });
+    const mixBox = (cue: WordCue, repaint: () => void) => effectBox("mix", cue, repaint, { label: "Mix", none: "No change to the mix", title: "What is heard under the voice from the end of the word before the cue; the voice itself is untouched" });
+
+    /** The word after the cue stands out in the captions: offered once EMPHASIS is enabled; a row that has it keeps it either way. */
+    const emphasisBox = (cue: WordCue) => {
+      const box = el("span", { className: "wc-emphasis" });
+      if (!EMPHASIS.enabled) {
+        if (cue.emphasis) box.append(el("span", { className: "field-help", textContent: `${emphasisWords(cue.emphasis)}: kept as written` }));
+        return box;
       }
+      const on = el("input", { type: "checkbox", checked: !!cue.emphasis, title: EMPHASIS.label });
+      const scale = num(EMPHASIS.scale, cue.emphasis === true ? undefined : cue.emphasis?.scale, (n) => {
+        const rest = cue.emphasis && cue.emphasis !== true ? { ...cue.emphasis } : {};
+        delete rest.scale;
+        if (cue.emphasis) cue.emphasis = n === undefined && !Object.keys(rest).length ? true : { ...rest, ...(n === undefined ? {} : { scale: n }) };
+      });
+      scale.disabled = !cue.emphasis;
+      on.onchange = () => {
+        if (on.checked) cue.emphasis = true;
+        else delete cue.emphasis;
+        delete cue.rest.emphasis;
+        scale.disabled = !on.checked;
+        scale.value = "";
+        write();
+      };
+      box.append(el("label", { className: "wc-level" }, on, " Emphasis"), scale);
       return box;
     };
 
@@ -270,6 +328,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
         wordsOf(cue, repaint),
         el("p", { className: "field-help wc-when", textContent: whenText(cue) }),
         el("div", { className: "wc-what" }, soundBox(cue, repaint), cameraBox(cue, repaint), pictureBox(cue, repaint)),
+        el("div", { className: "wc-what" }, lookBox(cue, repaint), mixBox(cue, repaint), emphasisBox(cue)),
       );
       return li;
     };
@@ -301,7 +360,7 @@ const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
   .word-cue-field .wc-gap.is-on::before { content: "▾"; position: absolute; left: -1px; top: -0.95em; font-size: 11px; color: var(--accent); }
   .word-cue-field .wc-when { margin: 0; }
   .word-cue-field .wc-what { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
-  .word-cue-field .wc-sound, .word-cue-field .wc-camera, .word-cue-field .wc-picture { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .word-cue-field .wc-sound, .word-cue-field .wc-camera, .word-cue-field .wc-picture, .word-cue-field .wc-look, .word-cue-field .wc-mix, .word-cue-field .wc-emphasis { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .word-cue-field .wc-level { display: inline-flex; gap: 4px; align-items: center; font-size: 0.875rem; color: var(--muted); }
   .word-cue-field .wc-audio { height: 28px; max-width: 220px; }
   .word-cue-field .wc-note { margin: 0; }

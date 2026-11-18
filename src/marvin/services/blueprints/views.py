@@ -49,8 +49,13 @@ A timeline definition::
 - ``spine.word_cues`` ({field, lane, sounds?}) names a JSON list on each item of cues on words, ``[{line, word, sound?, volume?, camera?,
   pic?}]``: ``line`` a piece of the ``in`` lane ``lane`` (its slug), ``word`` how many of its words come before the cue, ``sound`` an entry of
   the ``placed`` lane ``sounds`` that plays at the end of the word before (at ``volume``, 0 to 1, else its own), ``camera`` a move there
-  ({kind: punch|shake|nudge, amount?, x?, y?}) and ``pic`` the item whose picture comes in at the start of the word after. The Timeline draws
-  each cue on its piece and its sound in the sounds lane (lengthening the item as a placed sound does); the item's page edits the field as rows.
+  ({kind: punch|shake|nudge|whip-pan|sway, amount?, x?, y?, seconds?}) and ``pic`` the item whose picture comes in at the start of the word
+  after. ``look`` ({kind: flash|dip|freeze|tint|blur|vignette|glitch, amount?, seconds?, color?}) changes the picture from there, ``mix``
+  ({kind: dead-air|duck, seconds?, amount?}) what is heard under the voice, and ``emphasis`` (true or {scale?}) marks the word after it in the
+  captions; ``nudge`` (seconds) moves all of these but the picture. The kinds, their numbers and defaults live in the frontend's
+  ``lib/cueKinds.ts``; the editor offers only those enabled there. The Timeline draws each cue on its piece, its sound in the sounds lane
+  (lengthening the item as a placed sound does) and dead air or a duck over the bed lanes (changing no timing); the item's page edits the field
+  as rows, keeping keys and kinds it does not know.
 - On an ``in`` lane, ``nudge`` is a field holding seconds a piece starts later (+) or earlier (-) than it falls (-10 to 10; the pieces after it
   follow it and the item lasts until its latest piece ends), ``simultaneous`` a boolean field that starts it with the piece before (dual
   dialogue), and ``words`` the key in the recording's asset metadata holding its word timings ([{text, start, end}]). The render must lay

@@ -121,3 +121,21 @@ Blueprints and the core catalog: 1.0.0-rc.84 to rc.97. `entry_fields`, `incoming
 ## Pick lists for fields that name another entry
 
 A text field with `"ref": "voice"` (an entry type's slug) is shown as a pick list of that type's entries, saving the chosen one's slug. Add `"ref_via": {"entry_type": "cast-member", "field": "voice", "match": {"story": "story"}}` to put first the entries that other entries name: here, the voices of the characters cast in the story this entry belongs to (`match` pairs the other type's field with this entry's own). They are listed under "Cast in this story", and every other entry stays below under "Other voices", so nothing is out of reach. With nobody cast yet, or no value to match on, the list is the whole type as before. Screenplay Studio uses it on the voice of a take and of a speech line.
+
+## Cues on words in a timeline view
+
+A timeline `view` can declare `spine.word_cues` (`{field, lane, sounds?}`): a JSON list on each spine item (a Screenplay Studio beat's `cues`) of cues that sit between two words of a line. The item's page edits the list as rows instead of raw JSON, and the Timeline draws each cue as a flag on its line.
+
+Each row picks a line and the gap between two of its words (click a word to put the cue after it). Then it says what happens there:
+
+- **Sound**: one of the story's sounds, at its own level or the row's. It plays at the end of the word before the gap.
+- **Camera move**: *punch* (a quick zoom in), *shake*, *nudge* (drift toward a point), *whip pan* (left or right, and how far) and *sway* (how far and for how long), on top of the beat's own move.
+- **Picture**: an overlay beat whose picture comes in at the start of the word after the gap.
+- **Look**: *flash* (how bright, white or black), *dip* (to black or white, and for how long), *tint* (sepia, mono, cold or warm, how strong, and for how long, which by default is to the end of the beat) or *vignette* (for how long).
+- **Mix**: *dead air* (ambience, music and effects go silent for a while) or *duck* (music and ambience dip to a level for a while). The voice is never touched.
+
+Every number a kind takes shows its default as a placeholder; leave it empty to use the default. A cue's **nudge** (set by dragging its sound on the Timeline) moves its sound, camera move, look, mix and emphasis together, but not its picture.
+
+On the Timeline, a look, a change to the mix and the newer camera moves each get a small labelled chip beside the cue's flag, such as *flash*, *whip pan* or *dead air 1.5 s*, with the details in its tooltip. Dead air and a duck are also drawn over every bed lane (ambience, music) for as long as they last: hatched where the lane goes silent, dimmed where it dips. A view without bed lanes skips this. None of these cues changes the Timeline's length, its picture cuts or the playhead.
+
+The editor doesn't offer *freeze*, *blur*, *glitch* or caption **emphasis** yet: they wait until the render is known to do them. A row that already holds one keeps it when saved, the editor shows it as kept as written, and the Timeline draws it in italics with "(not offered in the editor yet)" in its tooltip. A number a row already holds is never pulled into the editor's range unless the render holds it there too. A kind Marvin does not know at all, and any key a row carries that Marvin does not read, is kept the same way. The Timeline shows that kind by its own name with a "?". The list of kinds, their numbers and their defaults is in one file, `frontend/src/lib/cueKinds.ts`, and turning on a kind once the render does it is a one-line change there.
