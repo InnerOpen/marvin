@@ -202,14 +202,23 @@ test("nudge: one laid over the line before ends the beat when the line ending la
   close(overlays(laid, [linesLane])[0].start, 0.55);
 });
 
-test("nudge: into the beat before brings the picture with the voice (no lead); never before the film starts", () => {
+test("nudge: moves the voice, never the picture (no lead); never before the film starts", () => {
   const laid = lay([beat(1), beat(2)], [line(1, 2), line(2, 1, { nudge: -1 })]);
   close(laid.items[1].lanes.lines[0].start, 2.65 + 0.3 - 1);
   close(laid.items[1].start, 2.65);
-  close(laid.items[1].onScreen.start, 1.95);
+  close(laid.items[1].onScreen.start, 2.65); // the picture before is not cut short
+  close(laid.items[0].onScreen.seconds, 2.65);
   close(lay([beat(1)], [line(1, 1, { nudge: -5 })]).items[0].lanes.lines[0].start, 0);
   // held to -10..10 as the render reads it
   close(lay([beat(1)], [line(1, 1, { nudge: 40 })]).items[0].lanes.lines[0].start, 10.3);
+});
+
+test("nudge: does not move a picture lead either, and the picture before keeps its length", () => {
+  const plain = lay([beat(1), beat(2, { picture_lead: 0.8 })], [line(1, 2), line(2, 1)]);
+  const nudged = lay([beat(1), beat(2, { picture_lead: 0.8 })], [line(1, 2), line(2, 1, { nudge: -0.35 })]);
+  close(nudged.items[1].lanes.lines[0].start, plain.items[1].lanes.lines[0].start - 0.35);
+  close(nudged.items[1].onScreen.start, plain.items[1].onScreen.start);
+  close(nudged.items[0].onScreen.seconds, plain.items[0].onScreen.seconds);
 });
 
 test("dual dialogue: a simultaneous line starts with the line before, and the next follows the later of the two", () => {

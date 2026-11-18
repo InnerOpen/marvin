@@ -620,7 +620,7 @@ export function wordAt(piece: { text: string; seconds: number; words: Word[] | n
   return { at: held(share * piece.seconds), estimated: true };
 }
 
-/** A shot as `picturesOf` cuts it: where its sound starts and how long it lasts, where its first word starts (null with none), its picture lead and,
+/** A shot as `picturesOf` cuts it: where its sound starts and how long it lasts, where its first word starts without a nudge of its own (null with none), its picture lead and,
  * for an overlay, where on the film its picture comes in. */
 export interface PictureCut {
   start: number;
@@ -632,7 +632,7 @@ export interface PictureCut {
 
 /**
  * Where each picture is up, cut from the sound as the render cuts it (ScreenplayStudio render: manifest `_pictures`). With no lead a picture starts
- * where its sound starts, or at its first word when a nudge brings that earlier; with one, that long before its first word (a silent item's, before
+ * where its sound starts, or at its first word when that comes earlier (a nudge moves the voice, never the picture); with one, that long before its first word (a silent item's, before
  * its own start); an overlay's at its word. A picture brought forward never comes before the one before it plus MIN_PICTURE, never before 0, and
  * never later than its sound starts unless its lead asks for that. When nothing moved, the pictures are the sound's windows exactly.
  */
@@ -807,7 +807,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
       }
       reach = Math.max(reach, wordCuesOf(item, row, spec, said, laneOf(spec.spine.word_cues?.sounds), bySlug, clock));
       if (reach > item.seconds - item.pause) item.seconds = reach + item.pause; // the render: max(hold, speech, the end of the last sound) and then the pause
-      cuts.push({ start: clock, seconds: item.seconds, firstWord: timed[0]?.start ?? null, lead: pictureLeadOf(row, spec.spine.seconds, rows.entry), anchor: overlay?.at ?? null });
+      cuts.push({ start: clock, seconds: item.seconds, firstWord: timed[0] ? timed[0].natural : null, lead: pictureLeadOf(row, spec.spine.seconds, rows.entry), anchor: overlay?.at ?? null });
       clock += item.seconds;
       made.push(item);
       items.push(item);
