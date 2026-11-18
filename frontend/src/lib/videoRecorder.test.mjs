@@ -3,15 +3,23 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { recordingMetadata } from "./audioRecorder.ts";
 import { UPLOAD_LIMIT_BYTES } from "./uploadLimit.ts";
 import {
+  DEFAULT_MIC_GAIN,
+  MAX_MIC_GAIN,
   MAX_VIDEO_SECONDS,
+  MIN_MIC_GAIN,
+  NO_PROCESSING,
   SIZE_GUARD,
   VIDEO_MIME_CANDIDATES,
+  clampMicGain,
   countdownFrom,
   expectedBytes,
+  microphoneConstraints,
   parseDeviceChoice,
   pickVideoMimeType,
+  processingHeld,
   stopReason,
   stoppedWords,
   videoConstraints,
@@ -128,7 +136,7 @@ describe("videoConstraints", () => {
     const c = videoConstraints({});
     assert.equal(c.video.deviceId, undefined);
     assert.deepEqual(c.video.width, { ideal: 1280 });
-    assert.deepEqual(c.audio, {});
+    assert.deepEqual(c.audio, { autoGainControl: false, echoCancellation: false, noiseSuppression: false });
   });
 
   test("test_constraints_remembered_devices_are_ideal", () => {
@@ -142,16 +150,82 @@ describe("videoConstraints", () => {
     assert.deepEqual(c.video.deviceId, { exact: "cam" });
     assert.deepEqual(c.audio.deviceId, { exact: "mic" });
   });
+
+  test("test_constraints_carry_the_processing_ticked", () => {
+    const processing = { autoGainControl: true, echoCancellation: false, noiseSuppression: true };
+    const c = videoConstraints({ microphoneId: "mic", processing });
+    assert.deepEqual(c.audio, { deviceId: { exact: "mic" }, ...processing });
+  });
+});
+
+describe("microphoneConstraints", () => {
+  test("test_microphone_constraints_default_to_no_processing", () => {
+    assert.deepEqual(microphoneConstraints({}), NO_PROCESSING);
+  });
+
+  test("test_microphone_constraints_match_the_audio_of_the_full_request", () => {
+    const choice = { cameraId: "cam", microphoneId: "mic", remembered: true, processing: { ...NO_PROCESSING, echoCancellation: true } };
+    assert.deepEqual(microphoneConstraints(choice), videoConstraints(choice).audio);
+  });
+});
+
+describe("processingHeld", () => {
+  const asked = { autoGainControl: false, echoCancellation: true, noiseSuppression: false };
+
+  test("test_processing_held_when_the_track_reports_what_was_asked", () => {
+    assert.equal(processingHeld(asked, { ...asked, deviceId: "x" }), true);
+  });
+
+  test("test_processing_not_held_when_the_browser_ignored_a_change", () => {
+    assert.equal(processingHeld(asked, { ...asked, echoCancellation: false }), false);
+  });
+
+  test("test_processing_unreported_settings_pass", () => {
+    assert.equal(processingHeld(asked, {}), true);
+  });
+});
+
+describe("clampMicGain", () => {
+  test("test_mic_gain_kept_within_the_slider", () => {
+    assert.equal(clampMicGain(1.5), 1.5);
+    assert.equal(clampMicGain(9), MAX_MIC_GAIN);
+    assert.equal(clampMicGain(0), MIN_MIC_GAIN);
+    assert.equal(clampMicGain("0.75"), 0.75);
+  });
+
+  test("test_mic_gain_default_for_junk", () => {
+    for (const junk of [undefined, null, "", "loud", NaN, Infinity, {}]) assert.equal(clampMicGain(junk), DEFAULT_MIC_GAIN);
+  });
 });
 
 describe("parseDeviceChoice", () => {
+  const defaults = { processing: { ...NO_PROCESSING }, micGain: 1 };
+
   test("test_device_choice_round_trips", () => {
-    const choice = { cameraId: "c", microphoneId: "m", countdown: true };
+    const choice = {
+      cameraId: "c",
+      microphoneId: "m",
+      countdown: true,
+      processing: { autoGainControl: true, echoCancellation: false, noiseSuppression: true },
+      micGain: 1.4,
+    };
     assert.deepEqual(parseDeviceChoice(JSON.stringify(choice)), choice);
   });
 
+  test("test_device_choice_kept_before_the_mic_settings_still_reads", () => {
+    const old = { cameraId: "c", microphoneId: "m", countdown: true };
+    assert.deepEqual(parseDeviceChoice(JSON.stringify(old)), { ...old, ...defaults });
+  });
+
+  test("test_device_choice_bad_mic_settings_fall_back_one_by_one", () => {
+    const stored = { cameraId: "c", processing: { echoCancellation: "yes", noiseSuppression: true }, micGain: 40 };
+    const choice = parseDeviceChoice(JSON.stringify(stored));
+    assert.deepEqual(choice.processing, { autoGainControl: false, echoCancellation: false, noiseSuppression: true });
+    assert.equal(choice.micGain, MAX_MIC_GAIN);
+  });
+
   test("test_device_choice_defaults_for_nothing_or_junk", () => {
-    const none = { cameraId: "", microphoneId: "", countdown: false };
+    const none = { cameraId: "", microphoneId: "", countdown: false, ...defaults };
     assert.deepEqual(parseDeviceChoice(null), none);
     assert.deepEqual(parseDeviceChoice("{not json"), none);
     assert.deepEqual(parseDeviceChoice("42"), none);
@@ -160,7 +234,7 @@ describe("parseDeviceChoice", () => {
 });
 
 describe("videoRecordingMetadata", () => {
-  test("test_metadata_keeps_devices_size_and_length", () => {
+  test("test_metadata_keeps_devices_size_length_and_the_microphone", () => {
     const facts = videoRecordingMetadata(
       {
         mimeType: "video/webm;codecs=vp9,opus",
@@ -169,8 +243,14 @@ describe("videoRecordingMetadata", () => {
         width: 1280,
         height: 720,
         frameRate: 29.97,
+        sampleRate: 48000,
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: true,
+        autoGainControl: false,
+        gain: 1.5,
       },
-      { durationSeconds: 12.34, stopped: null },
+      { durationSeconds: 12.34, stopped: null, peak: 0.5, clipped: false },
     );
     assert.deepEqual(facts, {
       recording: {
@@ -182,10 +262,30 @@ describe("videoRecordingMetadata", () => {
         width: 1280,
         height: 720,
         frame_rate: 30,
+        sample_rate: 48000,
+        channels: 1,
+        constraints: { echo_cancellation: false, noise_suppression: true, auto_gain_control: false },
+        gain: 1.5,
         duration_seconds: 12.3,
+        peak_dbfs: -6,
+        clipped: false,
         stopped: null,
       },
     });
+  });
+
+  test("test_metadata_microphone_facts_match_the_audio_recorders", () => {
+    const mic = { sampleRate: 44100, channelCount: 2, echoCancellation: true, noiseSuppression: false, autoGainControl: true };
+    const video = videoRecordingMetadata({ mimeType: "video/mp4", ...mic }, { durationSeconds: 1 }).recording;
+    const audio = recordingMetadata({ mimeType: "audio/mp4", ...mic }, { durationSeconds: 1, peak: 0, clipped: false }).recording;
+    for (const key of ["sample_rate", "channels", "constraints"]) assert.deepEqual(video[key], audio[key], key);
+  });
+
+  test("test_metadata_clipped_take_and_no_gain", () => {
+    const { recording } = videoRecordingMetadata({ mimeType: "", gain: null }, { durationSeconds: 3, peak: 1, clipped: true });
+    assert.equal(recording.peak_dbfs, 0);
+    assert.equal(recording.clipped, true);
+    assert.equal(recording.gain, null);
   });
 
   test("test_metadata_unknowns_are_null", () => {
@@ -194,5 +294,14 @@ describe("videoRecordingMetadata", () => {
     assert.equal(recording.width, null);
     assert.equal(recording.frame_rate, null);
     assert.equal(recording.stopped, "time");
+    assert.equal(recording.sample_rate, null);
+    assert.deepEqual(recording.constraints, { echo_cancellation: null, noise_suppression: null, auto_gain_control: null });
+    assert.equal(recording.gain, null);
+    assert.equal(recording.peak_dbfs, null, "no meter, no level");
+    assert.equal(recording.clipped, null);
+  });
+
+  test("test_metadata_silent_take_has_no_level", () => {
+    assert.equal(videoRecordingMetadata({ mimeType: "" }, { durationSeconds: 1, peak: 0, clipped: false }).recording.peak_dbfs, null);
   });
 });
