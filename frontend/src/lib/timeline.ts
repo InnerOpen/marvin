@@ -12,7 +12,13 @@ export interface SecondsSpec {
   lead?: string;
   gap?: string;
   tail?: string;
+  /** A field on each item: how many seconds before its first word its picture comes in (a silent item's, before it starts), over the end of the
+   * item before, while the sound stays where it is. Empty: the picture comes where the item's sound starts; 0: at its first word. */
+  picture_lead?: string;
   defaults?: Partial<Record<"hold" | "lead" | "gap" | "tail", number>>;
+  /** Fields on the view's entry (a story's `line_lead`...) that set these for every item that does not set its own: the item's field wins, then
+   * the entry's, then `defaults`. As the render reads them (ScreenplayStudio marvin_pull: timing_of). */
+  entry?: Partial<Record<"hold" | "lead" | "gap" | "tail" | "picture_lead", string>>;
 }
 
 export interface SpineSpec {
@@ -40,6 +46,10 @@ export interface SpineSpec {
   run?: { workflow: string; entry: string; item: string; field: string; label?: string; inputs?: Record<string, string | number | boolean> };
   /** Keep and Redo buttons on the items whose status is one of `ready`: they write `keep` or `redo` into the item's status field. */
   review?: { ready: string[]; keep: string; redo: string };
+  /** A field on each item holding `{line, word}`: the item is an overlay whose picture comes in at that word of a piece laid before it (a line of
+   * the beat before), at the start of the word after `word` words, and adds no time of its own; its own hold keeps it up that long from the word.
+   * Must match the render (ScreenplayStudio render: manifest `starts_during`). */
+  starts_during?: string;
 }
 
 export interface CardSpec {
@@ -159,6 +169,12 @@ export interface LaneSpec {
   loop?: string;
   estimate_from?: string;
   status?: string;
+  /** On an `in` lane: a field holding seconds the piece starts later (+) or earlier (-) than it falls (two voices overlap), the pieces after it
+   * following it, and a boolean field that starts it with the piece before (dual dialogue). As the render lays lines (manifest `plan`). */
+  nudge?: string;
+  simultaneous?: string;
+  /** The key in the recording's asset metadata holding its word timings ([{text, start, end}], seconds), to place a word in it. */
+  words?: string;
   /** A guided setup (of the same package) a piece of this lane opens on, with the piece chosen, instead of its own page: a line opens its takes. */
   open?: { wizard: string };
 }
@@ -190,7 +206,14 @@ export interface Row {
   slug: string;
   title: string;
   dataJson?: Record<string, unknown> | null;
-  assets?: { role?: string | null; name?: string | null; publicUrl?: string | null; mimeType?: string | null }[];
+  assets?: { role?: string | null; name?: string | null; publicUrl?: string | null; mimeType?: string | null; metadataJson?: Record<string, unknown> | null }[];
+}
+
+/** A word of a recording, as the voice service times it (seconds into the take). */
+export interface Word {
+  text: string;
+  start: number;
+  end: number;
 }
 
 export interface Piece {
@@ -214,6 +237,12 @@ export interface Piece {
   volume: number | null;
   /** For a placed piece: its offset inside the item, as declared. */
   at: number | null;
+  /** For a timed piece: its own nudge (seconds later, or earlier when below 0, than it falls; 0 for none) and whether it starts with the piece
+   * before (dual dialogue). */
+  nudge: number;
+  together: boolean;
+  /** The take's word timings, when the lane names them and the take has them (delivery tags such as `[sighs]` left out). */
+  words: Word[] | null;
 }
 
 /** A sound running under a stretch of the timeline: a scene's ambience across its beats, a story's music under everything. */
@@ -289,11 +318,18 @@ export interface Item {
   text: string;
   picture: string | null;
   status: string;
+  /** Where the item's sound starts and how long it lasts: the items' sounds run end to end (its pieces are timed from here). */
   start: number;
   seconds: number;
+  /** Where its picture is up: the same as its sound unless a picture lead, a nudge or an overlay moved a cut (the render cuts the pictures from
+   * the sound, so the film is as long either way). The strip, the beds, overlays, marks, bands and chapters go by this, as the render does. */
+  onScreen: { start: number; seconds: number };
   /** True when any timed piece in it is estimated (so its length may change). */
   estimated: boolean;
   lanes: Record<string, Piece[]>;
+  /** Set on an item whose picture comes in at a word of a piece laid before it (`spine.starts_during`): that piece, the word, and where on the
+   * film the picture comes in (`onScreen.start` unless the least picture length moved it); `estimated` when the place came from the text. */
+  overlay?: { piece: string; title: string; word: number; text: string; at: number; estimated: boolean };
 }
 
 export interface Group {
@@ -372,27 +408,154 @@ export function pieceSeconds(row: Row, lane: LaneSpec): { seconds: number; estim
   return null;
 }
 
-/** The seconds an item's own fields set, each falling back to the view's default, then to the renderer's. */
-export function secondsOf(row: Row, spec: SecondsSpec | undefined): typeof DEFAULT_SECONDS {
+/** The most a silence set on the view's entry may be, and a picture lead, as the render holds them (ScreenplayStudio marvin_pull: timing_of). */
+export const MAX_ENTRY_SILENCE = 30;
+export const MAX_PICTURE_LEAD = 5;
+/** The most a nudge moves a piece, either way (marvin_pull: nudge). */
+export const MAX_NUDGE = 10;
+/** The least a picture stays up when the next one is brought forward by a picture lead (ScreenplayStudio render: manifest MIN_PICTURE). */
+export const MIN_PICTURE = 0.5;
+
+const within = (v: number | null, low: number, high: number): number | null => (v === null ? null : Math.min(Math.max(v, low), high));
+
+/** The seconds an item's own fields set, each falling back to what the view's entry (a story) sets for every item, then the view's default, then
+ * the renderer's. */
+export function secondsOf(row: Row, spec: SecondsSpec | undefined, entry?: Row): typeof DEFAULT_SECONDS {
   const out = { ...DEFAULT_SECONDS, ...(spec?.defaults ?? {}) };
   for (const key of ["hold", "lead", "gap", "tail"] as const) {
+    const shared = entry ? within(num(field(entry, spec?.entry?.[key])), 0, MAX_ENTRY_SILENCE) : null;
+    if (shared !== null) out[key] = shared;
     const own = num(field(row, spec?.[key]));
     if (own !== null && own >= 0) out[key] = own;
   }
   return out;
 }
 
+/** How many seconds before its first word an item's picture comes in: its own field, else the view's entry's, held to 0 to 5; null when neither
+ * is set (the picture comes where the item's sound starts). 0 is a value: at the first word. */
+export function pictureLeadOf(row: Row, spec: SecondsSpec | undefined, entry?: Row): number | null {
+  const own = num(field(row, spec?.picture_lead));
+  const shared = entry ? num(field(entry, spec?.entry?.picture_lead)) : null;
+  return within(own ?? shared, 0, MAX_PICTURE_LEAD);
+}
+
 /**
  * The renderer's rule: timed pieces one after another with silences around them; nothing timed, and the item holds (its own hold, else the view's
  * default). An item that sets its own hold lasts at least that long even with timed pieces: the picture stays up after the last line, so a beat
  * that would be too quick for a viewer to take in can be given the time. The view's default hold is only for an item with nothing in it.
+ * `spoken`, when given, is how long the pieces take with their silences (`placeLines`, once a nudge has moved one) instead of end to end.
  */
-export function itemSeconds(row: Row, timed: { seconds: number }[], spec: SecondsSpec | undefined): number {
-  const s = secondsOf(row, spec);
+export function itemSeconds(row: Row, timed: { seconds: number }[], spec: SecondsSpec | undefined, entry?: Row, spoken?: number): number {
+  const s = secondsOf(row, spec, entry);
   if (timed.length === 0) return s.hold;
-  const spoken = s.lead + timed.reduce((sum, p) => sum + p.seconds, 0) + s.gap * (timed.length - 1) + s.tail;
+  const laid = spoken ?? s.lead + timed.reduce((sum, p) => sum + p.seconds, 0) + s.gap * (timed.length - 1) + s.tail;
   const own = num(field(row, spec?.hold));
-  return own !== null && own > spoken ? own : spoken;
+  return own !== null && own > laid ? own : laid;
+}
+
+/** A timed piece as `placeLines` lays it: its length, its nudge and whether it starts with the piece before. */
+export interface LineTiming {
+  seconds: number;
+  nudge: number;
+  together: boolean;
+}
+
+/**
+ * Where an item's timed pieces start on the film, as the render lays a beat's lines (ScreenplayStudio render: manifest `plan`): one after another
+ * from the lead with a gap between; a nudged piece starts that much later or earlier (never before the film starts) and the pieces after it follow
+ * where it now ends; a piece `together` with the one before starts when that one starts (then its own nudge applies) and the next follows the later
+ * of the two. `spoken` is how long the item's sound lasts: until its latest piece ends, then the tail; null when nothing moved a piece, so the
+ * caller keeps the plain sum (the same number, without a rounding difference). `clock` is where the item's sound starts.
+ */
+export function placeLines(lines: LineTiming[], s: { lead: number; gap: number; tail: number }, clock: number): { starts: number[]; spoken: number | null } {
+  let cursor = clock + s.lead;
+  let lastEnd = clock;
+  let moved = false;
+  const starts: number[] = [];
+  lines.forEach((line, i) => {
+    const together = line.together && i > 0;
+    if (line.nudge || line.together) moved = true;
+    if (together) cursor = starts[i - 1];
+    if (line.nudge) cursor = Math.max(cursor + line.nudge, 0);
+    starts.push(cursor);
+    if (together) {
+      cursor = Math.max(starts[i - 1] + lines[i - 1].seconds, cursor + line.seconds) + s.gap;
+      lastEnd = Math.max(lastEnd, cursor - s.gap);
+      return;
+    }
+    lastEnd = Math.max(lastEnd, cursor + line.seconds);
+    cursor += line.seconds;
+    cursor += s.gap;
+  });
+  return { starts, spoken: moved && lines.length ? Math.max(cursor - s.gap, lastEnd) - clock + s.tail : null };
+}
+
+/** A piece's word timings from its take's asset metadata, as the render reads them (marvin_pull: spoken_words): a delivery tag such as `[sighs]`
+ * is not a word. Null when the lane names none or the take has none. */
+export function wordTimings(row: Row, lane: LaneSpec): Word[] | null {
+  if (!lane.words || !lane.audio) return null;
+  const take = (row.assets ?? []).find((a) => a.role === lane.audio && (a.mimeType ?? "").startsWith("audio/"));
+  const raw = take?.metadataJson?.[lane.words];
+  if (!Array.isArray(raw)) return null;
+  const words = raw
+    .filter((w): w is Record<string, unknown> => !!w && typeof w === "object" && (w as Record<string, unknown>).text != null)
+    .map((w) => ({ text: String(w.text), start: num(w.start) ?? 0, end: num(w.end) ?? 0 }))
+    .filter((w) => !(w.text.startsWith("[") && w.text.endsWith("]")));
+  return words.length ? words : null;
+}
+
+/**
+ * Where a place among a piece's words falls, in seconds into the piece, as the render places a cue (marvin_pull: word_place): `word` is how many
+ * words are spoken before it. `after` is the end of the word before it (a sound plays when "strikes" is said); else the start of the word after it
+ * (a picture comes in on the next word). From the take's word timings when there are any, else from where the word stands in the text as a share of
+ * the piece's length (`estimated`). Before the first word is the piece's start, past the last its end; never past the piece's end.
+ */
+export function wordAt(piece: { text: string; seconds: number; words: Word[] | null }, word: number, after: boolean): { at: number; estimated: boolean } {
+  const n = Math.max(0, Math.floor(word));
+  const held = (at: number) => Math.min(Math.max(at, 0), piece.seconds);
+  const words = piece.words ?? [];
+  if (words.length) {
+    if (after) return { at: held(n ? words[Math.min(n, words.length) - 1].end : 0), estimated: false };
+    return { at: held(n < words.length ? words[n].start : words[words.length - 1].end), estimated: false };
+  }
+  const spans = [...piece.text.matchAll(/\S+/g)].map((m) => [m.index ?? 0, (m.index ?? 0) + m[0].length]);
+  if (!spans.length) return { at: 0, estimated: true };
+  const chars = after ? (n ? spans[Math.min(n, spans.length) - 1][1] : 0) : n < spans.length ? spans[n][0] : piece.text.length;
+  const share = Math.round((chars / Math.max(piece.text.length, 1)) * 10000) / 10000;
+  return { at: held(share * piece.seconds), estimated: true };
+}
+
+/** A shot as `picturesOf` cuts it: where its sound starts and how long it lasts, where its first word starts (null with none), its picture lead and,
+ * for an overlay, where on the film its picture comes in. */
+export interface PictureCut {
+  start: number;
+  seconds: number;
+  firstWord: number | null;
+  lead: number | null;
+  anchor: number | null;
+}
+
+/**
+ * Where each picture is up, cut from the sound as the render cuts it (ScreenplayStudio render: manifest `_pictures`). With no lead a picture starts
+ * where its sound starts, or at its first word when a nudge brings that earlier; with one, that long before its first word (a silent item's, before
+ * its own start); an overlay's at its word. A picture brought forward never comes before the one before it plus MIN_PICTURE, never before 0, and
+ * never later than its sound starts unless its lead asks for that. When nothing moved, the pictures are the sound's windows exactly.
+ */
+export function picturesOf(shots: PictureCut[], total: number): { start: number; seconds: number }[] {
+  const starts: number[] = [];
+  shots.forEach((shot, k) => {
+    const here = shot.start;
+    const first = shot.firstWord ?? here;
+    const wanted = shot.anchor ?? (shot.lead !== null ? first - shot.lead : Math.min(here, first));
+    if (k === 0) starts.push(0);
+    else if (wanted === here) starts.push(here);
+    else {
+      const before = starts[k - 1];
+      starts.push(Math.max(before, Math.min(Math.max(wanted, before + MIN_PICTURE), Math.max(wanted, here), total)));
+    }
+  });
+  if (starts.every((at, k) => at === shots[k].start)) return shots.map((s) => ({ start: s.start, seconds: s.seconds }));
+  return starts.map((at, k) => ({ start: at, seconds: (k + 1 < starts.length ? starts[k + 1] : total) - at }));
 }
 
 /** A number as a person writes beats: 4, "04" or "04a" (a beat inserted after 04), as its digits and its letters. Null for anything else. */
@@ -446,12 +609,15 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   let clock = 0;
   const groups = groupRows(spec.spine, rows);
   const out: Group[] = [];
+  const said = new Map<string, Piece>(); // every timed piece laid so far, by slug: an overlay comes in at a word of one of them
+  const cuts: PictureCut[] = []; // each item's sound and what moves its picture, to cut the pictures from once everything is laid
   // A title or end card is an item of its own, so everything laid out after it starts when the render starts it.
   const addCard = (kind: "intro" | "outro") => {
     const card = cardOf(spec.spine.cards?.[kind], rows.entry, kind);
     if (!card) return;
-    const item: Item = { id: `card:${kind}`, slug: kind, key: "", title: card.label, number: null, text: card.title, picture: null, status: "", start: clock, seconds: card.seconds, estimated: false, lanes: {}, card: kind };
+    const item: Item = { id: `card:${kind}`, slug: kind, key: "", title: card.label, number: null, text: card.title, picture: null, status: "", start: clock, seconds: card.seconds, onScreen: { start: clock, seconds: card.seconds }, estimated: false, lanes: {}, card: kind };
     items.push(item);
+    cuts.push({ start: clock, seconds: card.seconds, firstWord: null, lead: null, anchor: null });
     out.push({ card: kind, id: null, slug: null, title: card.label, start: clock, seconds: card.seconds, items: [item] });
     clock += card.seconds;
   };
@@ -468,10 +634,9 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
     return here && there && here !== there ? pauseSeconds : 0;
   };
   for (const g of groups) {
-    const groupStart = clock;
     const made: Item[] = [];
     for (const row of g.rows) {
-      const s = secondsOf(row, spec.spine.seconds);
+      const s = secondsOf(row, spec.spine.seconds, rows.entry);
       const item: Item = {
         id: row.id,
         slug: row.slug,
@@ -483,28 +648,40 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
         status: str(field(row, spec.spine.status)),
         start: clock,
         seconds: 0,
+        onScreen: { start: clock, seconds: 0 },
         estimated: false,
         lanes: {},
       };
-      // Timed pieces run across the `in` lanes in declared order, one after another from the lead.
-      let cursor = clock + s.lead;
+      // Timed pieces run across the `in` lanes in declared order, one after another from the lead (a nudge or dual dialogue moves them).
       const timed: Piece[] = [];
       for (const lane of inLanes) {
         const pieces: Piece[] = [];
         for (const r of laneRows(lane).filter((r) => str(field(r, lane.in)) === row.slug)) {
           const length = pieceSeconds(r, lane);
-          const piece = pieceOf(r, lane, length?.seconds ?? 0, length?.estimated ?? false, cursor, null);
-          if (length) {
-            if (timed.length) cursor += s.gap;
-            piece.start = cursor;
-            cursor += length.seconds;
-            timed.push(piece);
-          }
+          const piece = pieceOf(r, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + s.lead, null);
+          if (length) timed.push(piece);
           pieces.push(piece);
         }
         item.lanes[lane.id] = pieces;
       }
-      item.seconds = itemSeconds(row, timed, spec.spine.seconds);
+      const placedLines = placeLines(timed, s, clock);
+      timed.forEach((p, i) => {
+        p.start = placedLines.starts[i];
+        said.set(p.slug, p);
+      });
+      let end = clock + s.lead; // a piece with no length sits where the piece before it ends
+      for (const lane of inLanes) {
+        for (const p of item.lanes[lane.id]) {
+          if (timed.includes(p)) end = p.start + p.seconds;
+          else p.start = end;
+        }
+      }
+      const overlay = overlayOf(row, spec.spine, said);
+      const ownHold = num(field(row, spec.spine.seconds?.hold));
+      // An overlay adds no time of its own; its hold keeps it up that long from its word, so only what runs past the item before counts.
+      const spoken = timed.length ? itemSeconds(row, timed, spec.spine.seconds, rows.entry, placedLines.spoken ?? undefined) : 0;
+      item.seconds = overlay ? Math.max(ownHold !== null && ownHold > 0 ? Math.max(0, overlay.at + ownHold - clock) : 0, spoken) : itemSeconds(row, timed, spec.spine.seconds, rows.entry, placedLines.spoken ?? undefined);
+      if (overlay) item.overlay = overlay;
       item.pause = pauseAfter(row);
       item.seconds += item.pause;
       item.estimated = timed.some((p) => p.estimated);
@@ -530,21 +707,32 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
         item.lanes[lane.id] = pieces;
       }
       if (reach > item.seconds - item.pause) item.seconds = reach + item.pause; // the render: max(hold, speech, the end of the last sound) and then the pause
+      cuts.push({ start: clock, seconds: item.seconds, firstWord: timed[0]?.start ?? null, lead: pictureLeadOf(row, spec.spine.seconds, rows.entry), anchor: overlay?.at ?? null });
       clock += item.seconds;
       made.push(item);
       items.push(item);
     }
-    out.push({ id: g.id, slug: g.slug, title: g.title, start: groupStart, seconds: clock - groupStart, items: made });
+    out.push({ id: g.id, slug: g.slug, title: g.title, start: 0, seconds: 0, items: made });
   }
   addCard("outro");
+  // The pictures are cut from the sound (a picture lead brings one in before its words); the chapters, beds, overlays, marks and bands follow them.
+  picturesOf(cuts, clock).forEach((cut, k) => {
+    items[k].onScreen = cut;
+  });
+  for (const g of out) {
+    const [first, last] = [g.items[0], g.items[g.items.length - 1]];
+    g.start = first.onScreen.start;
+    g.seconds = last.onScreen.start + last.onScreen.seconds - g.start;
+  }
+  const shown = items.map((i) => ({ ...i, start: i.onScreen.start, seconds: i.onScreen.seconds }));
   const beds: Record<string, Bed[]> = {};
-  for (const lane of bedLanes) beds[lane.id] = bedsOf(lane, items, rows, clock, bySlug(lane));
+  for (const lane of bedLanes) beds[lane.id] = bedsOf(lane, shown, rows, clock, bySlug(lane));
   const covers: Record<string, Cover[]> = {};
-  for (const lane of lanes.filter((l) => l.cover)) covers[lane.id] = coversOf(lane.cover!, spec, items, rows, lane.id);
+  for (const lane of lanes.filter((l) => l.cover)) covers[lane.id] = coversOf(lane.cover!, spec, shown, rows, lane.id);
   const marks: Record<string, Mark[]> = {};
-  for (const lane of lanes.filter((l) => l.marks)) marks[lane.id] = marksOf(lane.marks!, spec, items, rows, lane.id);
+  for (const lane of lanes.filter((l) => l.marks)) marks[lane.id] = marksOf(lane.marks!, spec, shown, rows, lane.id);
   const bands: Record<string, Band[]> = {};
-  for (const band of spec.spine.bands ?? []) bands[band.id ?? band.field] = bandsOf(band, items, rows, band.id ?? band.field);
+  for (const band of spec.spine.bands ?? []) bands[band.id ?? band.field] = bandsOf(band, shown, rows, band.id ?? band.field);
   return { total: clock, groups: out, items, bands, beds, covers, marks };
 }
 
@@ -921,7 +1109,24 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
     wave: wavePeaks(field(row, lane.waveform)),
     volume: level(field(row, lane.volume)),
     at,
+    nudge: within(num(field(row, lane.nudge)), -MAX_NUDGE, MAX_NUDGE) ?? 0,
+    together: lane.simultaneous ? field(row, lane.simultaneous) === true : false,
+    words: wordTimings(row, lane),
   };
+}
+
+/** An item that comes in at a word of a piece already laid (`spine.starts_during`), as the render places it (marvin_pull: _starts_during): at the
+ * start of the word after `word` words. Undefined for any other item, and for one whose piece is not laid before it (left out, or not there): that
+ * one is an ordinary item. A piece with no take is placed by its text, where the render would play the item as one of its own. */
+function overlayOf(row: Row, spine: SpineSpec, said: Map<string, Piece>): Item["overlay"] {
+  const during = field(row, spine.starts_during);
+  if (!during || typeof during !== "object") return undefined;
+  const piece = said.get(str((during as Record<string, unknown>).line));
+  if (!piece) return undefined;
+  const word = Math.max(0, Math.floor(num((during as Record<string, unknown>).word) ?? 0));
+  const place = wordAt(piece, word, false);
+  const said_ = piece.words?.map((w) => w.text) ?? piece.text.split(/\s+/).filter(Boolean);
+  return { piece: piece.slug, title: piece.title, word, text: said_[word] ?? "", at: piece.start + place.at, estimated: place.estimated || piece.estimated };
 }
 
 function groupRows(spine: SpineSpec, rows: Rows): { id: string | null; slug: string | null; title: string; rows: Row[] }[] {
@@ -968,8 +1173,12 @@ export function quiets(allItems: Item[], lane: LaneSpec): Quiet[] {
       continue;
     }
     add(`${item.id}:lead`, "lead", item.start, timed[0].start - item.start);
-    timed.slice(1).forEach((p, i) => add(`${item.id}:gap${i}`, "gap", timed[i].start + timed[i].seconds, p.start - (timed[i].start + timed[i].seconds)));
-    const end = timed[timed.length - 1].start + timed[timed.length - 1].seconds;
+    // From where the pieces so far end: a nudge can lay one over another, or make an earlier one end last, and that is no quiet.
+    let end = timed[0].start + timed[0].seconds;
+    timed.slice(1).forEach((p, i) => {
+      add(`${item.id}:gap${i}`, "gap", end, p.start - end);
+      end = Math.max(end, p.start + p.seconds);
+    });
     add(`${item.id}:tail`, "tail", end, item.start + item.seconds - end);
   }
   return out;
@@ -1167,6 +1376,10 @@ export function gainAt(o: Overlay, t: number): number {
 
 export function overlays(laid: Layout, lanes: LaneSpec[]): Overlay[] {
   const out: Overlay[] = [];
+  // A piece laid over one that is still playing (a nudge, dual dialogue) plays over it, as a placed sound does: the cues walk one at a time.
+  for (const { p, lane } of walk(laid, lanes).layered) {
+    if (p.audio) out.push({ id: p.id, lane, start: p.start, seconds: p.seconds, audio: p.audio, volume: p.volume ?? 1, loop: false });
+  }
   let windows: [number, number][] | undefined; // the speech windows, found once and only when a bed ducks
   for (const lane of lanes.filter((l) => l.placed)) {
     for (const p of laid.items.flatMap((i) => i.lanes[lane.id] ?? [])) {
@@ -1188,8 +1401,16 @@ export function overlays(laid: Layout, lanes: LaneSpec[]): Overlay[] {
 }
 
 export function cues(laid: Layout, lanes: LaneSpec[]): Cue[] {
+  return walk(laid, lanes).cues;
+}
+
+/** The player's walk: each item's timed pieces one at a time with the silences between, and the pieces that start before the one playing has ended
+ * (`layered`: a nudge or dual dialogue laid them over it), which `overlays` plays over the walk instead. */
+function walk(laid: Layout, lanes: LaneSpec[]): { cues: Cue[]; layered: { p: Piece; lane: string }[] } {
   const timedLanes = lanes.filter((l) => l.in && (l.seconds || l.estimate_from)).map((l) => l.id);
   const out: Cue[] = [];
+  const layered: { p: Piece; lane: string }[] = [];
+  let heard = 0; // where the last piece played in turn ends
   for (const item of laid.items) {
     const timed = timedLanes
       .flatMap((id) => (item.lanes[id] ?? []).map((p) => ({ p, lane: id })))
@@ -1201,14 +1422,18 @@ export function cues(laid: Layout, lanes: LaneSpec[]): Cue[] {
     }
     let at = item.start;
     for (const { p, lane } of timed) {
+      if (p.start < Math.max(at, heard) - 1e-6) {
+        layered.push({ p, lane });
+        continue;
+      }
       if (p.start > at) out.push({ item: item.id, piece: null, lane: null, start: at, seconds: p.start - at, audio: null });
       out.push({ item: item.id, piece: p.id, lane, start: p.start, seconds: p.seconds, audio: p.audio });
-      at = p.start + p.seconds;
+      at = heard = p.start + p.seconds;
     }
     const end = item.start + item.seconds;
     if (end > at) out.push({ item: item.id, piece: null, lane: null, start: at, seconds: end - at, audio: null });
   }
-  return out;
+  return { cues: out, layered };
 }
 
 /**

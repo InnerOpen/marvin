@@ -161,7 +161,18 @@ const share = (track: Track) => (stacked ? track.seconds / longest : 1);
 // How many numbered ticks the ruler aims for: about ten to a page, and the strip is wider than the page when its shortest beat needs room (a long story of short
 // beats is several pages wide), so count the pages it really takes (taking a page as 1400 px), not just its share of the longest track.
 const PAGE_PX = 1400;
-const tickWant = (track: Track) => Math.max(3, Math.round(10 * Math.max(share(track), minInnerWidth(track.items, track.seconds) / PAGE_PX)));
+// The cards are where the pictures are up (a picture lead brings one in before its words); an overlay that comes in on a word is drawn as narrow
+// as it is, so it never widens the strip.
+const sized = (items: Item[]) => items.filter((i) => !i.overlay).map((i) => ({ seconds: i.onScreen.seconds }));
+const tickWant = (track: Track) => Math.max(3, Math.round(10 * Math.max(share(track), minInnerWidth(sized(track.items), track.seconds) / PAGE_PX)));
+const itemTitle = (item: Item) => {
+  const shown = item.onScreen;
+  const said = [`${item.title}${item.text ? ` — ${item.text}` : ""}`, `${timecode(shown.start)} → ${timecode(shown.start + shown.seconds)} (${shown.seconds.toFixed(1)} s${item.estimated ? ", estimated" : ""})`];
+  const o = item.overlay;
+  if (o) said.push(`Comes in during ${o.title} at word ${o.word + 1}${o.text ? ` (“${o.text}”)` : ""}${o.estimated ? ", placed by the text: no word timings yet" : ""}, over the picture before; it adds no time of its own`);
+  else if (Math.abs(shown.start - item.start) > 0.005) said.push(`The picture comes ${Math.abs(item.start - shown.start).toFixed(2)} s ${shown.start < item.start ? "before" : "after"} its sound starts (${timecode(item.start)})`);
+  return said.join("\n");
+};
 const stackHref = (on: boolean) => {
   const u = new URL(Astro.url);
   if (on) u.searchParams.set("stack", "chapters");
@@ -311,7 +322,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
               </h3>
             )}
             <div class="tl-scroll" data-scroll tabindex="0" aria-label="Timeline: scroll sideways">
-              <div class="tl-inner" data-zoom="1" data-share={share(track)} data-total={track.seconds} data-shortest={Math.min(...track.items.map((i) => i.seconds).filter((x) => x > 0), Infinity)} style={`width:${(share(track) * 100).toFixed(3)}%;min-width:${minInnerWidth(track.items, track.seconds)}px`}>
+              <div class="tl-inner" data-zoom="1" data-share={share(track)} data-total={track.seconds} data-shortest={Math.min(...sized(track.items).map((i) => i.seconds).filter((x) => x > 0), Infinity)} style={`width:${(share(track) * 100).toFixed(3)}%;min-width:${minInnerWidth(sized(track.items), track.seconds)}px`}>
                 {spec.spine.group && !stacked && (
                   <div class="tl-groups" role="list">
                     {track.groups.map((g) => {
@@ -353,16 +364,17 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                 <div class="tl-strip" role="list" aria-label={spec.spine.entry_type} style={shape ? `--tl-shape:${shape}` : undefined}>
                   {track.items.map((item) => (
                     <div
-                      class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated }]}
+                      class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated, overlay: !!item.overlay }]}
                       role="listitem"
                       data-item={item.id}
                       data-key={itemRun && item.key && !item.card ? item.key : undefined}
                       data-name={item.number !== null ? String(item.number) : item.title}
-                      data-start={item.start}
-                      style={`left:${pctIn(track, item.start)};width:${pctIn(track, track.start + item.seconds)}`}
-                      title={`${item.title}${item.text ? ` — ${item.text}` : ""}\n${timecode(item.start)} → ${timecode(item.start + item.seconds)} (${item.seconds.toFixed(1)} s${item.estimated ? ", estimated" : ""})`}
+                      data-start={item.onScreen.start}
+                      data-sound-start={item.start}
+                      style={`left:${pctIn(track, item.onScreen.start)};width:${pctIn(track, track.start + item.onScreen.seconds)}`}
+                      title={itemTitle(item)}
                     >
-                      <button type="button" class="tl-seek" data-seek={item.start} aria-label={`Go to ${item.title}`}>
+                      <button type="button" class="tl-seek" data-seek={item.onScreen.start} aria-label={`Go to ${item.title}`}>
                         {shape && item.picture ? (
                           <>
                             <img class="tl-frame" src={item.picture} alt="" loading="lazy" />
@@ -373,7 +385,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         ) : item.picture ? <img src={item.picture} alt="" loading="lazy" /> : <span class="tl-text">{item.text || item.title}</span>}
                       </button>
                       <span class="tl-badge">
-                        {item.number !== null && <span class="tl-n">{item.number}</span>}
+                        {item.overlay ? <span class="tl-n" aria-label="comes in on a word">↘ {item.key || item.title}</span> : item.number !== null && <span class="tl-n">{item.number}</span>}
                         {item.status && <span class="tl-dot" data-status={item.status} title={item.status} />}
                       </span>
                       {itemRun && item.key && !item.card && (
@@ -396,7 +408,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           <button type="button" class="tl-redo" data-review={JSON.stringify({ id: item.id, field: spec.spine.status, value: spec.spine.review.redo })} title={`Make this ${spec.spine.entry_type.replace(/-/g, " ")} again: its status becomes ${spec.spine.review.redo}`}>Redo</button>
                         </span>
                       )}
-                      <span class="tl-len">{item.seconds.toFixed(1)}s</span>
+                      <span class="tl-len">{item.onScreen.seconds.toFixed(1)}s</span>
                     </div>
                   ))}
                 </div>
@@ -768,15 +780,16 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       if (cue.piece) root.querySelector(`[data-piece="${cue.piece}"]`)?.classList.add("is-now");
     };
     // Where each item starts and what it is called (a beat's number): for the clock's "how far into this beat" and for jumping between them.
-    const itemMarks = Array.from(root.querySelectorAll<HTMLElement>("[data-item][data-start]"), (item) => ({ start: Number(item.dataset.start), name: item.dataset.name || "" }));
+    const itemMarks = Array.from(root.querySelectorAll<HTMLElement>("[data-item][data-start]"), (item) => ({ start: Number(item.dataset.start), sound: Number(item.dataset.soundStart ?? item.dataset.start), name: item.dataset.name || "" }));
     const itemStarts = itemMarks.map((m) => m.start);
+    const soundStarts = itemMarks.map((m) => m.sound); // a sound's "at" counts from where its beat's sound starts, not its picture
     const noun = root.dataset.noun || "item";
     const clockInput = root.querySelector<HTMLInputElement>("[data-clock]");
     const clockBeat = root.querySelector<HTMLElement>("[data-clock-beat]");
     const showClock = (t: number) => {
       if (clockInput && document.activeElement !== clockInput) clockInput.value = clockText(t); // not while it is being typed in
       if (!clockBeat) return;
-      const here = placeIn(itemStarts, t);
+      const here = placeIn(soundStarts, t);
       clockBeat.textContent = here ? `${noun} ${itemMarks[here.index].name} +${here.offset.toFixed(3)} s` : "";
     };
     const show = (t: number) => {
@@ -1171,6 +1184,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-item { position: absolute; top: 0; height: var(--tl-h, 120px); box-sizing: border-box; padding-right: 3px; }
   .tl-seek { display: block; width: 100%; height: 100%; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); overflow: hidden; cursor: pointer; text-align: left; color: var(--muted); }
   .tl-item.estimated .tl-seek { border-style: dashed; }
+  /* a picture that comes in on a word of the line before (an overlay beat): as narrow as it is up, marked where it comes in */
+  .tl-item.overlay { min-width: 10px; z-index: 1; }
+  .tl-item.overlay .tl-seek { border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; }
+  .tl-item.overlay .tl-badge { background: var(--accent); color: #fff; }
   .tl-item.is-now .tl-seek { outline: 2px solid var(--accent); outline-offset: -2px; }
   .tl-seek img { display: block; width: 100%; height: 100%; object-fit: cover; }
   /* the story's own shape (a view's `aspect`): the picture in the shape the render will cut, as a frame at the start of the beat, its words beside it */
