@@ -9,6 +9,7 @@ import {
   deviceError,
   deviceOptions,
   readStored,
+  recordButtons,
   recordingFactsOf,
   safeBaseName,
   uploadFields,
@@ -193,6 +194,33 @@ describe("recordingFactsOf", () => {
   test("test_recording_facts_null_for_a_picked_file_or_no_recorder", () => {
     assert.equal(recordingFactsOf(file, [undefined, null, {}]), null);
     assert.equal(recordingFactsOf(file, [recorderOf(other, { a: 1 })]), null);
+  });
+});
+
+describe("recordButtons", () => {
+  test("test_record_buttons_sound_only_zone_keeps_its_plain_record", () => {
+    assert.deepEqual(recordButtons(true, false), [{ kind: "audio", label: "Record…", again: "Record again…" }]);
+  });
+
+  test("test_record_buttons_video_only_zone_records_video", () => {
+    assert.deepEqual(
+      recordButtons(false, true).map((b) => [b.kind, b.label]),
+      [["video", "Record video…"]],
+    );
+  });
+
+  test("test_record_buttons_both_name_what_each_records", () => {
+    assert.deepEqual(
+      recordButtons(true, true).map((b) => [b.kind, b.label, b.again]),
+      [
+        ["audio", "Record audio…", "Record audio again…"],
+        ["video", "Record video…", "Record video again…"],
+      ],
+    );
+  });
+
+  test("test_record_buttons_none_for_a_zone_that_takes_neither", () => {
+    assert.deepEqual(recordButtons(false, false), []);
   });
 });
 

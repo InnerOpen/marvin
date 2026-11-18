@@ -97,6 +97,10 @@ picked file, attached in the field's role when you save, as MP4 where the browse
 metadata keeps `recording` (`kind: video`, format, camera and microphone, size, frame rate, length, and `stopped` when it
 stopped by itself). It works on an entry's page and in a guided setup's form step. A refused or missing camera says so
 ("Allow the camera for this site…"), and closing the dialog always lets go of the camera. Unreleased (2026-11-18).
+The **Assets → Upload** page has **Record video…** beside **Record audio…** (the take goes the way of a picked file, its
+recording facts into the metadata box), and a guided setup's drop zones (an upload step, a gallery's upload, a choose step's
+"start from a file") offer **Record video…** when they take video or any file; a zone that takes sound and video names both
+buttons (**Record audio…**, **Record video…**), and a sound-only zone keeps its **Record…**. Unreleased (2026-11-18).
 
 ## Rendered images
 

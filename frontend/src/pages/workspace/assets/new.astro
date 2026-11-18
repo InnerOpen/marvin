@@ -1,5 +1,6 @@
 ---
 import AudioRecorder from "@/components/AudioRecorder.astro";
+import VideoRecorder from "@/components/VideoRecorder.astro";
 import ImageCropper from "@/components/ImageCropper.astro";
 import SlugInput from "@/components/SlugInput.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -60,7 +61,10 @@ try {
             </svg>
             <p style="margin: 1rem 0 0.5rem; font-weight: 600;">Click to upload or drag and drop</p>
             <p style="margin: 0; font-size: 0.875rem; color: var(--muted);">Images, videos, PDFs, documents — one file, or a whole batch</p>
-            <button type="button" class="button secondary small record-audio" id="recordAudio">Record audio…</button>
+            <span class="record-buttons">
+              <button type="button" class="button secondary small" id="recordAudio" data-record="audio">Record audio…</button>
+              <button type="button" class="button secondary small" id="recordVideo" data-record="video">Record video…</button>
+            </span>
           </div>
           <div class="upload-preview" id="uploadPreview" style="display: none;">
             <div id="previewContent"></div>
@@ -179,6 +183,7 @@ try {
 
   <ImageCropper />
   <AudioRecorder />
+  <VideoRecorder />
 </AppLayout>
 
 <style>
@@ -245,7 +250,11 @@ try {
     background: var(--panel-2);
   }
 
-  .record-audio {
+  .record-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
     margin-top: 1rem;
   }
 
@@ -493,12 +502,14 @@ try {
     }
   });
 
-  // Record a take instead of picking a file: it comes back as a File and goes the picked file's way. It also goes into the
-  // file input, whose `required` would otherwise stop the form, and its recording facts into the metadata.
+  // Record a take instead of picking a file, from the microphone or the camera: it comes back as a File and goes the picked file's
+  // way. It also goes into the file input, whose `required` would otherwise stop the form, and its recording facts into the metadata.
   type Recorder = { open: (o: { suggestedName?: string }) => Promise<File | null>; metadataOf: (f: File) => Record<string, unknown> | null };
-  document.getElementById('recordAudio')!.addEventListener('click', async (e) => {
+  type Recorders = { AudioRecorder?: Recorder; VideoRecorder?: Recorder };
+  const recorderFor = (kind: string | undefined) => (window as unknown as Recorders)[kind === 'video' ? 'VideoRecorder' : 'AudioRecorder'];
+  document.querySelectorAll<HTMLButtonElement>('[data-record]').forEach((button) => button.addEventListener('click', async (e) => {
     e.stopPropagation();
-    const recorder = (window as unknown as { AudioRecorder?: Recorder }).AudioRecorder;
+    const recorder = recorderFor(button.dataset.record);
     if (!recorder) return;
     // To the second: the name makes the slug, and two takes a minute apart must not ask for the same one.
     const label = nameInput.value.trim() || `Recording ${new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })}`;
@@ -512,7 +523,7 @@ try {
     updateSlug();
     const facts = recorder.metadataOf(file);
     if (facts) editMetadata((current) => ({ ...current, ...facts }));
-  });
+  }));
 
   /** A change to the metadata box's object (an empty box is an empty one). Text that isn't a JSON object is the person's
    * own and is left alone; so is the box when the change hands back the same object. */

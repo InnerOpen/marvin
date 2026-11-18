@@ -149,6 +149,24 @@ export function writeStored(store: () => KeyValueStore, key: string, value: stri
   }
 }
 
+/** A Record button of a drop zone (components/FileDrop.astro): which recorder it opens and its words, before and after a file is there. */
+export interface RecordButton {
+  kind: "audio" | "video";
+  label: string;
+  again: string;
+}
+
+/** The Record buttons of a zone that takes sound, video or both. A sound-only zone keeps its plain "Record…" (as it always said); with
+ *  both, each button names what it records. */
+export function recordButtons(takesAudio: boolean, takesVideo: boolean): RecordButton[] {
+  if (takesAudio && !takesVideo) return [{ kind: "audio", label: "Record…", again: "Record again…" }];
+  const both = takesAudio && takesVideo;
+  return [
+    ...(both ? [{ kind: "audio" as const, label: "Record audio…", again: "Record audio again…" }] : []),
+    ...(takesVideo ? [{ kind: "video" as const, label: "Record video…", again: "Record video again…" }] : []),
+  ];
+}
+
 /** What a recorder answers to: the facts it kept for a file it made. */
 export type FactsSource = { metadataOf?: (f: File) => Record<string, unknown> | null } | null | undefined;
 

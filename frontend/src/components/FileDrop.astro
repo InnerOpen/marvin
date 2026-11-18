@@ -1,5 +1,7 @@
 ---
 import { acceptsAudio } from "@/lib/acceptKind";
+import { acceptsVideo } from "@/lib/assetAccept";
+import { recordButtons } from "@/lib/recording";
 /**
  * A drop zone for one file in a plain form, the look of the Assets upload page and the asset field's dialog: click or drop, then the
  * file's name (and a thumbnail for a picture) shows with a Change button. The file rides in a hidden `<input type="file">` of the given
@@ -19,8 +21,9 @@ interface Props {
 }
 
 const { name = "file", accept, required = true, hint = "One file.", nameFrom, script } = Astro.props;
-// A zone that takes a sound offers "Record…" too, when the page has the recorder (components/AudioRecorder.astro); the script shows it.
-const recordable = acceptsAudio(accept);
+// A zone that takes a sound offers "Record…" too, and one that takes video (or anything) "Record video…", each when the page has that
+// recorder (components/AudioRecorder.astro, VideoRecorder.astro); the script shows them.
+const records = recordButtons(acceptsAudio(accept), acceptsVideo(accept));
 ---
 
 <div class="file-drop" data-file-drop data-required={required ? "1" : undefined} data-name-from={nameFrom} data-script={script?.length ? JSON.stringify(script) : undefined} role="button" tabindex="0" aria-label="Choose a file, or drop one here">
@@ -33,14 +36,18 @@ const recordable = acceptsAudio(accept);
     </svg>
     <p><strong>Click to upload or drag and drop</strong></p>
     <p class="field-help">{hint}</p>
-    {recordable && <p class="file-drop-or"><button type="button" class="button secondary small" data-file-drop-record hidden>Record…</button></p>}
+    {records.length > 0 && (
+      <p class="file-drop-or">
+        {records.map((r) => <button type="button" class="button secondary small" data-file-drop-record={r.kind} hidden>{r.label}</button>)}
+      </p>
+    )}
   </div>
   <div class="file-drop-picked" data-file-drop-picked hidden>
     <img alt="" hidden data-file-drop-thumb />
     <p class="file-drop-name" data-file-drop-name></p>
     <div class="file-drop-buttons">
       <button type="button" class="button secondary small">Change file</button>
-      {recordable && <button type="button" class="button secondary small" data-file-drop-record hidden>Record again…</button>}
+      {records.map((r) => <button type="button" class="button secondary small" data-file-drop-record={r.kind} hidden>{r.again}</button>)}
     </div>
   </div>
 </div>
@@ -58,11 +65,22 @@ const recordable = acceptsAudio(accept);
   .file-drop-picked img { max-width: 100%; max-height: 220px; border-radius: var(--radius, 10px); object-fit: contain; }
   .file-drop-name { margin: 0; font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }
   .file-drop-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
-  .file-drop-or { margin: 0.75rem 0 0; }
+  .file-drop-or { margin: 0.75rem 0 0; display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
 </style>
 
 <script>
-  type RecorderApi = { open: (options?: { suggestedName?: string; script?: { label: string; text: string }[] }) => Promise<File | null> };
+  import { recordingFactsOf } from "@/lib/recording";
+
+  type RecorderApi = {
+    open: (options?: { suggestedName?: string; script?: { label: string; text: string }[] }) => Promise<File | null>;
+    metadataOf: (f: File) => Record<string, unknown> | null;
+  };
+  type Recorders = { AudioRecorder?: RecorderApi; VideoRecorder?: RecorderApi };
+  /** The page's recorder for a button's kind (`audio`, `video`), looked up when needed: its script may run after this one. */
+  const recorderFor = (kind: string | undefined) => {
+    const all = window as unknown as Recorders;
+    return kind === "video" ? all.VideoRecorder : all.AudioRecorder;
+  };
 
   function wire(zone: HTMLElement) {
     const input = zone.querySelector<HTMLInputElement>("[data-file-drop-input]")!;
@@ -90,7 +108,7 @@ const recordable = acceptsAudio(accept);
       one.items.add(file);
       input.files = one.files;
       // A recording knows how long it ran: keep that beside the file, so a form can pass it on (a picked file has no such clock).
-      const facts = (window as unknown as { AudioRecorder?: { metadataOf?: (f: File) => { recording?: { duration_seconds?: number } } | null } }).AudioRecorder?.metadataOf?.(file);
+      const facts = recordingFactsOf(file, [recorderFor("audio"), recorderFor("video")]) as { recording?: { duration_seconds?: number } } | null;
       const seconds = facts?.recording?.duration_seconds;
       if (typeof seconds === "number" && seconds > 0) input.dataset.seconds = String(seconds);
       else delete input.dataset.seconds;
@@ -98,17 +116,17 @@ const recordable = acceptsAudio(accept);
     };
     input.addEventListener("change", () => delete input.dataset.seconds); // a file picked from disk replaces a recording
 
-    // "Record…": a take from the page's recorder stands in for a picked file. The recorder's script may run after this one, so the
-    // buttons show once the page is ready, and the recorder is looked up again at click time.
+    // "Record…": a take from the page's recorder (sound or camera, by the button) stands in for a picked file. The recorders' scripts
+    // may run after this one, so the buttons show once the page is ready, and the recorder is looked up again at click time.
     const recordButtons = [...zone.querySelectorAll<HTMLButtonElement>("[data-file-drop-record]")];
-    const recorder = () => (window as unknown as { AudioRecorder?: RecorderApi }).AudioRecorder;
-    const revealRecord = () => recordButtons.forEach((b) => (b.hidden = !recorder()));
+    const revealRecord = () => recordButtons.forEach((b) => (b.hidden = !recorderFor(b.dataset.fileDropRecord)));
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", revealRecord);
     else setTimeout(revealRecord);
     recordButtons.forEach((button) =>
       button.addEventListener("click", async () => {
-        const open = recorder()?.open;
-        if (!open) return;
+        const kind = button.dataset.fileDropRecord;
+        const recorder = recorderFor(kind);
+        if (!recorder) return;
         // Named for what the person typed in the form's name box, else the file already chosen; never left as "recording".
         const typed = zone.dataset.nameFrom ? zone.closest("form")?.querySelector<HTMLInputElement>(`[name="${zone.dataset.nameFrom}"]`)?.value.trim() : "";
         // What the form says now (the person may have changed the words or the direction for this take) is what the recorder shows to read from.
@@ -117,7 +135,9 @@ const recordable = acceptsAudio(accept);
           label,
           text: form?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="dataJson.${field}"]`)?.value ?? "",
         }));
-        const file = await open({ suggestedName: typed || input.files?.[0]?.name.replace(/\.[a-z0-9]+$/i, "") || undefined, script });
+        const suggestedName = typed || input.files?.[0]?.name.replace(/\.[a-z0-9]+$/i, "") || undefined;
+        // The words to read from are for a sound take; the camera's dialog has no place for them.
+        const file = await recorder.open(kind === "video" ? { suggestedName } : { suggestedName, script });
         if (file) take(file);
       }),
     );

@@ -486,9 +486,17 @@ const cardFiles = (step?.kind === "gallery" ? ((step.card_actions ?? []) as { la
 // The page has the recorder once when a box takes a sound, and the cropper when one takes a picture, as an entry's page does.
 const boxAccepts = [...cardFiles.map((c) => c.accept), ...(addAccept ? [addAccept] : [])];
 const boxKinds = boxAccepts.map(kindOfAccept);
-const takesRecording = acceptsAudio(step?.kind === "upload" ? step.accept : uploadAccept) || boxKinds.some((k) => k === "audio" || k === "any");
+// The drop zones (FileDrop) on the page: an upload step's, a gallery's upload form's, a choose step's "start from a file" (`create.upload`).
+const createUpload = step?.kind === "choose" ? (step.create?.upload as { accept?: string } | undefined) : undefined;
+const dropAccepts: string[] = [
+  ...(step?.kind === "upload" ? [(step.accept ?? []).join(",")] : []),
+  ...(uploadAccept !== null ? [uploadAccept] : []),
+  ...(createUpload ? [createUpload.accept?.trim() || "image/*"] : []),
+];
+const takesRecording = dropAccepts.some(acceptsAudio) || boxKinds.some((k) => k === "audio" || k === "any");
 const takesPicture = boxKinds.some((k) => k === "image" || k === "any");
-const takesVideo = boxAccepts.some(acceptsVideo); // a box that takes video records from the camera too
+// A zone or box that takes video (or anything) records from the camera too.
+const takesVideo = [...dropAccepts, ...boxAccepts].some(acceptsVideo);
 // The add form's save buttons, and how its file box can be filled: a button that needs the file says what it is waiting for.
 const addButtons = ((step?.add?.buttons ?? [{ label: "Add" }]) as { label: string; file?: string; skip_required?: boolean; paid?: unknown }[]).map((b, n) => ({ ...b, n, needs: b.file, paid: paidOf(b.paid) }));
 // A button that sends to a paid outside service is kept out of the form's own row of buttons: a section of its own under the form, with
