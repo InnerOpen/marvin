@@ -1,5 +1,7 @@
+import { type RequestScope, readOnce } from "../requestCache";
 import { fetchApi } from "./client";
 import type { TimelineSpec } from "../timeline";
+import { type ListedView, type SidebarViewLink, sidebarViewLinks } from "../viewLinks";
 
 export interface ViewSummary {
   slug: string;
@@ -19,6 +21,12 @@ export interface ViewRead extends ViewSummary {
 /** The views this workspace's packages bring; `entryType` keeps only the views of that type (what an entry's page offers). */
 export const listViews = (authToken: string, entryType?: string): Promise<ViewSummary[]> =>
   fetchApi<ViewSummary[]>(`/api/groups/views${entryType ? `?entry_type=${encodeURIComponent(entryType)}` : ""}`, {}, authToken);
+
+/** The links to views the sidebar shows: those whose definition says `sidebar` (the list carries just that key of each definition). */
+export const listSidebarViews = (authToken: string, scope?: RequestScope): Promise<SidebarViewLink[]> => {
+  const path = "/api/groups/views";
+  return readOnce(scope, path, authToken, () => fetchApi<ListedView[]>(path, {}, authToken)).then(sidebarViewLinks);
+};
 
 /** The views whose spine is that type (a beat's: the story timeline), with their definitions, in one call. */
 export const listViewsOfSpine = (authToken: string, spineType: string): Promise<ViewRead[]> =>
