@@ -3,7 +3,7 @@
 // (render/tests/test_picture_lead.py, test_dual_dialogue.py, test_word_cues.py).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cues, layout, MIN_PICTURE, overlays, picturesOf, placeLines, quiets, secondsOf, speechWindows, wordAt } from "./timeline.ts";
+import { cues, layout, MIN_PICTURE, overlays, picturesOf, placeLines, quiets, recordingRefs, secondsOf, speechWindows, wordAt } from "./timeline.ts";
 
 const close = (actual, expected, what = "") =>
   assert.ok(Math.abs(actual - expected) < 1e-9, `${what} ${actual} is not ${expected}`);
@@ -438,4 +438,108 @@ test("clip: a spec with no clip key lays a beat that names one as before", () =>
   const laid = lay([clipBeat(1)]);
   close(laid.items[0].seconds, 4);
   assert.equal(laid.items[0].clip, undefined);
+});
+
+// ── facts read from a Recording (design C3, Marvin P14): `clip.recording` / a lane's `recording` name the entry's Recording, trusted only when its
+// `asset` is the very file the entry holds; whatever it lacks is the entry's own, and a view without the key lays out exactly as before.
+const recClipSpec = { ...clipSpec, spine: { ...clipSpec.spine, clip: { ...clipSpec.spine.clip, recording: "recording" } } };
+const posterAsset = (id, role) => ({ id, role, publicUrl: `https://cdn/${id}.jpg`, mimeType: "image/jpeg" });
+const recording = (slug, data, assets = []) => ({ id: `id-${slug}`, slug, title: slug, dataJson: data, assets });
+const facts = { duration_seconds: 7.25, has_audio: true, poster: "img-p", text: "Hello there" };
+// Today: the clip's facts on the beat, as Studio's describe and transcribe jobs (or the Media mirror) write them.
+const legacyBeat = (extra = {}) => clipBeat(1, { clip_seconds: 7.25, clip_has_audio: true, clip_poster: "img-p", clip_text: "Hello there", ...extra }, [video(6.4), posterAsset("img-p", "clip_poster")]);
+// The Recording shape: the beat names its Recording and holds none of the facts; the poster is attached to the Recording.
+const recordingBeat = (extra = {}) => clipBeat(1, { recording: "rec-vid-1", ...extra });
+const theRecording = (data = facts) => recording("rec-vid-1", { asset: "vid-1", ...data }, data.poster ? [posterAsset(data.poster, "poster")] : []);
+const layWith = (view, beats, recordings, lines = []) => layout(view, { entry: story(), spine: beats, lanes: { lines }, recordings });
+const seen = (laid) => {
+  const [item] = laid.items;
+  return { seconds: item.seconds, clip: item.clip.seconds, measured: item.clip.measured, poster: item.clip.poster, text: item.clip.text, heard: item.clip.sound?.seconds ?? null };
+};
+
+test("recording: today's beat and the Recording shape give the same item seconds, clip seconds, poster and text (design §8.4)", () => {
+  const today = seen(layClip([legacyBeat()]));
+  assert.deepEqual(today, { seconds: 7.25, clip: 7.25, measured: "described", poster: "https://cdn/img-p.jpg", text: "Hello there", heard: 7.25 });
+  assert.deepEqual(seen(layWith(recClipSpec, [recordingBeat()], [theRecording()])), today, "the facts on the Recording only");
+  assert.deepEqual(seen(layWith(recClipSpec, [legacyBeat({ recording: "rec-vid-1" })], [theRecording()])), today, "both, as the mirror leaves them");
+});
+
+test("recording: one of another file (a stale or foreign pointer) is ignored, whatever it says", () => {
+  const today = seen(layClip([legacyBeat()]));
+  const other = recording("rec-vid-0", { asset: "vid-0", duration_seconds: 3, has_audio: false, poster: "img-x", text: "Old take" }, [posterAsset("img-x", "poster")]);
+  assert.deepEqual(seen(layWith(recClipSpec, [legacyBeat({ recording: "rec-vid-0" })], [other])), today, "it names a Recording of another file");
+  // its slug is the beat's, its file another: the beat's clip was replaced since it was linked
+  const stale = recording("rec-vid-1", { asset: "vid-0", duration_seconds: 3, has_audio: false, text: "Old take" });
+  assert.deepEqual(seen(layWith(recClipSpec, [legacyBeat({ recording: "rec-vid-1" })], [stale])), today, "the Recording is of another file now");
+  const noFile = recording("rec-vid-1", { duration_seconds: 3 });
+  assert.deepEqual(seen(layWith(recClipSpec, [legacyBeat({ recording: "rec-vid-1" })], [noFile])), today, "a Recording that names no file");
+});
+
+test("recording: with no Recordings (no such type in the workspace, or none fetched) the beat's own fields are read", () => {
+  const today = seen(layClip([legacyBeat()]));
+  assert.deepEqual(seen(layWith(recClipSpec, [legacyBeat({ recording: "rec-vid-1" })], [])), today);
+  assert.deepEqual(seen(layWith(recClipSpec, [legacyBeat({ recording: "rec-vid-1" })], undefined)), today);
+  // the Recording shape with nothing fetched: the recorder's length on the asset, as before the key
+  assert.deepEqual(seen(layWith(recClipSpec, [recordingBeat()], [])), seen(layClip([clipBeat(1)])));
+});
+
+test("recording: each fact the Recording lacks is the beat's own; one it has wins", () => {
+  // not described yet: only a poster made; the beat's measured length and text stand
+  const partial = seen(layWith(recClipSpec, [legacyBeat({ recording: "rec-vid-1", clip_poster: "" })], [theRecording({ poster: "img-r" })]));
+  assert.deepEqual(partial, { seconds: 7.25, clip: 7.25, measured: "described", poster: "https://cdn/img-r.jpg", text: "Hello there", heard: 7.25 });
+  // what the Recording says wins over an older fact on the beat: its length, that the file has no sound, its text (an empty one does not count)
+  const newer = layWith(recClipSpec, [legacyBeat({ recording: "rec-vid-1" })], [theRecording({ duration_seconds: 5.5, has_audio: false, text: "  " })]);
+  assert.deepEqual(seen(newer), { seconds: 5.5, clip: 5.5, measured: "described", poster: "https://cdn/img-p.jpg", text: "Hello there", heard: null });
+});
+
+test("recording: a view without the key lays out byte for byte as before, whatever the beats name and whatever is fetched", () => {
+  const beats = () => [legacyBeat({ recording: "rec-vid-1" }), clipBeat(2, { recording: "rec-vid-1" })];
+  const lines = () => [line(1, 2, { slug: "la", audio: "aud-1", recording: "rec-aud-1" }), line(2, 1, { slug: "lb" })];
+  const recs = [theRecording({ duration_seconds: 3, has_audio: false, text: "Other" }), recording("rec-aud-1", { asset: "aud-1", duration_seconds: 9 })];
+  seq = 0;
+  const before = JSON.stringify(layout(clipSpec, { entry: story(), spine: beats(), lanes: { lines: lines() } }));
+  seq = 0;
+  assert.equal(JSON.stringify(layout(clipSpec, { entry: story(), spine: beats(), lanes: { lines: lines() }, recordings: recs })), before);
+  assert.deepEqual(recordingRefs(clipSpec, { spine: beats(), lanes: { lines: lines() } }), [], "and nothing is fetched");
+});
+
+test("recording: a line's length and waveform come from its Recording when it is of the line's audio; else its own", () => {
+  const view = { ...spec, lanes: [{ ...linesLane, waveform: "waveform", recording: "recording" }] };
+  const rec = recording("rec-aud-1", { asset: "aud-1", duration_seconds: 2.5, waveform: [0, 1, 0.5] });
+  const layRecs = (data, recs) => layout(view, { entry: story(), spine: [beat(1)], lanes: { lines: [line(1, 2, { audio: "aud-1", recording: "rec-aud-1", waveform: [0.2, 0.2], ...data })] }, recordings: recs });
+  const own = layRecs({}, undefined).items[0].lanes.lines[0];
+  assert.deepEqual([own.seconds, own.wave], [2, [0.2, 0.2]], "no Recordings fetched");
+  const read = layRecs({}, [rec]);
+  const p = read.items[0].lanes.lines[0];
+  assert.deepEqual([p.seconds, p.estimated, p.wave], [2.5, false, [0, 1, 0.5]]);
+  close(read.items[0].seconds, 0.3 + 2.5 + 0.35, "the beat is timed by it");
+  const stale = layRecs({ audio: "aud-2" }, [rec]).items[0].lanes.lines[0];
+  assert.deepEqual([stale.seconds, stale.wave], [2, [0.2, 0.2]], "a take changed since: its own");
+  // a line whose length was never stored (an upload) is measured by its Recording instead of estimated from its text
+  const unmeasured = layRecs({ duration_seconds: null }, [rec]).items[0].lanes.lines[0];
+  assert.deepEqual([unmeasured.seconds, unmeasured.estimated, unmeasured.unmeasured], [2.5, false, false]);
+  // a Recording not heard yet (no length, no waveform) leaves the line's own
+  const fresh = layRecs({}, [recording("rec-aud-1", { asset: "aud-1" })]).items[0].lanes.lines[0];
+  assert.deepEqual([fresh.seconds, fresh.wave], [2, [0.2, 0.2]]);
+});
+
+test("recording: a placed sound's length comes from its Recording, and so how long it holds its beat", () => {
+  const sounds = { id: "sounds", title: "Sounds", entry_type: "sound", placed: { field: "sounds", ref: "sound", at: "at" }, audio: "audio", seconds: "duration_seconds", recording: "recording" };
+  const view = { ...spec, lanes: [linesLane, sounds] };
+  const boom = { id: "id-boom", slug: "boom", title: "Boom", dataJson: { audio: "snd-1", duration_seconds: 5, recording: "rec-snd-1" }, assets: [{ id: "snd-1", role: "audio", publicUrl: "https://cdn/boom.mp3", mimeType: "audio/mpeg" }] };
+  const b = beat(1, { sounds: [{ sound: "boom", at: 1 }] });
+  const lay_ = (recordings) => layout(view, { entry: story(), spine: [b], lanes: { lines: [], sounds: [boom] }, recordings });
+  close(lay_([]).items[0].seconds, 6, "its own 5 s from 1 s in");
+  const measured = lay_([recording("rec-snd-1", { asset: "snd-1", duration_seconds: 4.2 })]);
+  close(measured.items[0].lanes.sounds[0].seconds, 4.2);
+  close(measured.items[0].seconds, 5.2, "the file as measured, from 1 s in");
+  assert.deepEqual(recordingRefs(view, { spine: [b], lanes: { lines: [], sounds: [boom, boom] } }), ["rec-snd-1"]);
+});
+
+test("recording: the Recordings to fetch are the ones the items and pieces name, once each", () => {
+  const view = { ...recClipSpec, lanes: [{ ...linesLane, recording: "recording" }] };
+  const beats = [recordingBeat(), clipBeat(2, { recording: "rec-vid-1" }), clipBeat(3)];
+  const lines = [line(1, 2, { recording: "rec-aud-1" }), line(1, 1, { recording: " " }), line(2, 1)];
+  assert.deepEqual(recordingRefs(view, { spine: beats, lanes: { lines } }), ["rec-vid-1", "rec-aud-1"]);
+  assert.deepEqual(recordingRefs(spec, { spine: beats, lanes: { lines } }), []);
 });

@@ -14,7 +14,7 @@ import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type CueMark, type Ghost, type Group, type Item, type ItemClip, type Piece, CLIP_GUESS_SECONDS, mixStretches, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ringSpan, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
+import { type Bed, type CueMark, type Ghost, type Group, type Item, type ItemClip, type Piece, CLIP_GUESS_SECONDS, mixStretches, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, recordingRefs, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ringSpan, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 import { cameraWords, parseWordCues } from "@/lib/wordCues";
 import { cueChips, effectWords, emphasisWords } from "@/lib/cueKinds";
@@ -101,7 +101,12 @@ if (spec && authToken) {
     // The entries each band's field names (the scenes), to title the bands over the beats that share them.
     const bandRows: Record<string, LaidRow[]> = {};
     for (const band of spec.spine.bands ?? []) bandRows[band.id ?? band.field] = (await bySlugs(band.entry_type, slugsIn(rows, band.field))) as LaidRow[];
-    laid = layout(spec, { entry: entry as LaidRow, spine: rows as LaidRow[], groups: groups as LaidRow[], lanes, via, bands: bandRows });
+    // The Recordings the items and pieces name, when the view reads one (`clip.recording`, a lane's `recording`): by slug, in one query (one per
+    // 500). Without the type, or the query refused, there are none and the entries' own fields are read; layout trusts only a Recording of the
+    // very file the entry holds.
+    const refs = recordingRefs(spec, { spine: rows as LaidRow[], lanes });
+    const recordings = (await Promise.all(Array.from({ length: Math.ceil(refs.length / MAX_ROWS) }, (_, i) => findEntries({ entries: refs.slice(i * MAX_ROWS, (i + 1) * MAX_ROWS) }, authToken, MAX_ROWS)))).flatMap((found) => found.entries as LaidRow[]);
+    laid = layout(spec, { entry: entry as LaidRow, spine: rows as LaidRow[], groups: groups as LaidRow[], lanes, via, bands: bandRows, recordings });
 
     // A button on each item (a beat's draft) runs a workflow for just that item; off or missing, there is no button.
     const perItem = spec.spine.run;

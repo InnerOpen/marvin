@@ -96,6 +96,9 @@ export interface ClipSpec {
   words?: string;
   width?: string;
   height?: string;
+  /** A field on each item naming its Recording (an entry with the file's facts: RECORDING): when that Recording is of the very file `field`
+   * holds, its length, sound, poster and text are read from it first, each falling back to the item's own field when it lacks one. */
+  recording?: string;
 }
 
 export interface CardSpec {
@@ -223,6 +226,9 @@ export interface LaneSpec {
   words?: string;
   /** A guided setup (of the same package) a piece of this lane opens on, with the piece chosen, instead of its own page: a line opens its takes. */
   open?: { wizard: string };
+  /** A field on each lane entry naming its Recording (RECORDING): when that Recording is of the very file `audio` holds, its length and waveform
+   * are read from it first, each falling back to the entry's own field. Word timings stay the asset's (what the render places cues by). */
+  recording?: string;
 }
 
 export interface ActionSpec {
@@ -577,9 +583,45 @@ export function assetOf(row: Row, key: string | undefined, kind: "image/" | "aud
   return hit?.publicUrl ? { publicUrl: hit.publicUrl, name: hit.name?.trim() || null, metadataJson: hit.metadataJson ?? null } : null;
 }
 
-/** A lane piece's seconds: the recording's duration when it has one, else an estimate from its text, else nothing (a sound with no file). */
-export function pieceSeconds(row: Row, lane: LaneSpec): { seconds: number; estimated: boolean } | null {
-  const recorded = num(field(row, lane.seconds));
+/**
+ * A Recording's fields (the Media package's `recording` type: one entry per audio or video file, holding what the file says about itself). A
+ * view that names a `recording` field (`clip.recording`, a lane's `recording`) reads these facts from the entry that field names, before the
+ * item's own fields. Core needs no such type: without one nothing is found and the item's own fields are read, as before.
+ */
+export const RECORDING = { asset: "asset", seconds: "duration_seconds", has_audio: "has_audio", poster: "poster", text: "text", waveform: "waveform" } as const;
+
+/** The slugs (or ids) of the Recordings a view's items and pieces name, once each: none when the view names no `recording` field. */
+export function recordingRefs(spec: TimelineSpec, rows: { spine: Row[]; lanes: Record<string, Row[]> }): string[] {
+  const named = (list: Row[], key: string | undefined) => (key ? list.map((r) => str(field(r, key)).trim()) : []);
+  const refs = [...named(rows.spine, spec.spine.clip?.recording), ...(spec.lanes ?? []).flatMap((lane) => named(rows.lanes[lane.id] ?? [], lane.recording))];
+  return [...new Set(refs.filter(Boolean))];
+}
+
+type Recordings = ReadonlyMap<string, Row[]>;
+const recordingIndex = (rows: Row[] | undefined): Recordings => {
+  const index = new Map<string, Row[]>();
+  for (const r of rows ?? []) for (const key of new Set([r.slug, r.id])) index.set(key, [...(index.get(key) ?? []), r]);
+  return index;
+};
+
+/** The Recording an entry names in `ref`, only when it is of the very file the entry's `file` field holds now: a pointer left from an earlier
+ * file, or one to another file's Recording, is ignored (as the Media mirror trusts one). Undefined when the view names no `recording`. */
+export function recordingOf(row: Row, ref: string | undefined, file: string | undefined, recordings: Recordings): Row | undefined {
+  const named = str(field(row, ref)).trim();
+  const held = str(field(row, file)).trim();
+  if (!named || !held) return undefined;
+  return recordings.get(named)?.find((r) => str(field(r, RECORDING.asset)).trim() === held);
+}
+
+const positive = (v: unknown): number | null => {
+  const n = num(v);
+  return n !== null && n > 0 ? n : null;
+};
+
+/** A lane piece's seconds: the recording's duration when it has one (its Recording's, else the entry's own), else an estimate from its text,
+ * else nothing (a sound with no file). */
+export function pieceSeconds(row: Row, lane: LaneSpec, rec?: Row): { seconds: number; estimated: boolean } | null {
+  const recorded = (rec ? positive(field(rec, RECORDING.seconds)) : null) ?? num(field(row, lane.seconds));
   if (recorded !== null && recorded > 0) return { seconds: recorded, estimated: false };
   const text = str(field(row, lane.estimate_from));
   if (lane.estimate_from && text.trim()) return { seconds: estimateSeconds(text), estimated: true };
@@ -792,6 +834,8 @@ interface Rows {
   via?: Record<string, Row[]>;
   /** Per band, the entries its field names (the scenes), to title the band. */
   bands?: Record<string, Row[]>;
+  /** The Recordings the items and pieces name (`clip.recording`, a lane's `recording`): `recordingRefs`, fetched by slug. */
+  recordings?: Row[];
 }
 
 const level = (v: unknown): number | null => {
@@ -812,6 +856,13 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   const laneOf = (id: string | undefined) => (id ? placedLanes.find((l) => l.id === id) : undefined);
   const laneRows = (lane: LaneSpec) => [...(rows.lanes[lane.id] ?? [])].filter((r) => !isOff(r, lane)).sort(byOrder(lane.order));
   const bySlug = (lane: LaneSpec) => new Map(laneRows(lane).map((r) => [r.slug, r] as const));
+  const recordings = recordingIndex(rows.recordings);
+  // A lane entry's piece, its facts read from its Recording first when the lane names one
+  const pieceAt: PieceAt = (r, lane, start, at) => {
+    const rec = recordingOf(r, lane.recording, lane.audio, recordings);
+    const length = pieceSeconds(r, lane, rec);
+    return { piece: pieceOf(r, lane, length?.seconds ?? 0, length?.estimated ?? false, start, at, rec), length };
+  };
 
   const items: Item[] = [];
   let clock = 0;
@@ -874,8 +925,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
       for (const lane of inLanes) {
         const pieces: Piece[] = [];
         for (const r of laneRows(lane).filter((r) => str(field(r, lane.in)) === row.slug)) {
-          const length = pieceSeconds(r, lane);
-          const piece = pieceOf(r, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + s.lead, null);
+          const { piece, length } = pieceAt(r, lane, clock + s.lead, null);
           if (length) timed.push(piece);
           pieces.push(piece);
         }
@@ -900,7 +950,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
       // An overlay adds no time of its own; its hold keeps it up that long from its word, so only what runs past the item before counts.
       const spoken = timed.length ? itemSeconds(row, timed, spec.spine.seconds, rows.entry, placedLines.spoken ?? undefined) : 0;
       // A clip plays to its end, counted from where the item's sound starts; an item with one has no default hold, only its own (the render's pull).
-      const clip = clipOf(row, spec.spine.clip);
+      const clip = clipOf(row, spec.spine.clip, recordingOf(row, spec.spine.clip?.recording, spec.spine.clip?.field, recordings));
       const held = clip && !timed.length ? (ownHold !== null && ownHold > 0 ? ownHold : 0) : null;
       item.seconds = overlay ? Math.max(ownHold !== null && ownHold > 0 ? Math.max(0, overlay.at + ownHold - clock) : 0, spoken) : (held ?? itemSeconds(row, timed, spec.spine.seconds, rows.entry, placedLines.spoken ?? undefined));
       if (clip) {
@@ -922,8 +972,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
           if (!target) continue;
           // before its item when negative, reaching back over the one before, as the render plays it; never before the film starts
           const at = Math.max(-clock, num((ref as Record<string, unknown>)[lane.placed!.at]) ?? 0) + 0; // + 0: never -0
-          const length = pieceSeconds(target, lane);
-          const piece = pieceOf(target, lane, length?.seconds ?? 0, length?.estimated ?? false, clock + at, at);
+          const { piece, length } = pieceAt(target, lane, clock + at, at);
           const own = lane.placed!.volume ? level((ref as Record<string, unknown>)[lane.placed!.volume]) : null;
           if (own !== null) piece.volume = own; // the cue's own loudness replaces the sound's, as in the render
           piece.slot = { item: row.id, field: lane.placed!.field, index, ref: piece.slug };
@@ -938,7 +987,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
         }
         item.lanes[lane.id] = pieces;
       }
-      reach = Math.max(reach, wordCuesOf(item, cuesHeld.get(row.slug) ?? [], rowBySlug, spec, said, laneOf(spec.spine.word_cues?.sounds), bySlug, clock));
+      reach = Math.max(reach, wordCuesOf(item, cuesHeld.get(row.slug) ?? [], rowBySlug, spec, said, laneOf(spec.spine.word_cues?.sounds), bySlug, clock, pieceAt));
       if (reach > item.seconds - item.pause) item.seconds = reach + item.pause; // the render: max(hold, speech, the end of the last sound) and then the pause
       for (const lane of placedLanes) {
         for (const p of item.lanes[lane.id] ?? []) {
@@ -1350,7 +1399,7 @@ function marksOf(spec: MarksSpec, view: TimelineSpec, items: Item[], rows: Rows,
   return out;
 }
 
-function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, start: number, at: number | null): Piece {
+function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, start: number, at: number | null, rec?: Row): Piece {
   return {
     id: row.id,
     slug: row.slug,
@@ -1363,7 +1412,7 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
     estimated,
     unmeasured: estimated && !!assetUrl(row, lane.audio, "audio/"),
     audio: assetUrl(row, lane.audio, "audio/"),
-    wave: wavePeaks(field(row, lane.waveform)),
+    wave: (rec ? wavePeaks(field(rec, RECORDING.waveform)) : null) ?? wavePeaks(field(row, lane.waveform)),
     volume: level(field(row, lane.volume)),
     at,
     nudge: within(num(field(row, lane.nudge)), -MAX_NUDGE, MAX_NUDGE) ?? 0,
@@ -1372,6 +1421,9 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
     words: wordTimings(row, lane),
   };
 }
+
+/** A lane entry laid as a piece, its facts read from its Recording first when the lane names one (`layout`). */
+type PieceAt = (r: Row, lane: LaneSpec, start: number, at: number | null) => { piece: Piece; length: ReturnType<typeof pieceSeconds> };
 
 /**
  * An item's cues on words (`spine.word_cues`), as the render places them (marvin_pull `_cues`, `word_place`): each on a piece laid so far, at the
@@ -1382,7 +1434,7 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
  * v221): one stored on another beat is marked with it. Returns how far into the item its last cue sound runs; a sound that rings over the next
  * beats (RING, Studio v224) is left out of that, as the render leaves it out of the beat's length.
  */
-function wordCuesOf(item: Item, held: readonly StoredCue[], rowBySlug: ReadonlyMap<string, Row>, spec: TimelineSpec, said: Map<string, Piece>, sounds: LaneSpec | undefined, bySlug: (lane: LaneSpec) => Map<string, Row>, clock: number): number {
+function wordCuesOf(item: Item, held: readonly StoredCue[], rowBySlug: ReadonlyMap<string, Row>, spec: TimelineSpec, said: Map<string, Piece>, sounds: LaneSpec | undefined, bySlug: (lane: LaneSpec) => Map<string, Row>, clock: number, pieceAt: PieceAt): number {
   const wc = spec.spine.word_cues;
   if (!wc) return 0;
   const known = sounds ? bySlug(sounds) : new Map<string, Row>();
@@ -1416,12 +1468,11 @@ function wordCuesOf(item: Item, held: readonly StoredCue[], rowBySlug: ReadonlyM
       ...(stored !== item.slug ? { stored: { id: store.id, slug: store.slug, title: str(field(store, spec.spine.order)) || store.title } } : {}),
     });
     if (!sounds || !target) continue;
-    const length = pieceSeconds(target, sounds);
     const nudge = cue.nudge ?? 0; // this much later (or earlier) than its word: the render plays the cue's sound there
     const natural = at;
     // Before its beat when nudged that far, over the beat before; never before the film starts (Studio manifest.plan: max(word + nudge, 0)).
     const offset = Math.max(at + nudge - clock, -clock) + 0;
-    const sound = pieceOf(target, sounds, length?.seconds ?? 0, length?.estimated ?? false, clock + offset, Number(offset.toFixed(3)));
+    const { piece: sound, length } = pieceAt(target, sounds, clock + offset, Number(offset.toFixed(3)));
     sound.nudge = nudge;
     sound.natural = natural;
     sound.slot = { item: store.id, field: wc.field, index: cue.position ?? 0, ref: cue.line }; // a drag writes to the beat that stores it
@@ -1454,17 +1505,18 @@ const flag = (v: unknown, fallback: boolean): boolean =>
  * `end` (else the file's end). The file's length is the measured one on the item (`seconds`), else the one the browser's recorder saved on the asset
  * (`recording.duration_seconds`), else one an automation saved (`duration_seconds`); with none, an `end` gives the part's length, and without that it
  * is drawn as a marked guess. Its sound is heard when `audio` is on (the default), its level is above 0 and the file has a sound. Placed (`start`,
- * `shown`) once the pictures are cut. Null when the item has no clip.
+ * `shown`) once the pictures are cut. Null when the item has no clip. `rec`, the item's Recording of that very file (`recordingOf`), is read
+ * first for the file's length, whether it has a sound, its poster and its text; each the Recording lacks is the item's own.
  */
-export function clipOf(row: Row, spec: ClipSpec | undefined): ItemClip | null {
+export function clipOf(row: Row, spec: ClipSpec | undefined, rec?: Row): ItemClip | null {
   if (!spec || !str(field(row, spec.field)).trim()) return null;
   const asset = assetOf(row, spec.field, "video/");
   const recording = asset?.metadataJson?.recording;
-  const positive = (v: unknown): number | null => {
-    const n = num(v);
-    return n !== null && n > 0 ? n : null;
+  const fromRec = <T>(key: string, ok: (v: unknown) => v is T): T | undefined => {
+    const v = rec ? field(rec, key) : undefined;
+    return ok(v) ? v : undefined;
   };
-  const described = positive(field(row, spec.seconds));
+  const described = (rec ? positive(field(rec, RECORDING.seconds)) : null) ?? positive(field(row, spec.seconds));
   const recorded = recording && typeof recording === "object" ? positive((recording as Record<string, unknown>).duration_seconds) : null;
   const saved = positive(asset?.metadataJson?.duration_seconds);
   const total = described ?? recorded ?? saved;
@@ -1490,9 +1542,10 @@ export function clipOf(row: Row, spec: ClipSpec | undefined): ItemClip | null {
     return options.includes(v) ? v : fallback;
   };
   const volume = level(field(row, spec.volume)) ?? 1;
-  const heard = !!asset && flag(field(row, spec.audio), true) && volume > 0 && seconds > 0 && field(row, spec.has_audio) !== false;
+  const hasAudio = fromRec(RECORDING.has_audio, (v): v is boolean => typeof v === "boolean") ?? field(row, spec.has_audio);
+  const heard = !!asset && flag(field(row, spec.audio), true) && volume > 0 && seconds > 0 && hasAudio !== false;
   const name = asset?.name ?? (asset ? fileName(asset.publicUrl) : "Clip");
-  const text = str(field(row, spec.text)).trim();
+  const text = (fromRec(RECORDING.text, (v): v is string => typeof v === "string" && v.trim() !== "") ?? str(field(row, spec.text))).trim();
   const sound: Piece | null = heard
     ? { id: `clip:${row.id}`, slug: row.slug, title: name, text: text || name, who: "Clip", status: "", start: 0, seconds, estimated: measured === "estimated", unmeasured: false, audio: asset!.publicUrl, wave: null, volume, at: null, nudge: 0, natural: 0, together: false, words: null }
     : null;
@@ -1507,7 +1560,7 @@ export function clipOf(row: Row, spec: ClipSpec | undefined): ItemClip | null {
     corner: choice(spec.corner, CLIP_CORNERS, "bottom-right"),
     shape: choice(spec.shape, CLIP_SHAPES, "circle"),
     look: str(field(row, spec.look)).trim().toLowerCase() || "pip",
-    poster: assetUrl(row, spec.poster, "image/"),
+    poster: (rec ? assetUrl(rec, RECORDING.poster, "image/") : null) ?? assetUrl(row, spec.poster, "image/"),
     text,
     sound,
     lane: spec.lane ?? null,

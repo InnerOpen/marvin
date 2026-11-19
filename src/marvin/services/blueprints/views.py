@@ -66,6 +66,13 @@ A timeline definition::
   length is ``seconds``, else the length the browser's recorder saved on the asset, else drawn as a marked guess. The strip draws it as a
   tile in its card; when it is heard, its sound is drawn in the ``in`` lane ``lane`` on a row of its own, lit by the playhead and played by
   Play (the music dips under it). The render must play it the same way.
+- ``spine.clip.recording`` and a lane's ``recording`` name a field holding the slug of the entry's *Recording* (the Media package's
+  ``recording`` type: one entry per audio or video file, with what the file says about itself). The Timeline then reads the file's facts from
+  that Recording first: a clip's length (``duration_seconds``), whether it has a sound (``has_audio``), its ``poster`` and its ``text``; a lane
+  piece's length and ``waveform``. A fact the Recording lacks is read from the entry's own field, as without the key. A Recording is trusted
+  only when its ``asset`` is the very file the entry's ``clip.field`` (a lane's ``audio``, which a lane with ``recording`` must name) holds
+  now: a pointer left from an earlier file, or to another file's Recording, is ignored, and a workspace with no such entries reads the
+  entry's own fields. A piece's word timings stay the asset's (what the render places cues by).
 - On an ``in`` lane, ``nudge`` is a field holding seconds a piece starts later (+) or earlier (-) than it falls (-10 to 10; the pieces after it
   follow it and the item lasts until its latest piece ends), ``simultaneous`` a boolean field that starts it with the piece before (dual
   dialogue), and ``words`` the key in the recording's asset metadata holding its word timings ([{text, start, end}]). The render must lay
@@ -225,6 +232,7 @@ def _check_word_cues(spec: Any, lanes: list[dict], label: str) -> str | None:
 CLIP_KEYS = (
     *("field", "look", "corner", "size", "shape", "audio", "volume", "start", "end"),
     *("seconds", "has_audio", "poster", "text", "words", "width", "height"),  # what a job that looks at the file fills in
+    "recording",  # the item's field naming its Recording, read before those (the Media package's `recording`)
 )
 
 
@@ -459,8 +467,12 @@ def _check_lane(lane: dict, label: str) -> str | None:
             return problem
     if shapes != ["in"] and any(lane.get(k) is not None for k in IN_LANE_KEYS):
         return f"{label}: {', '.join(IN_LANE_KEYS)} are for an `in` lane (pieces timed one after another)"
-    keys = ("order", "off", "text", "who", "audio", "waveform", "seconds", "volume", "loop", "estimate_from", "status", *IN_LANE_KEYS)
-    return _fields(lane, keys, label)
+    keys = ("order", "off", "text", "who", "audio", "waveform", "seconds", "volume", "loop", "estimate_from", "status", "recording", *IN_LANE_KEYS)
+    if problem := _fields(lane, keys, label):
+        return problem
+    if lane.get("recording") is not None and lane.get("audio") is None:
+        return f"{label}: recording needs audio, the file its Recording must be of"
+    return None
 
 
 def _check_cover(cover: Any, label: str) -> str | None:
