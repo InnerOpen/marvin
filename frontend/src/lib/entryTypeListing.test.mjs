@@ -7,8 +7,10 @@ import {
   hasAssetField,
   internalReason,
   isListedType,
+  isOfferedInNew,
   listedTypes,
   lockReason,
+  newMenuTypes,
   onlyAssetType,
   submissionDestination,
   submissionKind,
@@ -126,5 +128,43 @@ describe("lockReason", () => {
     assert.equal(lockReason({ slug: "note", lockedReason: "" }), null);
     assert.equal(lockReason({ slug: "note" }), null);
     assert.equal(lockReason(null), null);
+  });
+});
+
+describe("the New menu", () => {
+  const t = (name, sortOrder = 0, caps = undefined) => ({ name, sortOrder, capabilitiesJson: caps });
+
+  test("a listed type is offered unless offer_in_new is false; an internal one never is", () => {
+    assert.equal(isOfferedInNew(t("Note")), true);
+    assert.equal(isOfferedInNew(t("Note", 0, {})), true);
+    assert.equal(isOfferedInNew(t("Note", 0, { offer_in_new: true })), true);
+    assert.equal(isOfferedInNew(t("Take", 0, { offer_in_new: false })), false);
+    assert.equal(isOfferedInNew(t("Take", 0, { offerInNew: false })), false);
+    assert.equal(isOfferedInNew(t("Take", 0, { offer_in_new: true, offerInNew: false })), true); // the stored spelling wins
+    assert.equal(isOfferedInNew(t("Rule", 0, { listed: false })), false);
+    assert.equal(isOfferedInNew(t("Rule", 0, { listed: false, offer_in_new: true })), false);
+  });
+
+  test("the offered types come by sort order, then name, and the input is left as it was", () => {
+    const types = [t("Story", 2), t("Beat", 1), t("Take", 0, { offer_in_new: false }), t("Actor", 1), t("Rule", 0, { listed: false }), t("Zed")];
+    const { shown, more } = newMenuTypes(types, 12);
+    assert.deepEqual(shown.map((x) => x.name), ["Zed", "Actor", "Beat", "Story"]);
+    assert.equal(more, false);
+    assert.deepEqual(types.map((x) => x.name), ["Story", "Beat", "Take", "Actor", "Rule", "Zed"]);
+  });
+
+  test("past the cap the first ones are shown and more is set; at the cap it is not", () => {
+    const many = (n) => Array.from({ length: n }, (_, i) => t(`Type ${String(i).padStart(2, "0")}`, i));
+    const thirteen = newMenuTypes(many(13), 12);
+    assert.equal(thirteen.shown.length, 12);
+    assert.equal(thirteen.shown[0].name, "Type 00");
+    assert.equal(thirteen.more, true);
+    assert.deepEqual(newMenuTypes(many(12), 12).more, false);
+    assert.equal(newMenuTypes(many(13), 6).shown.length, 6);
+  });
+
+  test("no types, or none to offer, is an empty menu", () => {
+    assert.deepEqual(newMenuTypes(null, 12), { shown: [], more: false });
+    assert.deepEqual(newMenuTypes([t("Take", 0, { offer_in_new: false })], 12), { shown: [], more: false });
   });
 });

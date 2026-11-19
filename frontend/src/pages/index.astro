@@ -1,7 +1,7 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { listedTypes } from "@/lib/entryTypeListing";
+import { listedTypes, newMenuTypes } from "@/lib/entryTypeListing";
 import { listCollections } from "@/lib/api/collections";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import { listWizards } from "@/lib/api/wizards";
@@ -100,6 +100,9 @@ const needsAttention = {
   emptyCollections: collections.filter((c: any) => !c.isSmart && !c.isSystem && (c.entryCount ?? 0) === 0),
   unusedClients: siteClients.filter((c) => !c.lastUsedAt && c.enabled),
 };
+
+// Quick create: the types the New menu offers (their "Offer in the New menu" switch), its first six, with "More…" for the rest.
+const quickCreate = newMenuTypes(entryTypes, 6);
 
 // Recent Activity: the workspace's event log, newest first (the API already applies the AI-run visibility rule).
 const recentActivity: any[] = dashboard?.recentActivity ?? dashboard?.recent_activity ?? [];
@@ -200,7 +203,7 @@ function getStatusClass(status: string): string {
               <div class="panel-head"><h3>Quick create</h3></div>
               <div class="quick-create-grid">
                 {entryTypes.length > 0 ? (
-                  access.canAuthor && entryTypes.slice(0, 6).map((type) => (
+                  access.canAuthor && quickCreate.shown.map((type) => (
                     <a href={`/workspace/entries/new?type=${type.id}`} class="quick-create-card">
                       <span class="quick-create-icon" style={type.color ? `color: ${type.color}` : undefined}>
                         {type.icon || '▤'}
@@ -212,6 +215,12 @@ function getStatusClass(status: string): string {
                   <a href="/workspace/entry-types" class="quick-create-card">
                     <span class="quick-create-icon">◈</span>
                     <span class="quick-create-label">Create Entry Type</span>
+                  </a>
+                )}
+                {access.canAuthor && quickCreate.more && (
+                  <a href="/workspace/entries/new" class="quick-create-card">
+                    <span class="quick-create-icon" aria-hidden="true">…</span>
+                    <span class="quick-create-label">More…</span>
                   </a>
                 )}
                 {access.canEdit && (

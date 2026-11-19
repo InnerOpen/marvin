@@ -2,6 +2,8 @@
 
 from typing import Literal
 
+from pydantic import StrictBool
+
 from marvin.schemas._marvin import _MarvinModel
 
 KNOWN_CORE_RENDERERS: set[str] = {"page", "article", "faq", "navigation"}
@@ -61,5 +63,9 @@ class CapabilitiesDefinition(_MarvinModel):
     # (the Social auto-reply rules, an Audience form's submissions). Its entries stay out of every entry list, count, search and
     # the AI index (services/entry_listing.py); a query that names the type, or the entry, still finds them. The one source.
     listed: bool = True
+    # False keeps a listed type out of the New menu and the dashboard's Quick create ("Offer in the New menu" off): types nobody makes
+    # by hand (a take, a transcript, a job). Narrower than `listed`: the type stays in every list, count, search and the type chooser
+    # on the New entry page. Strict, since the stored dict is kept as written and the frontend reads it with `!== false`.
+    offer_in_new: StrictBool = True
     # Present only on submittable types; describes how public submissions are handled.
     submission: SubmissionConfig | None = None
