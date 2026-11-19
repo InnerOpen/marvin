@@ -19,9 +19,11 @@ interface Props {
   /** Where "Enlarge" goes (the asset's own page); the file itself when not given. Only the player shows it. */
   href?: string | null;
   variant?: "player" | "fill" | "row";
+  /** "none" loads nothing until it is played (a grid of cards, each over its own picture); else its first frame. */
+  preload?: "metadata" | "none";
 }
 
-const { src, label, poster, href, variant = "player" } = Astro.props;
+const { src, label, poster, href, variant = "player", preload = "metadata" } = Astro.props;
 const inLink = variant !== "player";
 // Seeking to the first frame (for Safari) would hide a poster, so a video with one loads as it is.
 const shown = poster ? src : firstFrameSrc(src);
@@ -29,13 +31,13 @@ const shown = poster ? src : firstFrameSrc(src);
 
 {inLink ? (
   <span class:list={["inline-video", `iv-${variant}`]} data-inline-video>
-    <video src={shown} poster={poster || undefined} preload="metadata" playsinline aria-label={`Video: ${label}`}></video>
+    <video src={shown} poster={poster || undefined} preload={preload} playsinline aria-label={`Video: ${label}`}></video>
     <span class="iv-toggle"><PlayButton video label={`Play ${label}`} /></span>
     <span class="iv-fail" hidden title="This video can't play in the browser: open it to download it">🎬 <small>Download</small></span>
   </span>
 ) : (
   <figure class="inline-video iv-player" data-inline-video>
-    <video src={shown} poster={poster || undefined} preload="metadata" playsinline controls aria-label={`Video: ${label}`}></video>
+    <video src={shown} poster={poster || undefined} preload={preload} playsinline controls aria-label={`Video: ${label}`}></video>
     <figcaption class="iv-links">
       <a class="iv-open" href={href || src} target="_blank" rel="noopener">Enlarge ↗</a>
       <span class="iv-fail" hidden>This video can't play here. <a href={src} download>Download</a></span>

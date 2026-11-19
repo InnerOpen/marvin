@@ -303,6 +303,23 @@ def _bad(mutate) -> str | None:
         (lambda p: p.update(sidebar={"label": "x" * 41}), "sidebar.label is a text"),
         (lambda p: p.update(sidebar={"icon": 3}), "sidebar.icon is a text"),
         (lambda p: p.update(sidebar={"icon": "🎞" * 9}), "sidebar.icon is a text"),
+        (lambda p: p.update(picker=True), "picker is {picture?, subtitle?, badges?, strip?, play?}"),
+        (lambda p: p.update(picker={"cover": "cover"}), "picker is {picture?"),
+        (lambda p: p.update(picker={"picture": "Cover Image"}), "picker: picture must be a field key"),
+        (lambda p: p.update(picker={"play": "result.video"}), "picker: play must be a field key"),
+        (lambda p: p.update(picker={"subtitle": []}), "picker.subtitle is a field key"),
+        (lambda p: p.update(picker={"subtitle": ["a", "b", "c", "d"]}), "picker.subtitle is a field key"),
+        (lambda p: p.update(picker={"subtitle": [{"field": "episode", "after": "!"}]}), "picker.subtitle is a field key"),
+        (lambda p: p.update(picker={"subtitle": [{"before": "Ep "}]}), "picker.subtitle is a field key"),
+        (lambda p: p.update(picker={"subtitle": [{"field": "episode", "before": "Episode number "}]}), "picker.subtitle is a field key"),
+        (lambda p: p.update(picker={"badges": "status"}), "picker.badges is a list"),
+        (lambda p: p.update(picker={"badges": ["status", "Status"]}), "picker.badges is a list"),
+        (lambda p: p.update(picker={"strip": "beats"}), "picker.strip is true or {limit?}"),
+        (lambda p: p.update(picker={"strip": {"entry_type": "beat"}}), "picker.strip is true or {limit?}"),
+        (lambda p: p.update(picker={"strip": {"limit": 0}}), "picker.strip.limit is a whole number"),
+        (lambda p: p.update(picker={"strip": {"limit": 25}}), "picker.strip.limit is a whole number"),
+        (lambda p: p.update(picker={"strip": {"limit": True}}), "picker.strip.limit is a whole number"),
+        (lambda p: (p["spine"].pop("picture"), p.update(picker={"strip": True})), "the spine needs picture"),
     ],
 )
 def test_a_wrong_view_says_what_is_wrong(mutate, words):
@@ -313,6 +330,33 @@ def test_a_wrong_view_says_what_is_wrong(mutate, words):
 @pytest.mark.parametrize("sidebar", [True, False, {}, {"label": "Story timeline"}, {"label": "Timeline", "icon": "🎞"}])
 def test_a_view_may_ask_for_a_sidebar_link(sidebar):
     assert payload_problem({**TIMELINE, "sidebar": sidebar}, "story-timeline") is None
+
+
+# What Screenplay Studio's story timeline declares: a story's cover, its series and episode, its status, its beats' stills and its render.
+STUDIO_PICKER = {
+    "picture": "cover",
+    "subtitle": ["series", {"field": "episode", "before": "Ep "}],
+    "badges": ["status"],
+    "strip": {"limit": 16},
+    "play": "video",
+}
+
+
+@pytest.mark.parametrize(
+    "picker",
+    [
+        *({}, STUDIO_PICKER, {"picture": "cover"}, {"subtitle": "premise"}, {"subtitle": {"field": "episode"}}),
+        *({"strip": True}, {"strip": False}, {"play": "video"}),
+    ],
+)
+def test_a_view_may_draw_its_picker_as_cards(picker):
+    assert payload_problem({**TIMELINE, "picker": picker}, "story-timeline") is None
+
+
+def test_a_picker_without_a_strip_needs_no_spine_picture():
+    payload = copy.deepcopy(TIMELINE)
+    payload["spine"].pop("picture")
+    assert payload_problem({**payload, "picker": {"picture": "cover", "play": "video"}}, "story-timeline") is None
 
 
 def test_a_view_without_lanes_or_actions_is_fine():
