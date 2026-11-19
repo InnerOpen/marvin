@@ -19,7 +19,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | `workflow` | A [workflow](workflows.md), switched off, authored by whoever applies it | `{"name": …, "definition": {trigger, conditions, actions}}`; the definition must pass structural validation |
 | `playbook` | A [Playbook](playbooks.md#from-an-integration), as a **draft** with its reference files (integrations only) | `{"skill_md": "<SKILL.md text>", "files": {"references/x.md": "<text>"}}`. Text files only (`.md .txt .json .csv .yaml`), no scripts, relative paths; `SKILL.md` at most 64 KB, at most 20 files of 64 KB, 256 KB in all. The SKILL.md `name` is the slug and starts with the provider's slug (underscores as hyphens). Never required, no parameters. Marvin checks all of it again; one that fails is skipped with a warning and the provider's other content still loads |
 | `wizard` | Nothing: a **guided setup** kept in a [package](workflows.md)'s manifest (packages only), listed under *Guided setups* | `{"title": …, "steps": [...]}`: step kinds `option`, `choose` (also `picture`, `subtitle`, `create.upload`, `multiple` with `assets`; `selection` shows a multi-select's picks), `form`, `upload`, `list`, `gallery`, `run`, `review`; `button` puts a button on an entry type's pages that opens the setup on that entry (`{entry_type, label, key, step?, also?}`); `when` shows a step only on a choice; `${name}` reads a choice made earlier. See [Guided setups](guided-setups.md) and `services/blueprints/wizards.py` |
-| `view` | Nothing: a **view** of an entry kept in a package's manifest (packages only); an entry of its type gets a button that opens it, and with `"sidebar": true` the sidebar a link to it; with `picker` its page lists the entries as cards | `{"kind": "timeline", "title": …, "entry_type": …, "spine": {…}, "lanes": [...], "actions": [...]}`: the one kind, `timeline`, lays an entry's children out as time (a story's beats, with lines and sounds in lanes). See `services/blueprints/views.py` |
+| `view` | Nothing: a **view** of an entry kept in a package's manifest (packages only); an entry of its type gets a button that opens it, and with `"sidebar": true` the sidebar a link to it; with `picker` its page lists the entries as cards | `{"kind": "timeline", "title": …, "entry_type": …, "unit": …, "spine": {…}, "lanes": [...], "actions": [...]}`: the one kind, `timeline`, lays an entry's children out as time (a story's beats, with lines and sounds in lanes; with `unit` in minutes, hours or days, an agenda or a plan). See `services/blueprints/views.py` |
 
 **Required vs suggested.** `required` defaults to `False` and is meant to be set sparingly: `True` only when the source cannot work without it, such as an entry type an action reads or writes. Everything else is a suggestion. Core blueprints are never required.
 
@@ -155,6 +155,34 @@ For Screenplay Studio's story timeline:
 ```
 
 The render job keeps the story's newest whole-story render in the story's `video` field and trashes the one before, and a draft of a few beats never touches it. So `play` reads that field, not the render jobs.
+
+## A timeline view can count in minutes, hours or days
+
+A timeline `view` counts in seconds unless it says otherwise. With `"unit"` set to `"minutes"`, `"hours"` or `"days"` (or `"seconds"`, the same as leaving it out), every length and offset the view reads is in that unit: the spine's `seconds.hold` and its `defaults`, a lane's `seconds`, a `placed` lane's `at`, a card's `seconds`. The keys keep their names, so nothing about an existing view changes; in a view in minutes, a `hold` of 45 is three quarters of an hour.
+
+The page then writes every time in the unit:
+
+- The ruler steps in round numbers of it: 5, 10, 15 or 30 minutes and whole hours; quarter hours, hours and 3, 6, 12 or 24 hours; 1, 2, 7, 14 or 28 days.
+- A position is the time from the start ("0 min", "1 h 30 min", "1 d 4 h"), or in days the day it falls on, the first being Day 1 ("Day 3").
+- A length is at most two parts: "45 min", "1 h 30 min", "3 h", "1 d 4 h", "3 days", "2 weeks 3 days" (weeks once a length reaches one).
+- The header, the card corners, the tooltips and the playhead clock use the same words. The clock takes what you type in the unit: "1 h 30 min", "1:30" or "90" in minutes, "Day 3" or "2 weeks" in days. The `,` and `.` keys move the playhead a minute (Shift: a quarter hour), a quarter hour (Shift: an hour) or a day (Shift: a week).
+
+Sound runs in seconds, so a view in another unit has none. The view is refused if it names a lane's `audio`, `bed`, `cover`, `estimate_from`, `words`, `nudge`, `recording`, `volume`, `loop`, `waveform` or `placed.volume`, or `spine.clip`, `spine.word_cues`, `spine.starts_during`, a `picture_lead` (on the items or in `seconds.entry`) or `picker.play`; the message names the key. Its page has no Play button, mute buttons or waveforms, Space plays nothing, and the render's quiet stretches, overlap brackets and dragging of placed pieces are left out. Two more things differ from seconds, because the render's speech timing means nothing in a plan:
+
+- The built-in defaults are a `hold` of 1 and no `lead`, `gap` or `tail` (seconds keeps 4, 0.3, 0.25 and 0.35). A view's own `defaults` still win.
+- A piece of an `in` lane with no length of its own is drawn across its whole item (a post on its day, a panelist for the whole session), not as a sliver at its start. A short piece is drawn wide enough to read its name, and pieces that would overlap stack on rows, those that start together in their own order.
+
+An older Marvin ignores `unit` and draws such a view in seconds.
+
+The example package `docs/examples/timeline-demos.marvin-package.json` (Timeline Demos) shows both: an **Event agenda** in minutes (sessions of a `demo-event` grouped by the part of the day, with who is on stage and room and AV cues placed in them) and a **Content plan** in days (a `demo-plan`, one `demo-day` card per day, with its posts and their channel). Install it like any package, then make sample entries with `scripts/seed_timeline_demos.py`:
+
+```sh
+curl -X POST "$MARVIN_API_URL/api/groups/packages/install" -H "Authorization: Bearer $MARVIN_TOKEN" \
+  -H "Content-Type: application/json" --data-binary @docs/examples/timeline-demos.marvin-package.json
+MARVIN_API_URL=… MARVIN_TOKEN=… python scripts/seed_timeline_demos.py
+```
+
+The script looks each entry up by its slug and makes only the missing ones, so it can run again.
 
 ## Cues on words in a timeline view
 

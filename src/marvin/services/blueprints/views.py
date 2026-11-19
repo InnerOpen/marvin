@@ -32,6 +32,15 @@ A timeline definition::
     }
 
 - ``entry_type`` is the type the view is of (a story); the page opens as ``/workspace/views/<slug>?entry=<slug or id>``.
+- ``unit`` is what every length and offset the view reads counts: ``seconds`` (the default), ``minutes``, ``hours`` or ``days``. The keys keep
+  their names (``spine.seconds``, its ``hold`` and ``defaults``, a lane's ``seconds``, a ``placed`` lane's ``at``, a card's ``seconds``), so a
+  view that names no unit reads exactly as before; in a view in ``minutes`` a ``hold`` of 45 is three quarters of an hour. The page writes
+  every time in the unit (the ruler in round steps of it, "1 h 30 min", "Day 3", "2 weeks"). Sound runs in seconds, so a view in another unit
+  has none: it may not name a lane's ``audio``, ``bed``, ``cover``, ``estimate_from``, ``words``, ``nudge``, ``recording``, ``volume``,
+  ``loop``, ``waveform`` or ``placed.volume``, nor ``spine.clip``, ``spine.word_cues``, ``spine.starts_during``,
+  ``seconds.picture_lead`` (on the item or ``seconds.entry``) or ``picker.play``, and its page has no Play, mute or waveform. Its defaults are
+  a ``hold`` of 1 and no ``lead``, ``gap`` or ``tail`` (the render's pauses around speech), and an ``in`` piece with no length of its own
+  spans its item (a post on its day). An older Marvin ignores ``unit`` and draws such a view in seconds.
 - ``spine``: the items laid out in time. ``of`` is the field on each that holds the entry's slug, ``order`` the field they sort by,
   ``group`` an optional type the items are grouped under (chapters: ``field`` on an item holds the group's slug). ``picture`` is an asset
   field, ``text`` a text shown when there is no picture, ``status`` a status field drawn as a dot. ``seconds`` names the fields that time an
@@ -160,6 +169,10 @@ PICKER_KEYS = ("picture", "subtitle", "badges", "strip", "play")
 MAX_PICKER_FIELDS = 3
 MAX_PICKER_BEFORE = 12
 MAX_STRIP = 24
+UNITS = ("seconds", "minutes", "hours", "days")
+# Sound runs in seconds: in a view in another unit nothing plays, mixes or is timed by speech, so these keys have no place in it.
+SOUND_LANE_KEYS = ("audio", "bed", "cover", "estimate_from", "words", "nudge", "recording", "volume", "loop", "waveform")
+SOUND_SPINE_KEYS = ("clip", "word_cues", "starts_during")
 SECONDS_KEYS = ("hold", "lead", "gap", "tail")
 ENTRY_SECONDS_KEYS = (*SECONDS_KEYS, "picture_lead")
 IN_LANE_KEYS = ("nudge", "simultaneous", "words")
@@ -228,10 +241,36 @@ def payload_problem(payload: dict, slug: str) -> str | None:
     if problem := _check_clip(spine.get("clip"), lanes, f"{label} spine"):
         return problem
     return (
-        _check_actions(payload.get("actions"), label)
+        _check_unit(payload, spine, lanes, label)
+        or _check_actions(payload.get("actions"), label)
         or _check_sidebar(payload.get("sidebar"), label)
         or _check_picker(payload.get("picker"), spine, label)
     )
+
+
+def _check_unit(payload: dict, spine: dict, lanes: list[dict], label: str) -> str | None:
+    """``unit``: what the view's lengths and offsets count. Any but seconds refuses the keys of sound, which runs in seconds."""
+    unit = payload.get("unit", "seconds")
+    if unit not in UNITS:
+        return f"{label}: unit is one of {', '.join(UNITS)}, what every length and offset of the view counts"
+    if unit == "seconds" or not (key := _sound_key(payload, spine, lanes)):
+        return None
+    return f"{label} counts in {unit}, but {key} is for sound or video, which run in seconds: a view in {unit} has none (leave unit out for seconds)"
+
+
+def _sound_key(payload: dict, spine: dict, lanes: list[dict]) -> str | None:
+    """The first key of the view that plays, mixes or times by speech, as a reader would find it; None when there is none."""
+    seconds = spine.get("seconds") if isinstance(spine.get("seconds"), dict) else {}
+    entry = seconds.get("entry") if isinstance(seconds.get("entry"), dict) else {}
+    picker = payload.get("picker") if isinstance(payload.get("picker"), dict) else {}
+    found = [f"spine.{k}" for k in SOUND_SPINE_KEYS if spine.get(k) is not None]
+    found += [f"spine.seconds.{where}picture_lead" for where, keys in (("", seconds), ("entry.", entry)) if keys.get("picture_lead") is not None]
+    for lane in lanes:
+        placed = lane.get("placed") if isinstance(lane.get("placed"), dict) else {}
+        found += [f"lane {lane.get('id')!r} {k}" for k in SOUND_LANE_KEYS if lane.get(k) is not None]
+        found += [f"lane {lane.get('id')!r} placed.volume"] if placed.get("volume") is not None else []
+    found += ["picker.play"] if picker.get("play") is not None else []
+    return found[0] if found else None
 
 
 def _check_picker(spec: Any, spine: dict, label: str) -> str | None:
