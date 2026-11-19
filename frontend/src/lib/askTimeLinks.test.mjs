@@ -88,11 +88,31 @@ describe("timeLinksIn", () => {
     assert.deepEqual(found("**morning walk** — [0:00:05] hello", both), [["[0:00:05]", 5, "aaa"]]);
   });
 
-  test("several timed recordings: an unnamed time, or one named on another line or after it, stays text", () => {
+  test("several timed recordings: a time with no name before it on its line is the one named last on an earlier line", () => {
+    const both = [A, B];
+    assert.deepEqual(found("Morning walk:\n[0:00:05] hello", both), [["[0:00:05]", 5, "aaa"]]);
+    assert.deepEqual(found("In **Morning walk**.\n\nThe line is at the start:\n- **[0:00:00]** “hello”", both), [["[0:00:00]", 0, "aaa"]]);
+    // the nearest earlier mention wins, and a name on the same line beats an earlier line's
+    assert.deepEqual(found("Morning walk\nEvening call\n[0:00:05]", both), [["[0:00:05]", 5, "bbb"]]);
+    assert.deepEqual(found("Morning walk\nEvening call at [0:00:05] and 0:12", both), [["[0:00:05]", 5, "bbb"], ["0:12", 12, "bbb"]]);
+    assert.deepEqual(found("Evening call\nMorning walk at 0:12", both), [["0:12", 12, "aaa"]]);
+  });
+
+  test("several timed recordings: a time named nowhere before it, or only after it, stays text", () => {
     const both = [A, B];
     assert.deepEqual(found("[0:00:05] hello", both), []);
-    assert.deepEqual(found("Morning walk:\n[0:00:05] hello", both), []);
     assert.deepEqual(found("[0:00:05] in Morning walk", both), []);
+    assert.deepEqual(found("hello\n[0:00:05] in Morning walk", both), []);
+  });
+
+  test("Jared's second answer: two timed recordings cited, the title in bold quotes, the time alone on a later line", () => {
+    const title = "[with passion][laughing maniacally] You haven't heard the last of me! I'll return for my dog and my family. You can keep";
+    const sources = [
+      { entityType: "asset", entityId: "af6b", title, startSeconds: 0 },
+      { entityType: "asset", entityId: "dd45", title: "3001 Narrator: By the time the wind dropped, there wa · take 1.webm", startSeconds: 0 },
+    ];
+    const text = `It’s in the audio asset **“${title}”**.\n\nThe line is at the start:\n- **[0:00:00]** “You haven't heard the last of me!”\n`;
+    assert.deepEqual(found(text, sources), [["[0:00:00]", 0, "af6b"]]);
   });
 
   test("several timed recordings with the same title: never a guess", () => {

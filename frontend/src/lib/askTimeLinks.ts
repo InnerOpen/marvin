@@ -2,7 +2,7 @@
 // asset source with a `startSeconds`, from search_content; `start_seconds` in /ask's retrieved_sources) and says `[0:00:10]`,
 // `0:00:10` or `1:05` gets each such time as a link to the recording's page opened there (assetHref). Decided here, from the sources
 // the reply already shows, never from the model's wording: with one timed recording cited every time is its; with several, a time
-// is linked only when the nearest title before it on its line is one of theirs. A time in code or in a link, or inside a cited
+// is linked to the nearest title before it, on its line or else on an earlier line ("The line is at the start:" under the title). A time in code or in a link, or inside a cited
 // title ("Recording Nov 18, 2026, 5:46:18 PM"), stays text. The stored message is untouched. Pure (marked only), so `npm test` covers
 // it (askTimeLinks.test.mjs); capabilities.ts renderMarkdown sanitizes the HTML it returns.
 
@@ -90,7 +90,7 @@ function namedBefore(line: string, at: number, timed: Timed[]): string | null {
 }
 
 /** The times in `text` that belong to a cited recording, in order. Each line (`\n`) is looked at on its own. With one timed recording
- * among `sources` every time is its; with several, only a time whose line names one of them before it (see namedBefore). A time
+ * among `sources` every time is its; with several, a time is the one named nearest before it, on its line or an earlier one (see namedBefore). A time
  * inside a cited title is never one. */
 export function timeLinksIn(text: string, sources: readonly CitedSource[] | null | undefined): TimeLink[] {
   const timed = timedAssets(sources ?? []);
@@ -98,6 +98,7 @@ export function timeLinksIn(text: string, sources: readonly CitedSource[] | null
   const titles = [...new Set((sources ?? []).map((s) => String(s.title ?? "").trim()))];
   const out: TimeLink[] = [];
   let offset = 0;
+  let earlier: string | null = null; // the recording named last on a line before this one
   for (const line of text.split("\n")) {
     const inTitle = titles.flatMap((t) => occurrences(line, t));
     for (const m of line.matchAll(TIME)) {
@@ -107,9 +108,10 @@ export function timeLinksIn(text: string, sources: readonly CitedSource[] | null
       const start = (m.index ?? 0) + (m[1] && !m[7] ? 1 : 0);
       const end = (m.index ?? 0) + m[0].length - (m[7] && !m[1] ? 1 : 0);
       if (inTitle.some(([s, e]) => start < e && end > s)) continue;
-      const assetId = timed.length === 1 ? timed[0].id : namedBefore(line, start, timed);
+      const assetId = timed.length === 1 ? timed[0].id : (namedBefore(line, start, timed) ?? earlier);
       if (assetId) out.push({ start: offset + start, end: offset + end, seconds, assetId });
     }
+    earlier = namedBefore(line, line.length, timed) ?? earlier;
     offset += line.length + 1;
   }
   return out;
