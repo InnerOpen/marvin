@@ -9,7 +9,7 @@ import { listedTypes, onlyAssetType } from "@/lib/entryTypeListing";
 import { getContentAccess } from "@/lib/api/workspaces";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
-import { assetItem, resourceItem } from "@/lib/linkedItems";
+import { assetItems, resourceItem } from "@/lib/linkedItems";
 import { refOptionsFor } from "@/lib/refFieldsApi";
 import { getAssets } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
@@ -86,14 +86,14 @@ const preSelectedTypeId = submitted?.entry_type_id || Astro.url.searchParams.get
 const fromAssetId: string | null = submitted?._asset_id ?? Astro.url.searchParams.get("asset");
 
 let entryTypes: EntryTypeRead[] = [];
-let pickerAssets: ReturnType<typeof assetItem>[] = [];
+let pickerAssets: ReturnType<typeof assetItems> = [];
 let pickerResources: ReturnType<typeof resourceItem>[] = [];
 
 try {
   entryTypes = await listEntryTypes(authToken, Astro.locals);
   // For the schema's asset / resource fields; a failure here only leaves those pickers empty.
   [pickerAssets, pickerResources] = await Promise.all([
-    getAssets(authToken, { sort: "newest" }).then((a) => a.map(assetItem)).catch(() => []),
+    getAssets(authToken, { sort: "newest" }).then((a) => assetItems(a)).catch(() => []),
     listResources(authToken).then((r) => r.map(resourceItem)).catch(() => []),
   ]);
 } catch (e) {

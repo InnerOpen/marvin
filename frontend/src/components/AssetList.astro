@@ -6,11 +6,13 @@
  * its page, where Restore and Delete forever live. Move to Trash (EDITOR+) takes the row out in place, keeping the
  * filters; it's reversible, so it doesn't ask.
  */
+import InlineVideo from "@/components/InlineVideo.astro";
 import LocalTime from "@/components/LocalTime.astro";
 import PlayButton from "@/components/PlayButton.astro";
 import { getMimeCategory } from "@/lib/assetCategory";
 import { decisionOf } from "@/lib/assetLineage";
 import { isUnsearchableImage } from "@/lib/assetLibraryView";
+import { isVideoAsset, videoPosterOf } from "@/lib/videoAsset";
 
 interface Props {
   assets: any[];
@@ -43,6 +45,8 @@ const size = (bytes?: number | null) => (!bytes ? "" : bytes < KB * KB ? `${Math
             <img class:list={["inbox-thumb", { dim: inTrash }]} src={asset.publicUrl} alt="" loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
           ) : asset.publicUrl && category === "audio" ? (
             <PlayButton src={asset.publicUrl} label={`Play ${asset.name}`} />
+          ) : asset.publicUrl && isVideoAsset(asset) ? (
+            <InlineVideo variant="row" src={asset.publicUrl} label={asset.name} poster={videoPosterOf(asset, assets)} />
           ) : (
             <span class="inbox-thumb file-kind" aria-hidden="true">{KIND_ICONS[category] ?? "📎"}</span>
           )}

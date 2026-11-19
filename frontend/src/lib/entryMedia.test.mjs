@@ -43,8 +43,20 @@ describe("thumbOf", () => {
 describe("files that are not pictures", () => {
   const file = (mimeType) => ({ role: "transcript", publicUrl: "https://a/file", mimeType });
 
-  test("a text, JSON, PDF or video file is no thumbnail: it would be a broken picture", () => {
-    for (const type of ["text/plain", "application/json", "application/pdf", "video/mp4"]) assert.equal(thumbOf([file(type)], "x"), null, type);
+  test("a text, JSON or PDF file is no thumbnail: it would be a broken picture", () => {
+    for (const type of ["text/plain", "application/json", "application/pdf"]) assert.equal(thumbOf([file(type)], "x"), null, type);
+  });
+
+  test("test_a_video_leads_as_a_video_to_play_small_with_its_poster", () => {
+    const still = { id: "p", role: "still", publicUrl: "https://a/still.png", mimeType: "image/png" };
+    const clip = { role: "clip", publicUrl: "https://a/clip.mp4", mimeType: "video/mp4", metadataJson: { poster: "p" } };
+    assert.deepEqual(thumbOf([file("text/plain"), clip], "Beat 4"), { kind: "video", url: "https://a/clip.mp4", alt: "Beat 4", focalPoint: undefined, poster: null });
+    assert.equal(thumbOf([{ ...clip, role: "featured" }, still], "x")?.poster, "https://a/still.png");
+    assert.equal(thumbOf([clip, still], "x")?.kind, "image"); // a picture still leads over a video nobody chose
+  });
+
+  test("test_a_recorded_take_in_a_webm_stays_a_sound", () => {
+    assert.equal(thumbOf([{ role: "audio", publicUrl: "https://a/take.webm", mimeType: "video/webm" }], "x"), null);
   });
 
   test("an entry with a transcript and a picture shows the picture, wherever the transcript sits", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { referenceFilter, ownSort, approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom, addFormFields, workingOf, workingChanged, WORKING_LINE } from "./wizard.ts";
+import { referenceFilter, ownSort, approvalsOf, buttonHref, cardActionShown, fileButtonNote, fileButtonOff, fileWays, naturalByTitle, highlightOf, referenceMarks, referencingSpec, measuredSeconds, prefillOf, numberedTitle, shownLines, blocker, cardAudio, cardPicture, cardVideo, fieldRole, galleryAccept, titleFor, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, opensMore, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty, subtitleOf, LIST_SEP, MAX_PICKS, assetSpec, entryTypeOf, joinList, listKeys, listOf, listStepOf, mergePicks, pickedLine, picksAssets, picksProblem, pictureFieldOf, skipTo, templateOptions, withoutFrom, addFormFields, workingOf, workingChanged, WORKING_LINE } from "./wizard.ts";
 
 const def = {
   title: "Narrate",
@@ -573,4 +573,14 @@ test("the page is drawn again when a card it drew as being made has moved on or 
   assert.equal(workingChanged(drawn, [{ id: "a", dataJson: { status: "queued" } }, { id: "b", dataJson: { status: "redo" } }]), false);
   assert.equal(workingChanged(drawn, [{ id: "a", dataJson: { status: "recorded" } }, { id: "b", dataJson: { status: "redo" } }]), true);
   assert.equal(workingChanged(drawn, [{ id: "a", dataJson: { status: "queued" } }]), true);
+});
+
+test("test_cardVideo_plays_the_clip_in_the_picture_field_and_not_a_sound_in_a_webm", () => {
+  const assets = [
+    { role: "shot", publicUrl: "https://x/s.mp4", mimeType: "video/mp4" },
+    { role: "take", publicUrl: "https://x/t.webm", mimeType: "video/webm", metadataJson: { recording: { kind: "audio" } } },
+  ];
+  assert.equal(cardVideo(assets, "shot"), "https://x/s.mp4");
+  assert.equal(cardVideo(assets, "take"), null);
+  assert.equal(cardVideo(assets, undefined), null);
 });

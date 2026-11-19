@@ -1,6 +1,7 @@
 ---
 import AssetList from "@/components/AssetList.astro";
 import PlayButton from "@/components/PlayButton.astro";
+import InlineVideo from "@/components/InlineVideo.astro";
 import FilterSearch from "@/components/FilterSearch.astro";
 import Pagination from "@/components/Pagination.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -15,6 +16,7 @@ import ListSort from "@/components/ListSort.astro";
 import ListBar from "@/components/ListBar.astro";
 import { DECISIONS, isFiltered, isUnsearchableImage, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
 import { decisionOf } from "@/lib/assetLineage";
+import { isVideoAsset, videoPosterOf } from "@/lib/videoAsset";
 import { pastEndHref, readPage } from "@/lib/pagination";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -189,6 +191,8 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
                       <img src={asset.publicUrl} alt={asset.altText ?? asset.name} loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
                     ) : asset.publicUrl && getMimeCategory(asset.mimeType) === "audio" ? (
                       <PlayButton src={asset.publicUrl} label={`Play ${asset.name}`} size="lg" />
+                    ) : asset.publicUrl && isVideoAsset(asset) ? (
+                      <InlineVideo variant="fill" src={asset.publicUrl} label={asset.name} poster={videoPosterOf(asset, rows)} />
                     ) : (
                       <span class="file-icon">📎</span>
                     )}

@@ -1,15 +1,17 @@
 ---
 // A small play button for a recording, for an entry list or card. Pressing it plays the sound where it is (it does not open the
 // entry); pressing it again pauses; starting another stops the first. The page script is shared, so any number of buttons cost one.
+// With `video`, the button plays the small video it sits over instead (InlineVideo.astro's script, by `data-iv-toggle`): same look.
 interface Props {
-  src: string;
+  src?: string;
   label?: string;
   size?: "sm" | "lg";
+  video?: boolean;
 }
-const { src, label = "Play", size = "sm" } = Astro.props;
+const { src = "", label = "Play", size = "sm", video = false } = Astro.props;
 ---
 
-<button type="button" class={`play-btn play-${size}`} data-src={src} aria-label={label} title={label}>
+<button type="button" class={`play-btn play-${size}`} data-src={video ? undefined : src} data-iv-toggle={video ? "" : undefined} aria-label={label} title={label}>
   <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
   <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor" /></svg>
 </button>
@@ -39,7 +41,10 @@ const { src, label = "Play", size = "sm" } = Astro.props;
 </style>
 
 <script>
-  // One shared player for the page: a click is delegated, so buttons added later work too.
+  // One shared player for the page: a click is delegated, so buttons added later work too. Starting it stops a small video that is
+  // playing, and a video starting stops it (lib/nowPlaying.ts).
+  import { claim, release } from "@/lib/nowPlaying";
+
   let audio: HTMLAudioElement | null = null;
   let active: HTMLButtonElement | null = null;
 
@@ -51,6 +56,7 @@ const { src, label = "Play", size = "sm" } = Astro.props;
 
   function stop() {
     audio?.pause();
+    if (audio) release(audio);
     setState(active, "");
     active = null;
   }
@@ -63,6 +69,7 @@ const { src, label = "Play", size = "sm" } = Astro.props;
     if (active === button) return stop();
     stop();
     audio = new Audio(button.dataset.src);
+    claim(audio, stop);
     active = button;
     setState(button, "playing");
     audio.addEventListener("ended", stop);

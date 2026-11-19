@@ -1,0 +1,148 @@
+---
+/**
+ * A video played small where it is shown, as a sound is: on an entry's file field and its attached files (`player`: the browser's own
+ * controls, 160–240 px wide, and a link that opens it large), and in a card or list row that is itself a link (`fill`, `row`: its first
+ * frame with the play button audio uses, PlayButton.astro, which plays it in place without opening the link; a row's grows while it
+ * plays). It loads only its first frame (preload="metadata") until played; never autoplays. Starting it stops a sound or another video
+ * (lib/nowPlaying.ts). A video the browser cannot play (a codec it lacks) becomes a plain link with "Download" rather than a broken box.
+ * The file comes from the asset's own public URL, as a sound's does.
+ */
+import PlayButton from "@/components/PlayButton.astro";
+import { firstFrameSrc } from "@/lib/videoAsset";
+
+interface Props {
+  src: string;
+  /** What it is (the asset's or entry's name), for the labels. */
+  label: string;
+  /** The still before it plays, when the asset names one (videoAsset.ts videoPosterOf); else its first frame. */
+  poster?: string | null;
+  /** Where "Enlarge" goes (the asset's own page); the file itself when not given. Only the player shows it. */
+  href?: string | null;
+  variant?: "player" | "fill" | "row";
+}
+
+const { src, label, poster, href, variant = "player" } = Astro.props;
+const inLink = variant !== "player";
+// Seeking to the first frame (for Safari) would hide a poster, so a video with one loads as it is.
+const shown = poster ? src : firstFrameSrc(src);
+---
+
+{inLink ? (
+  <span class:list={["inline-video", `iv-${variant}`]} data-inline-video>
+    <video src={shown} poster={poster || undefined} preload="metadata" playsinline aria-label={`Video: ${label}`}></video>
+    <span class="iv-toggle"><PlayButton video label={`Play ${label}`} /></span>
+    <span class="iv-fail" hidden title="This video can't play in the browser: open it to download it">🎬 <small>Download</small></span>
+  </span>
+) : (
+  <figure class="inline-video iv-player" data-inline-video>
+    <video src={shown} poster={poster || undefined} preload="metadata" playsinline controls aria-label={`Video: ${label}`}></video>
+    <figcaption class="iv-links">
+      <a class="iv-open" href={href || src} target="_blank" rel="noopener">Enlarge ↗</a>
+      <span class="iv-fail" hidden>This video can't play here. <a href={src} download>Download</a></span>
+    </figcaption>
+  </figure>
+)}
+
+<style>
+  .inline-video { position: relative; display: block; margin: 0; min-width: 0; }
+  .inline-video video { display: block; background: var(--panel-2); border-radius: 6px; }
+
+  /* The player: small, its height from the video's own shape, never wider than where it sits (a phone's column). */
+  .iv-player { width: clamp(160px, 100%, 240px); max-width: 100%; }
+  .iv-player video { width: 100%; height: auto; max-height: 240px; border: 1px solid var(--line); }
+  /* A sound kept as a video (no picture in it): just the controls' bar. */
+  .iv-player[data-sound-only] video { height: 40px; }
+  .iv-links { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 0.75rem; }
+  .iv-links a { color: var(--accent); }
+  .iv-fail { color: var(--muted); }
+  .iv-player[data-failed] video, .iv-player[data-failed] .iv-open { display: none; }
+
+  /* In a card or row: the first frame as the picture, the play button over it. */
+  /* Out of the flow, so a tall video cannot stretch the square it fills. */
+  .iv-fill { width: 100%; height: 100%; }
+  .iv-fill video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+  .iv-row { flex: 0 0 auto; width: 78px; height: 44px; transition: width 0.15s, height 0.15s; }
+  .iv-row video { width: 100%; height: 100%; object-fit: cover; }
+  .iv-row[data-state="playing"] { width: min(160px, 45vw); height: auto; }
+  .iv-row[data-state="playing"] video { height: auto; object-fit: contain; }
+  .iv-toggle { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+  .iv-toggle :global(.play-btn) { pointer-events: auto; width: 32px; height: 32px; background: var(--panel); opacity: 0.92; }
+  .iv-toggle :global(.play-btn svg) { width: 16px; height: 16px; }
+  /* While it plays, the button moves to a corner so the picture shows. */
+  .inline-video[data-state="playing"] .iv-toggle { place-items: end start; padding: 4px; }
+  .inline-video[data-state="playing"] .iv-toggle :global(.play-btn) { width: 28px; height: 28px; }
+  .iv-fill[data-failed] video, .iv-row[data-failed] video, .inline-video[data-failed] .iv-toggle { display: none; }
+  .iv-fill .iv-fail, .iv-row .iv-fail { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font-size: 18px; line-height: 1.1; background: var(--panel-2); border-radius: 6px; }
+  .iv-fill .iv-fail[hidden], .iv-row .iv-fail[hidden] { display: none; }
+  .iv-fail small { display: block; font-size: 10px; color: var(--muted); }
+</style>
+
+<script>
+  // Delegated, so a video added after load works too. Media events do not bubble, so they are caught on the way down.
+  import { claim, release } from "@/lib/nowPlaying";
+
+  const boxOf = (target: EventTarget | null): HTMLElement | null =>
+    target instanceof HTMLVideoElement ? target.closest<HTMLElement>("[data-inline-video]") : null;
+
+  function setPlaying(box: HTMLElement, playing: boolean) {
+    const button = box.querySelector<HTMLElement>("[data-iv-toggle]");
+    for (const el of [box, button]) {
+      if (!el) continue;
+      if (playing) el.dataset.state = "playing";
+      else delete el.dataset.state;
+    }
+  }
+
+  function fail(box: HTMLElement) {
+    box.dataset.failed = "";
+    box.querySelector<HTMLElement>(".iv-fail")?.removeAttribute("hidden");
+    const video = box.querySelector("video");
+    if (video) release(video);
+    setPlaying(box, false);
+  }
+
+  function soundOnly(video: HTMLVideoElement) {
+    const box = boxOf(video);
+    if (box && video.readyState >= HTMLMediaElement.HAVE_METADATA && video.videoWidth === 0) box.dataset.soundOnly = "";
+  }
+
+  document.addEventListener("error", (e) => {
+    const box = boxOf(e.target);
+    if (box) fail(box);
+  }, true);
+  document.addEventListener("play", (e) => {
+    const box = boxOf(e.target);
+    if (!box) return;
+    const video = e.target as HTMLVideoElement;
+    claim(video, () => video.pause());
+    setPlaying(box, true);
+  }, true);
+  for (const type of ["pause", "ended"]) {
+    document.addEventListener(type, (e) => {
+      const box = boxOf(e.target);
+      if (!box) return;
+      release(e.target as HTMLVideoElement);
+      setPlaying(box, false);
+    }, true);
+  }
+  document.addEventListener("loadedmetadata", (e) => {
+    if (boxOf(e.target)) soundOnly(e.target as HTMLVideoElement);
+  }, true);
+
+  // The play button over a video in a card: it plays here and does not open the card's link.
+  document.addEventListener("click", (event) => {
+    const button = (event.target as Element | null)?.closest?.<HTMLElement>("[data-iv-toggle]");
+    const video = button?.closest("[data-inline-video]")?.querySelector("video");
+    if (!button || !video) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (video.paused) void video.play().catch(() => {}); // a file it cannot play fires `error`, which shows the Download hint
+    else video.pause();
+  });
+
+  // A video that failed or loaded before this script ran (scripts run after the page is parsed) said so already.
+  for (const video of document.querySelectorAll<HTMLVideoElement>("[data-inline-video] video")) {
+    if (video.error || video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) fail(boxOf(video)!);
+    else soundOnly(video);
+  }
+</script>

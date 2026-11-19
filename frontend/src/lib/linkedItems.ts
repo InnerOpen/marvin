@@ -1,6 +1,8 @@
 // The asset / resource fields of a schema form (LinkedItemsField.astro): what the hidden input holds, how a chosen item
 // is shown, and the search over the picker's list. Pure, so the page's own picker script and the tests share it.
 
+import { isVideoAsset, videoPosterOf } from "./videoAsset.ts";
+
 export interface LinkedItem {
   id: string;
   name: string;
@@ -10,6 +12,9 @@ export interface LinkedItem {
   imageUrl?: string | null;
   /** An audio asset's public url, played from its card (an actor's voice sample). */
   audioUrl?: string | null;
+  /** A video asset's public url, played small on its card (InlineVideo.astro), and the still it shows before it plays. */
+  videoUrl?: string | null;
+  posterUrl?: string | null;
   alt?: string | null;
   /** An asset's file type, for a field that takes only some kinds (lib/assetAccept.ts). */
   mimeType?: string | null;
@@ -46,11 +51,21 @@ export function canAdd(count: number, multiple: boolean, max?: number | null): b
   return max == null || count < max;
 }
 
-/** An asset as the picker shows it. */
-export function assetItem(a: { id: string; name: string; mimeType?: string | null; publicUrl?: string | null; altText?: string | null }): LinkedItem {
+type PickedAsset = { id: string; slug?: string | null; name: string; mimeType?: string | null; publicUrl?: string | null; altText?: string | null; metadataJson?: Record<string, unknown> | null };
+
+/** An asset as the picker shows it. A video's poster named by id is found among `siblings` (assetItems passes the whole list). One argument
+ *  as far as `.map(assetItem)` is concerned: the index it would pass is not a list. */
+export function assetItem(a: PickedAsset, siblings?: unknown): LinkedItem {
   const image = (a.mimeType ?? "").startsWith("image/") && a.publicUrl ? a.publicUrl : null;
-  const audio = (a.mimeType ?? "").startsWith("audio/") && a.publicUrl ? a.publicUrl : null;
-  return { id: a.id, name: a.name, meta: a.mimeType ?? null, imageUrl: image, audioUrl: audio, alt: a.altText ?? null, mimeType: a.mimeType ?? null };
+  const video = isVideoAsset(a) ? (a.publicUrl as string) : null;
+  const audio = !video && (a.mimeType ?? "").startsWith("audio/") && a.publicUrl ? a.publicUrl : null;
+  const poster = video ? videoPosterOf(a, Array.isArray(siblings) ? siblings : []) : null;
+  return { id: a.id, name: a.name, meta: a.mimeType ?? null, imageUrl: image, audioUrl: audio, videoUrl: video, posterUrl: poster, alt: a.altText ?? null, mimeType: a.mimeType ?? null };
+}
+
+/** A list of assets as the picker shows them, each video's poster looked up among the others. */
+export function assetItems(list: readonly PickedAsset[]): LinkedItem[] {
+  return list.map((a) => assetItem(a, list));
 }
 
 /** A resource as the picker shows it. */

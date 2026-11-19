@@ -6,6 +6,7 @@
  */
 import LocalTime from "@/components/LocalTime.astro";
 import PlayButton from "@/components/PlayButton.astro";
+import InlineVideo from "@/components/InlineVideo.astro";
 import { extraSound, thumbOf } from "@/lib/entryMedia";
 
 interface Props {
@@ -38,6 +39,7 @@ const statusMeta: Record<string, { label: string; cls: string }> = {
         <a class="inbox-link" href={`/workspace/entries/${entry.id}`}>
           <span class={`status-dot ${s.cls}`} title={s.label}></span>
           {thumb?.kind === "audio" && <PlayButton src={thumb.url} label={`Play ${entry.title}`} />}
+          {thumb?.kind === "video" && <InlineVideo variant="row" src={thumb.url} label={entry.title || "Untitled"} poster={thumb.poster} />}
           {thumb?.kind === "image" && <img class="inbox-thumb" src={thumb.url} alt="" loading="lazy" style={`object-position: ${thumb.focalPoint ?? "50% 50%"}`} />}
           {sound && <PlayButton src={sound.url} label={`Play ${entry.title}`} />}
           <span class="inbox-main">
