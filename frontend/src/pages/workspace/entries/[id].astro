@@ -1,6 +1,7 @@
 ---
 import AudioTimeline from "@/components/AudioTimeline.astro";
 import SaveErrorBanner from "@/components/SaveErrorBanner.astro";
+import InlineVideo from "@/components/InlineVideo.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { assetFieldOf, offerableAssets } from "@/lib/assetField";
@@ -35,7 +36,8 @@ import { shareLinks } from "@/lib/shareLinks";
 import { restoresTo } from "@/lib/trash";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
-import { assetItem, resourceItem } from "@/lib/linkedItems";
+import { assetItems, resourceItem } from "@/lib/linkedItems";
+import { isVideoAsset, videoPosterOf } from "@/lib/videoAsset";
 import { refOptionsFor } from "@/lib/refFieldsApi";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
@@ -633,7 +635,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 <SchemaForm
                   schema={entryType.schemaJson}
                   values={entry.dataJson || {}}
-                  assets={allAssets.map(assetItem)}
+                  assets={assetItems(allAssets)}
                   resources={allResources.map(resourceItem)}
                   cues={cues}
                   wordCues={wordCues}
@@ -1090,6 +1092,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                     </div>
                   </div>
                   {asset.publicUrl && asset.mimeType?.startsWith('audio/') && <audio class="attachment-audio" controls preload="none" src={asset.publicUrl}></audio>}
+                  {isVideoAsset(asset) && <InlineVideo src={asset.publicUrl} label={asset.name} poster={videoPosterOf(asset, confirmedAssets)} href={`/workspace/assets/${asset.id}/view`} />}
                   {asset.publicUrl && asset.mimeType === 'text/html' && (
                     <details class="attachment-html">
                       <summary>Preview the page <a href={asset.publicUrl} target="_blank" rel="noopener noreferrer">Open in its own tab ↗</a></summary>

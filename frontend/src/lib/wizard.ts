@@ -5,6 +5,7 @@
  */
 
 import type { ApprovalField } from "./approvalFields";
+import { isVideoAsset } from "./videoAsset.ts";
 
 export type Ctx = Record<string, string>;
 
@@ -522,6 +523,7 @@ export function listSpec(step: Step, ctx: Ctx): Record<string, unknown> {
 
 export interface AttachedAsset {
   role?: string | null;
+  metadataJson?: Record<string, unknown> | null;
   publicUrl?: string | null;
   mimeType?: string | null;
   name?: string | null;
@@ -553,6 +555,12 @@ export function titleFor(typed: string, fileName: string): string {
   const own = typed.trim();
   if (own) return own;
   return fileName.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim();
+}
+
+/** The video a card plays small when its picture field holds a video rather than a picture (a gallery of clips). */
+export function cardVideo(assets: AttachedAsset[] | undefined, pictureField: string | undefined): string | null {
+  if (!pictureField) return null;
+  return (assets ?? []).find((a) => a.role === pictureField && isVideoAsset(a))?.publicUrl ?? null;
 }
 
 /** The sound a card plays: the asset attached in the audio field's role, as the picture is found. */

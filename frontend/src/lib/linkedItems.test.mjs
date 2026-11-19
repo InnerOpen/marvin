@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assetItem, canAdd, chosen, idsOf, matches, resourceItem, serialize, nameFromFile, uploadSlug } from "./linkedItems.ts";
+import { assetItem, assetItems, canAdd, chosen, idsOf, matches, resourceItem, serialize, nameFromFile, uploadSlug } from "./linkedItems.ts";
 
 test("idsOf reads a list, a single id, or an older comma-separated string", () => {
   assert.deepEqual(idsOf(["a", "b"]), ["a", "b"]);
@@ -51,6 +51,15 @@ test("assetItem carries an audio file's url so its card can play it", () => {
   assert.equal(item.audioUrl, "/sarah.mp3");
   assert.equal(item.imageUrl, null);
   assert.equal(assetItem({ id: "2", name: "pic", mimeType: "image/png", publicUrl: "/p.png" }).audioUrl, null);
+});
+
+test("test_assetItem_carries_a_videos_url_and_poster_so_its_card_can_play_it", () => {
+  const clip = { id: "v", name: "Beat 4", mimeType: "video/mp4", publicUrl: "/beat-4.mp4", metadataJson: { poster: "p" } };
+  const still = { id: "p", name: "still", mimeType: "image/png", publicUrl: "/still.png" };
+  const [item] = assetItems([clip, still]);
+  assert.deepEqual([item.videoUrl, item.posterUrl, item.audioUrl, item.imageUrl], ["/beat-4.mp4", "/still.png", null, null]);
+  assert.equal([clip].map(assetItem)[0].posterUrl, null); // .map's index is no list of siblings
+  assert.equal(assetItem({ id: "a", name: "take", mimeType: "audio/mpeg", publicUrl: "/t.mp3" }).videoUrl, null);
 });
 
 test("an upload from a field gets a slug from its name and a name from its file", () => {

@@ -1,9 +1,10 @@
 ---
 /**
- * One entry as a guided setup shows it: a card that opens the entry, with its picture (or its first letter), a play button when it has a
+ * One entry as a guided setup shows it: a card that opens the entry, with its picture (or its video, played small in place, or its first letter), a play button when it has a
  * sound, the title, a line under it and pills. A gallery draws its cards with it, and a run step its list of what it will act on. Inside a
  * `.cards.rows` list it is a row (a small square, then the words).
  */
+import InlineVideo from "@/components/InlineVideo.astro";
 import PlayButton from "@/components/PlayButton.astro";
 
 interface Props {
@@ -11,18 +12,20 @@ interface Props {
   title: string;
   picture?: string | null;
   sound?: string | null;
+  /** A video to play in the picture's place, when the card has no picture (a gallery of clips). */
+  video?: string | null;
   subtitle?: string;
   /** The label of a marked card (the take in use), shown as the first pill. */
   marked?: string | null;
   pills?: string[];
 }
 
-const { href, title, picture, sound, subtitle, marked, pills = [] } = Astro.props;
+const { href, title, picture, sound, video, subtitle, marked, pills = [] } = Astro.props;
 ---
 
 <a class:list={["gcard", { marked: !!marked }]} href={href}>
   <div class="gpic">
-    {picture ? <img src={picture} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(title || "?").slice(0, 1)}</span>}
+    {picture ? <img src={picture} alt="" loading="lazy" /> : video ? <InlineVideo variant="fill" src={video} label={title} /> : <span class="gnone" aria-hidden="true">{(title || "?").slice(0, 1)}</span>}
     {/* The play button keeps its click to itself (PlayButton.astro), so playing does not open the entry. */}
     {sound && <span class="gplay"><PlayButton src={sound} label={`Play ${title}`} /></span>}
   </div>

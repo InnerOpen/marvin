@@ -1,6 +1,7 @@
 ---
 import type { CollectionRead, EntryRead } from "@/lib/api/types";
 import PlayButton from "@/components/PlayButton.astro";
+import InlineVideo from "@/components/InlineVideo.astro";
 import { extraSound, thumbOf } from "@/lib/entryMedia";
 import { reviewReasons } from "@/lib/reviewReasons";
 
@@ -46,6 +47,8 @@ function formatRelativeTime(timestamp: string | null | undefined): string {
       <div class="media-placeholder">
         <PlayButton src={thumb.url} label={`Play ${entry.title}`} size="lg" />
       </div>
+    ) : thumb?.kind === "video" ? (
+      <InlineVideo variant="fill" src={thumb.url} label={entry.title} poster={thumb.poster} />
     ) : thumb?.kind === "image" ? (
       <img src={thumb.url} alt={thumb.alt} style={`object-position: ${thumb.focalPoint ?? "50% 50%"}`} />
     ) : (
