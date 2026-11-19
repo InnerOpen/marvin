@@ -575,3 +575,23 @@ def test_a_timeline_may_name_an_items_clip_and_older_ones_need_not():
 )
 def test_a_wrong_clip_says_what_is_wrong(clip, words):
     assert words in (_bad(lambda p: p["spine"].update(clip=clip)) or "")
+
+
+def test_a_clip_and_a_lane_may_name_the_recording_their_facts_are_read_from():
+    """C3: `clip.recording` and a lane's `recording` name the field holding the entry's Recording slug; a view without them is as before."""
+    assert _bad(lambda p: p["spine"].update(clip={**CLIP, "recording": "recording"})) is None
+    assert _bad(lambda p: p["lanes"][0].update(recording="recording")) is None
+    assert _bad(lambda p: p["lanes"][1].update(recording="recording")) is None  # a placed lane (the sounds) too
+
+
+@pytest.mark.parametrize(
+    ("mutate", "words"),
+    [
+        (lambda p: p["spine"].update(clip={**CLIP, "recording": "Recording"}), "clip: recording must be a field key"),
+        (lambda p: p["spine"].update(clip={**CLIP, "recording": 3}), "clip: recording must be a field key"),
+        (lambda p: p["lanes"][0].update(recording="the take"), "recording must be a field key"),
+        (lambda p: (p["lanes"][0].pop("audio"), p["lanes"][0].update(recording="recording")), "recording needs audio"),
+    ],
+)
+def test_a_wrong_recording_key_says_what_is_wrong(mutate, words):
+    assert words in (_bad(mutate) or "")
