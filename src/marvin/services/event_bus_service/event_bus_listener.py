@@ -764,6 +764,9 @@ class IndexingReactionListener(BuiltinReaction):
             if not obj or obj.group_id != self.group_id:
                 self.logger.warning(f"IndexingReactionListener: {idx_desc.entity_type} {entity_id} not found for this workspace")
                 return
+            # Read now: index_entity commits, which expires `obj`, and the session is closed by the time the
+            # reindexed event is emitted — a detached, expired row can't be read there.
+            obj_id = obj.id
             has_index = self._has_index(session, idx_desc.entity_type, entity_id, model)
             if not idx_desc.should_index(obj, event.event_type, has_index):
                 return
@@ -782,17 +785,17 @@ class IndexingReactionListener(BuiltinReaction):
             text = idx_desc.text(obj)
             # Most saves of a published item don't change what's indexed (a workflow writing metadata,
             # a status flag): skip the embedding call — and the event — when the chunks are identical.
-            if chunks_unchanged(session, self.group_id, idx_desc.entity_type, obj.id, model, entity_chunks(text)):
+            if chunks_unchanged(session, self.group_id, idx_desc.entity_type, obj_id, model, entity_chunks(text)):
                 return
             try:
-                chunks = index_entity(session, self.group_id, idx_desc.entity_type, obj.id, text, embedder, model)
+                chunks = index_entity(session, self.group_id, idx_desc.entity_type, obj_id, text, embedder, model)
             except Exception as e:
                 self.logger.warning(f"IndexingReactionListener: embed failed for {idx_desc.entity_type} {entity_id}: {e}")
                 return
 
         verb = "on " + event.event_type.name.split("_", 1)[-1]  # e.g. "on published", "on updated"
         self.logger.info(f"Auto-indexed {idx_desc.entity_type} {entity_id} ({chunks} chunk(s)) {verb}")
-        self._emit_reindexed(model, chunks, idx_desc.entity_type, verb, entity_id=obj.id)
+        self._emit_reindexed(model, chunks, idx_desc.entity_type, verb, entity_id=obj_id)
 
     def _has_index(self, session: Session, entity_type: str, entity_id: UUID4, model: str) -> bool:
         """True if this entity already has embedding chunks for the given model."""
