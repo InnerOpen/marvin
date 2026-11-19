@@ -37,6 +37,8 @@ describe("sidebarViewLinks", () => {
     const [blank] = sidebarViewLinks([view("story-timeline", { label: "  " })]);
     assert.equal(blank.label, "Timeline");
     assert.equal(blank.icon, "🎞");
+    const [empty] = sidebarViewLinks([view("story-timeline", {})]);
+    assert.equal(empty.label, "Timeline");
   });
 });
 

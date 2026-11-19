@@ -439,6 +439,15 @@ def test_the_list_carries_a_views_sidebar_key_and_nothing_else_of_its_definition
     assert service.list_views(db_session, workspace.id, with_definition=True)[0].definition["lanes"]
 
 
+@pytest.mark.parametrize(("sidebar", "listed"), [({}, {"sidebar": {}}), (True, {"sidebar": True}), (False, {})])
+def test_a_sidebar_key_with_defaults_is_listed_and_false_is_not(db_session, workspace, sidebar, listed):  # noqa: F811
+    manifest = _with_view(payload={**TIMELINE, "sidebar": sidebar})
+    service.install(db_session, workspace.id, service.parse_manifest(manifest), actor_id=workspace.user_id)
+    db_session.commit()
+
+    assert service.list_views(db_session, workspace.id)[0].definition == listed
+
+
 def test_the_view_routes_exist_and_need_a_login(client):
     from marvin.app import app
 

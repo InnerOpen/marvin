@@ -561,8 +561,13 @@ def list_views(session, group_id, entry_type: str | None = None, spine_type: str
         and (spine_type is None or (v.definition.get("spine") or {}).get("entry_type") == spine_type)
     ]
     if not full:
-        kept = [v.model_copy(update={"definition": {k: v.definition[k] for k in ("sidebar",) if v.definition.get(k)}}) for v in kept]
+        kept = [v.model_copy(update={"definition": _listed(v.definition)}) for v in kept]
     return sorted(kept, key=lambda v: v.name.lower())
+
+
+def _listed(definition: dict) -> dict:
+    """What the views list carries of a definition: `sidebar` alone, when it is on (true or an object, even an empty one)."""
+    return {"sidebar": definition["sidebar"]} if definition.get("sidebar") not in (None, False) else {}
 
 
 def get_view(session, group_id, slug: str) -> ViewRead | None:
