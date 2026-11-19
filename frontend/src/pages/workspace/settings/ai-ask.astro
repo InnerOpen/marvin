@@ -186,6 +186,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   import { MAIN_AGENT } from "@/lib/marvin/cast";
   import { type UsedPlaybook, usedHtml } from "@/lib/marvin/playbooksUsed";
   import { referralQuestion } from "@/lib/marvin/referrals";
+  import { assetHref } from "@/lib/mediaTime";
   import { createSdkClient } from "@/lib/sdk";
   import { assetName, assetSlug } from "@/lib/share";
   import {
@@ -323,10 +324,10 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       el.scrollIntoView({ block: "nearest" });
       return el;
     }
-    function entityHref(type: string, id: string): string | null {
+    function entityHref(type: string, id: string, startSeconds?: number | null): string | null {
       if (type === "entry") return `/workspace/entries/${id}`;
       if (type === "resource") return `/workspace/resources/${id}`;
-      if (type === "asset") return `/workspace/assets/${id}`;
+      if (type === "asset") return assetHref(id, startSeconds); // a transcript's passage opens the recording there
       return null;
     }
     function sourcesHtml(sources: Source[] | undefined | null): string {
@@ -336,7 +337,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         const key = `${s.entityType}:${s.entityId}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const href = entityHref(s.entityType, s.entityId);
+        const href = entityHref(s.entityType, s.entityId, s.startSeconds);
         links.push(href ? `<a href="${esc(href)}">${esc(s.title || key)}</a>` : esc(s.title || key));
       }
       return links.length ? `<span>Sources:</span> ${links.join(" · ")}` : "";

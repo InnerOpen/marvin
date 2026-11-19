@@ -1,0 +1,40 @@
+---
+// Text that may hold a timestamped transcript's `[0:01:05]` markers, as a paragraph whose markers are buttons playing the page's
+// player from there (lib/mediaSeek.ts wires them; lib/mediaTime.ts builds the HTML and escapes everything else). Line breaks are kept,
+// so a transcript reads a line per phrase.
+import { timedTextHtml } from "@/lib/mediaTime";
+
+interface Props {
+  text: string;
+}
+const { text } = Astro.props;
+---
+
+<p class="timed-text" set:html={timedTextHtml(text)} />
+
+<style>
+  .timed-text {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+  }
+  .timed-text :global(.seek-mark) {
+    font: inherit;
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    background: none;
+    border: 0;
+    border-radius: 4px;
+    padding: 0 0.125rem;
+    cursor: pointer;
+  }
+  .timed-text :global(.seek-mark:hover) {
+    text-decoration: underline;
+  }
+  .timed-text :global(.seek-mark:focus-visible) {
+    outline: 2px solid var(--accent, currentColor);
+    outline-offset: 1px;
+  }
+</style>

@@ -7,9 +7,11 @@ import AssetMetaValue from "@/components/AssetMetaValue.astro";
 import AssetTranscript from "@/components/AssetTranscript.astro";
 import AssetVersions from "@/components/AssetVersions.astro";
 import TagList from "@/components/TagList.astro";
+import TimedText from "@/components/TimedText.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { isTextMime } from "@/lib/assetText";
+import { hasTimeMarkers } from "@/lib/mediaTime";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -103,7 +105,7 @@ const isText = isTextMime(asset?.mimeType);
 
         {isVideo && (
           <div class="video-viewer">
-            <video controls>
+            <video controls preload="metadata" data-seek-player>
               <source src={asset.publicUrl} type={asset.mimeType} />
               Your browser does not support video playback.
             </video>
@@ -112,7 +114,7 @@ const isText = isTextMime(asset?.mimeType);
 
         {isAudio && (
           <div class="audio-viewer">
-            <audio controls>
+            <audio controls preload="metadata" data-seek-player>
               <source src={asset.publicUrl} type={asset.mimeType} />
               Your browser does not support audio playback.
             </audio>
@@ -159,7 +161,8 @@ const isText = isTextMime(asset?.mimeType);
         {asset.description && (
           <div class="description-panel">
             <h4>Description</h4>
-            <p>{asset.description}</p>
+            {/* A timestamped transcript (Marvin Media writes one here) keeps its lines, and its times play the player from there. */}
+            {(isAudio || isVideo) && hasTimeMarkers(asset.description) ? <TimedText text={asset.description} /> : <p>{asset.description}</p>}
           </div>
         )}
 
@@ -215,7 +218,11 @@ const isText = isTextMime(asset?.mimeType);
 
 <script>
   import { createSdkClient } from '@/lib/sdk';
+  import { wireMediaSeek } from '@/lib/mediaSeek';
   import { isForbidden } from '@/lib/workspaceRole';
+
+  // `?t=65` opens the player there (paused); a transcript's [0:01:05] plays from there.
+  wireMediaSeek();
 
   // Move to Trash, as on the edit page: reversible (the file stays until the Trash is emptied), so it doesn't ask.
   const trashButton = document.getElementById('trash-button') as HTMLButtonElement | null;

@@ -233,12 +233,12 @@ const showAiPanel = aiEnabled && isImage;
               </div>
             ) : asset.publicUrl && asset.mimeType?.startsWith('audio/') ? (
               <div class="asset-preview media-preview">
-                <audio controls preload="metadata" src={asset.publicUrl}></audio>
+                <audio controls preload="metadata" src={asset.publicUrl} data-seek-player></audio>
                 <span class="file-label">{asset.originalFilename || asset.name}</span>
               </div>
             ) : asset.publicUrl && asset.mimeType?.startsWith('video/') ? (
               <div class="asset-preview media-preview">
-                <video controls preload="metadata" src={asset.publicUrl}></video>
+                <video controls preload="metadata" src={asset.publicUrl} data-seek-player></video>
               </div>
             ) : asset.publicUrl && isTextMime(asset.mimeType) ? (
               <AssetTextPreview url={asset.publicUrl} compact />
@@ -300,6 +300,10 @@ const showAiPanel = aiEnabled && isImage;
 
 <script>
   import { fetchApi, fetchApiBlob } from "@/lib/api/client";
+  import { wireMediaSeek } from "@/lib/mediaSeek";
+
+  // `?t=65` opens the preview's player there, paused (lib/mediaSeek.ts).
+  wireMediaSeek();
   // Edit picture: the file goes through the page's cropper (crop, rotate, brightness, contrast, saturation) and comes back as a NEW
   // version made from this asset (`derived_from`, so it lists under "Versions made from this"); the picture itself is left as it is.
   const button = document.getElementById("edit-picture") as HTMLButtonElement | null;

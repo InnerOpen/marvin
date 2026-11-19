@@ -121,6 +121,8 @@ export interface Source {
   entityType: string;
   entityId: string;
   title?: string | null;
+  /** An asset hit from a timestamped transcript: where in the recording the matched passage starts (its first `[h:mm:ss]`). */
+  startSeconds?: number | null;
 }
 /** A specialist the router ran for this turn; `threadId` is the child thread "Continue with X" opens. */
 export interface Handoff {

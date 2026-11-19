@@ -2,9 +2,13 @@
 // The Transcript of a recording on its asset page: the newest Transcript entry whose `source` names this asset (its id, or its
 // slug in the older ones), with its language and length, the words in paragraphs (the start shown, the rest behind "Show more"), a
 // link to download the version with times and one to the entry. Nothing at all when there is none, or its files cannot be read.
+// The words shown are the version with times when it can be read (each `[0:01:05]` a button that plays the page's player from there),
+// else the paragraphs.
+import TimedText from "@/components/TimedText.astro";
 import { fetchApi } from "@/lib/api/client";
 import { assetNamed, formatLength, languageName, splitForMore, type TranscriptRef, transcriptOf, transcriptQuery } from "@/lib/assetRecording";
 import { fetchTextPreview } from "@/lib/assetText";
+import { hasTimeMarkers } from "@/lib/mediaTime";
 
 interface Props {
   asset: { id: string; slug?: string | null };
@@ -31,7 +35,9 @@ if (transcript && authToken) {
   const files = await fetchApi<FileAsset[]>(`/api/platform/assets?${query}`, {}, authToken).catch(() => [] as FileAsset[]);
   paragraphs = assetNamed(files, transcript.paragraphs);
   timestamped = assetNamed(files, transcript.timestamped);
-  const preview = paragraphs?.publicUrl ? await fetchTextPreview(new URL(paragraphs.publicUrl, Astro.url).toString()) : null;
+  const read = (file: FileAsset | null) => (file?.publicUrl ? fetchTextPreview(new URL(file.publicUrl, Astro.url).toString()) : null);
+  const withTimes = await read(timestamped);
+  const preview = withTimes && hasTimeMarkers(withTimes.text) ? withTimes : await read(paragraphs);
   if (preview?.text.trim()) body = { ...splitForMore(preview.text), cut: preview.truncated };
 }
 const shown = transcript && (body || timestamped?.publicUrl);
@@ -44,11 +50,11 @@ const facts = transcript ? [transcript.language ? languageName(transcript.langua
     {facts.length > 0 && <p class="transcript-facts">{facts.join(" · ")}</p>}
     {body && (
       <div class="transcript-text">
-        <p>{body.head}</p>
+        <TimedText text={body.head} />
         {body.rest && (
           <details>
             <summary>Show more</summary>
-            <p>{body.rest}</p>
+            <TimedText text={body.rest} />
           </details>
         )}
         {body.cut && <p class="transcript-note">The transcript goes on past this. Download it for the rest.</p>}
@@ -92,12 +98,6 @@ const facts = transcript ? [transcript.language ? languageName(transcript.langua
     margin: 0 0 1rem;
     color: var(--muted);
     font-size: 0.875rem;
-  }
-  .transcript-text p {
-    margin: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    line-height: 1.6;
   }
   .transcript-text details {
     margin-top: 0.5rem;

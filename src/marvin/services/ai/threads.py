@@ -348,7 +348,8 @@ def extract_handoffs(steps) -> tuple[list[dict], list[dict]]:
 
 
 def extract_sources(steps) -> list[dict]:
-    """Citations from the run's `search_content` results: one {entityType, entityId, title} per entity."""
+    """Citations from the run's `search_content` results: one {entityType, entityId, title} per entity, the first hit's (the best
+    match's); an asset hit that says where in its recording it starts adds that `startSeconds`."""
     seen: set[str] = set()
     out: list[dict] = []
     for step in steps or []:
@@ -368,5 +369,8 @@ def extract_sources(steps) -> list[dict]:
             if key in seen:
                 continue
             seen.add(key)
-            out.append({"entityType": etype, "entityId": str(eid), "title": hit.get("title")})
+            source = {"entityType": etype, "entityId": str(eid), "title": hit.get("title")}
+            if isinstance(hit.get("startSeconds"), int):
+                source["startSeconds"] = hit["startSeconds"]
+            out.append(source)
     return out
