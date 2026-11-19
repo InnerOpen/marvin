@@ -252,6 +252,8 @@ def test_the_prune_handler_deletes_by_the_tasks_retention_and_refuses_a_workspac
     from marvin.services.scheduled_tasks.handlers.maintenance import PruneSocialInboxItemsHandler
 
     seed(ws, [item("recent"), item("aging", age_hours=24 * 6)])
+    # The handler cuts at the real clock, so both ages are set from it (the fixed NOW turned "recent" 30 days old on 2026-11-19).
+    ws.session.query(Item).filter_by(item_id="recent").update({"posted_at": datetime.now(UTC) - timedelta(hours=1)})
     ws.session.query(Item).filter_by(item_id="aging").update({"posted_at": datetime.now(UTC) - timedelta(days=40)})
     ws.session.commit()
     handler = PruneSocialInboxItemsHandler()
