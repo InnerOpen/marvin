@@ -64,11 +64,13 @@ def resolve_retrieved_sources(session, retrieved: list[dict]) -> list[dict]:
     """Map retrieved chunks (in citation order) to their entity + resolved title.
 
     The LLM cites sources by their 1-based [n] index, which aligns with this ordered list,
-    so the UI can turn each citation into a link. Titles are looked up in bulk per type.
+    so the UI can turn each citation into a link. Titles are looked up in bulk per type. An asset chunk holding a timestamped
+    transcript's ``[h:mm:ss]`` markers adds ``start_seconds``, its first marker's time, so the link opens the recording there.
     """
     from marvin.db.models.platform.assets import Assets
     from marvin.db.models.platform.entries import Entries
     from marvin.db.models.platform.resources import Resources
+    from marvin.services.media_time import first_marker_seconds
 
     entry_ids = {c["entity_id"] for c in retrieved if c.get("entity_type") == "entry"}
     resource_ids = {c["entity_id"] for c in retrieved if c.get("entity_type") == "resource"}
@@ -88,13 +90,14 @@ def resolve_retrieved_sources(session, retrieved: list[dict]) -> list[dict]:
     for i, c in enumerate(retrieved):
         et = c.get("entity_type")
         eid = str(c.get("entity_id"))
-        sources.append(
-            {
-                "index": i + 1,
-                "entity_type": et,
-                "entity_id": eid,
-                "title": titles.get((et or "", eid), f"{et} {eid[:8]}"),
-                "score": c.get("score"),
-            }
-        )
+        source = {
+            "index": i + 1,
+            "entity_type": et,
+            "entity_id": eid,
+            "title": titles.get((et or "", eid), f"{et} {eid[:8]}"),
+            "score": c.get("score"),
+        }
+        if et == "asset" and (start := first_marker_seconds(c.get("text") or c.get("content"))) is not None:
+            source["start_seconds"] = start
+        sources.append(source)
     return sources

@@ -114,6 +114,14 @@ uploaded like a picked file, as MP4 where the browser can make it, else WebM. Th
 video`, format, camera and microphone, size, frame rate, length, and `stopped` when it stopped by itself). A refused or missing
 camera says so ("Allow the camera for this site…"), and closing the dialog always lets go of the camera. Unreleased (2026-11-18).
 
+**Open a recording at a moment.** An audio or video asset's page opens at a time from its link: `?t=65` (also `65s`, `1:05`,
+`0:01:05`, or `#t=65`) cues the player there, scrolls it into view and leaves it paused, ready to play; a time past the end stops at
+the end, and one that isn't a time is ignored. Each `[0:01:05]` in a timestamped transcript on the page — the Transcript block,
+which now shows the version with times when there is one, and a description that holds one — is a button that plays from there. A
+search or Ask source that is a recording's transcript links to the passage that matched: the asset's view page opened at that
+passage's first time. Ask's `retrieved_sources` carry it as `start_seconds`, `search_content` hits and an agent run's `sources` as
+`startSeconds`, and the MCP connector's `search` puts it in the result's `url`. Unreleased (2026-11-18).
+
 ## Rendered images
 
 A **Process an image** step can **render a template**: a built-in quote card, card, retro poster, trading card, meme,

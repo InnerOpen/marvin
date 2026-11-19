@@ -207,6 +207,8 @@ def search_content(ctx: ToolContext, args: dict) -> str:
                 "entityId": src.get("entity_id"),
                 "snippet": text[:400],
                 "score": src.get("score"),
+                # A timestamped transcript's chunk: where in the recording it starts (its first [h:mm:ss], from the whole chunk).
+                **({"startSeconds": src["start_seconds"]} if "start_seconds" in src else {}),
             }
         )
     # The index only knows relevance + ids. Hydrate lean image refs for entry hits from the DB

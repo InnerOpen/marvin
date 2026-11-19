@@ -344,9 +344,13 @@ FETCH = types.Tool(
 )
 
 
-def _admin_url(kind: str, entity_id: str) -> str:
+def _admin_url(kind: str, entity_id: str, start_seconds: int | None = None) -> str:
+    """The entity's admin page; an asset hit that says where in its recording it starts opens its view page there."""
+    from marvin.services.media_time import asset_page_path
     from marvin.services.ui_links import ui_link
 
+    if kind == "asset" and isinstance(start_seconds, int):
+        return ui_link(asset_page_path(entity_id, start_seconds))
     return ui_link(ADMIN_PATHS[kind].format(id=entity_id))
 
 
@@ -362,7 +366,8 @@ def search_for(conn: Connection, args: dict | None) -> dict:
         key = f"{kind}:{entity_id}"
         if kind in KINDS and entity_id and key not in seen:
             seen.add(key)
-            results.append({"id": key, "title": r.get("title") or key, "url": r.get("url") or _admin_url(kind, entity_id)})
+            url = r.get("url") or _admin_url(kind, entity_id, r.get("startSeconds"))
+            results.append({"id": key, "title": r.get("title") or key, "url": url})
     if not results:  # no semantic index here (or nothing in it): fall back to titles and slugs
         found = call_tool_for(conn, "find_entries", {"query": query, "limit": SEARCH_RESULTS})
         for e in found.get("entries", []):

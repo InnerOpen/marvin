@@ -28,6 +28,7 @@ import { type ApprovalCard, approvalCardHtml, type Decisions } from "@/lib/appro
 import { ATTACHMENTS_KEY, attachmentIds, loadAttachments } from "@/lib/marvin/attachments";
 import { getActiveContext } from "@/lib/marvin/context";
 import { takeGreeting } from "@/lib/marvin/greeting";
+import { assetHref } from "@/lib/mediaTime";
 import { type MoodState, moodText } from "@/lib/marvin/mood";
 import {
   askThreadHref,
@@ -120,9 +121,11 @@ export function renderMarkdown(text: unknown): string {
   return DOMPurify.sanitize(raw);
 }
 
-function entityHref(type: string, id: string): string | null {
+/** An entity's page; an asset cited from a timestamped transcript opens its recording at `startSeconds` (lib/mediaTime.ts). */
+function entityHref(type: string, id: string, startSeconds?: number | null): string | null {
   if (type === "entry") return `/workspace/entries/${id}`;
   if (type === "resource") return `/workspace/resources/${id}`;
+  if (type === "asset") return assetHref(id, startSeconds);
   return null;
 }
 
@@ -454,7 +457,7 @@ const ask: Capability = {
       const key = `${s.entity_type}:${s.entity_id}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const href = entityHref(s.entity_type, s.entity_id);
+      const href = entityHref(s.entity_type, s.entity_id, s.start_seconds);
       const label = esc(s.title || key);
       links.push(href ? `<a href="${esc(href)}">${label}</a>` : label);
     }
