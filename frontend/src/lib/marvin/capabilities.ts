@@ -10,7 +10,6 @@
  */
 
 import DOMPurify from "dompurify";
-import { marked } from "marked";
 import {
   type AgentRunResult,
   getRunProgress,
@@ -29,6 +28,7 @@ import { ATTACHMENTS_KEY, attachmentIds, loadAttachments } from "@/lib/marvin/at
 import { getActiveContext } from "@/lib/marvin/context";
 import { takeGreeting } from "@/lib/marvin/greeting";
 import { assetHref } from "@/lib/mediaTime";
+import { answerMarkdownHtml, type CitedSource } from "@/lib/askTimeLinks";
 import { type MoodState, moodText } from "@/lib/marvin/mood";
 import {
   askThreadHref,
@@ -116,9 +116,9 @@ export function esc(s: unknown): string {
  * The model output is untrusted (prompt-injectable via workspace content), so we sanitize with
  * DOMPurify after marked — never inject raw model HTML.
  */
-export function renderMarkdown(text: unknown): string {
-  const raw = marked.parse(String(text ?? ""), { async: false }) as string;
-  return DOMPurify.sanitize(raw);
+export function renderMarkdown(text: unknown, sources?: readonly CitedSource[] | null): string {
+  // With the reply's sources, a time in it that belongs to a cited recording becomes a link to that moment (lib/askTimeLinks.ts).
+  return DOMPurify.sanitize(answerMarkdownHtml(String(text ?? ""), sources));
 }
 
 /** An entity's page; an asset cited from a timestamped transcript opens its recording at `startSeconds` (lib/mediaTime.ts). */
@@ -279,7 +279,13 @@ function runResult(res: AgentRunResult | undefined, slug: string): MarvinResult 
   if (res?.stoppedReason === "awaiting_approval" && res.threadId)
     return parkedResult(res.threadId, slug, res.pending ?? []);
   return {
-    html: agentReplyHtml(res?.answer ?? "(no answer — the void stares back)", res?.steps ?? [], res?.referrals ?? [], res?.playbooks ?? []),
+    html: agentReplyHtml(
+      res?.answer ?? "(no answer — the void stares back)",
+      res?.steps ?? [],
+      res?.referrals ?? [],
+      res?.playbooks ?? [],
+      res?.sources ?? [],
+    ),
     executionId: res?.executionId,
     ...(res?.mood ? { mood: res.mood } : {}),
   };
@@ -391,7 +397,13 @@ export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | 
   if (outcome.kind === "reply") {
     const m = outcome.message;
     return {
-      html: agentReplyHtml(m.content, m.stepsJson ?? [], (m as any).metaJson?.referrals ?? [], (m as any).metaJson?.playbooks ?? []),
+      html: agentReplyHtml(
+        m.content,
+        m.stepsJson ?? [],
+        (m as any).metaJson?.referrals ?? [],
+        (m as any).metaJson?.playbooks ?? [],
+        (m as any).metaJson?.sources ?? [],
+      ),
       executionId: m.executionId ?? undefined,
     };
   }
@@ -405,8 +417,14 @@ export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | 
 }
 
 /** An agent answer as bubble HTML: the answer, image thumbnails, drafts it composed, referrals, tools it used. */
-function agentReplyHtml(answer: string, steps: any[], referrals: Referral[] = [], playbooks: { id: string; name?: string | null }[] = []): string {
-  let html = `<div class="mv-answer">${renderMarkdown(answer)}</div>`;
+function agentReplyHtml(
+  answer: string,
+  steps: any[],
+  referrals: Referral[] = [],
+  playbooks: { id: string; name?: string | null }[] = [],
+  sources: CitedSource[] = [],
+): string {
+  let html = `<div class="mv-answer">${renderMarkdown(answer, sources)}</div>`;
 
   // Deterministic thumbnail strip from the tool results' image assets (real urls, not guessed).
   html += thumbsHtml(steps);
@@ -450,7 +468,7 @@ const ask: Capability = {
     const answer = out.answer ?? "(no answer — the void stares back)";
     const retrieved: any[] = out.retrieved_sources ?? [];
 
-    let html = `<div class="mv-answer">${renderMarkdown(answer)}</div>`;
+    let html = `<div class="mv-answer">${renderMarkdown(answer, retrieved)}</div>`;
     const seen = new Set<string>();
     const links: string[] = [];
     for (const s of retrieved) {

@@ -120,7 +120,10 @@ the end, and one that isn't a time is ignored. Each `[0:01:05]` in a timestamped
 which now shows the version with times when there is one, and a description that holds one — is a button that plays from there. A
 search or Ask source that is a recording's transcript links to the passage that matched: the asset's view page opened at that
 passage's first time. Ask's `retrieved_sources` carry it as `start_seconds`, `search_content` hits and an agent run's `sources` as
-`startSeconds`, and the MCP connector's `search` puts it in the result's `url`. Unreleased (2026-11-18).
+`startSeconds`, and the MCP connector's `search` puts it in the result's `url`. The times in an Ask answer are links too, on the
+Ask page and in the bubble: a `[0:00:10]`, `0:00:10` or `1:05` in a reply that cites one timestamped recording opens it at that
+moment (when it cites several, only a time whose line names its recording before it), and a time in code, in a link or in a title
+stays text. Unreleased (2026-11-18).
 
 ## Rendered images
 
