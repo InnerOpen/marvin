@@ -92,13 +92,17 @@ function namedBefore(line: string, at: number, timed: Timed[]): string | null {
 /** The times in `text` that belong to a cited recording, in order. Each line (`\n`) is looked at on its own. With one timed recording
  * among `sources` every time is its; with several, a time is the one named nearest before it, on its line or an earlier one (see namedBefore). A time
  * inside a cited title is never one. */
-export function timeLinksIn(text: string, sources: readonly CitedSource[] | null | undefined): TimeLink[] {
+export function timeLinksIn(
+  text: string,
+  sources: readonly CitedSource[] | null | undefined,
+  carry?: { id: string | null },
+): TimeLink[] {
   const timed = timedAssets(sources ?? []);
   if (!timed.length) return [];
   const titles = [...new Set((sources ?? []).map((s) => String(s.title ?? "").trim()))];
   const out: TimeLink[] = [];
   let offset = 0;
-  let earlier: string | null = null; // the recording named last on a line before this one
+  let earlier: string | null = carry?.id ?? null; // the recording named last before this line (`carry`: in an earlier paragraph)
   for (const line of text.split("\n")) {
     const inTitle = titles.flatMap((t) => occurrences(line, t));
     for (const m of line.matchAll(TIME)) {
@@ -114,6 +118,7 @@ export function timeLinksIn(text: string, sources: readonly CitedSource[] | null
     earlier = namedBefore(line, line.length, timed) ?? earlier;
     offset += line.length + 1;
   }
+  if (carry) carry.id = earlier;
   return out;
 }
 
@@ -180,11 +185,11 @@ function linkToken(text: string, link: TimeLink, title: string): Tokens.Link {
 }
 
 /** One inline run (a paragraph, list item, heading or table cell) with its times made links, in place. */
-function linkRun(tokens: Token[], sources: readonly CitedSource[], titles: Map<string, string>): void {
+function linkRun(tokens: Token[], sources: readonly CitedSource[], titles: Map<string, string>, carry: { id: string | null }): void {
   const acc = { text: "", leaves: [] as Leaf[], rawOpen: 0 };
   flatten(tokens, true, acc);
   const inLeaf = (s: number, e: number) => acc.leaves.some((f) => s >= f.start && e <= f.end);
-  const links = timeLinksIn(acc.text, sources).map((l) => {
+  const links = timeLinksIn(acc.text, sources, carry).map((l) => {
     if (inLeaf(l.start, l.end)) return l;
     // An escaped bracket (`\[0:00:10\]`) is a token of its own: the link is the time inside it.
     const start = acc.text[l.start] === "[" ? l.start + 1 : l.start;
@@ -210,15 +215,15 @@ function linkRun(tokens: Token[], sources: readonly CitedSource[], titles: Map<s
 }
 
 /** Every inline run of a block token list, through lists, quotes and tables; code blocks and raw HTML are left alone. */
-function linkBlocks(tokens: Token[], sources: readonly CitedSource[], titles: Map<string, string>): void {
+function linkBlocks(tokens: Token[], sources: readonly CitedSource[], titles: Map<string, string>, carry: { id: string | null }): void {
   for (const t of tokens) {
     if ((t.type === "paragraph" || t.type === "heading" || t.type === "text") && "tokens" in t && t.tokens)
-      linkRun(t.tokens, sources, titles);
-    else if (t.type === "list") for (const item of (t as Tokens.List).items) linkBlocks(item.tokens, sources, titles);
-    else if (t.type === "blockquote") linkBlocks((t as Tokens.Blockquote).tokens, sources, titles);
+      linkRun(t.tokens, sources, titles, carry);
+    else if (t.type === "list") for (const item of (t as Tokens.List).items) linkBlocks(item.tokens, sources, titles, carry);
+    else if (t.type === "blockquote") linkBlocks((t as Tokens.Blockquote).tokens, sources, titles, carry);
     else if (t.type === "table") {
       const table = t as Tokens.Table;
-      for (const cell of [...table.header, ...table.rows.flat()]) linkRun(cell.tokens, sources, titles);
+      for (const cell of [...table.header, ...table.rows.flat()]) linkRun(cell.tokens, sources, titles, carry);
     }
   }
 }
@@ -228,6 +233,6 @@ function linkBlocks(tokens: Token[], sources: readonly CitedSource[], titles: Ma
 export function answerMarkdownHtml(markdown: string, sources?: readonly CitedSource[] | null): string {
   const tokens = marked.lexer(markdown);
   const timed = timedAssets(sources ?? []);
-  if (timed.length) linkBlocks(tokens, sources ?? [], new Map(timed.map((t) => [t.id, t.title])));
+  if (timed.length) linkBlocks(tokens, sources ?? [], new Map(timed.map((t) => [t.id, t.title])), { id: null });
   return marked.parser(tokens);
 }
