@@ -349,7 +349,8 @@ def extract_handoffs(steps) -> tuple[list[dict], list[dict]]:
 
 def extract_sources(steps) -> list[dict]:
     """Citations from the run's `search_content` results: one {entityType, entityId, title} per entity, the first hit's (the best
-    match's); an asset hit that says where in its recording it starts adds that `startSeconds`."""
+    match's); an asset hit that says where in its recording it starts adds that `startSeconds`. A transcript file's hit cites the
+    recording it names (`recordingAssetId`, `recordingTitle`), so a recording and its transcript files are one citation."""
     seen: set[str] = set()
     out: list[dict] = []
     for step in steps or []:
@@ -362,14 +363,16 @@ def extract_sources(steps) -> list[dict]:
         for hit in raw.get("results") or []:
             if not isinstance(hit, dict):
                 continue
-            etype, eid = hit.get("entityType"), hit.get("entityId")
+            etype, eid, title = hit.get("entityType"), hit.get("entityId"), hit.get("title")
             if not etype or not eid:
                 continue
+            if hit.get("recordingAssetId"):
+                etype, eid, title = "asset", hit["recordingAssetId"], hit.get("recordingTitle") or title
             key = f"{etype}:{eid}"
             if key in seen:
                 continue
             seen.add(key)
-            source = {"entityType": etype, "entityId": str(eid), "title": hit.get("title")}
+            source = {"entityType": etype, "entityId": str(eid), "title": title}
             if isinstance(hit.get("startSeconds"), int):
                 source["startSeconds"] = hit["startSeconds"]
             out.append(source)

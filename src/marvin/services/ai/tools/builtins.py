@@ -147,6 +147,100 @@ def _url_field(entry, site_url: str | None) -> dict:
     return {"url": url} if url else {}
 
 
+def _transcript_recordings(session, group_id, assets) -> dict:
+    """{transcript file id: its recording's Assets row} for the transcript files among ``assets``.
+
+    A transcription worker keeps what it heard as files of its own (``metadata_json.kind == "transcript"``) that name the recording
+    in ``source`` (its id, or its slug in older files) or, from Marvin Media, ``derived_from`` (an id). Ask cited those files and
+    pasted their storage URL; the recording is what to cite. A source that names nothing here (another workspace, the Trash, the file
+    itself) leaves the file as it was.
+    """
+    import uuid as _uuid
+
+    from marvin.services.assets.scope import is_playbook_file
+
+    out: dict = {}
+    for a in assets:
+        meta = getattr(a, "metadata_json", None)
+        if not isinstance(meta, dict) or meta.get("kind") != "transcript":
+            continue
+        names = [meta.get("source")]
+        if (derived := meta.get("derived_from")) and _as_uuids([derived]):
+            names.append(derived)
+        for name in names:
+            if not isinstance(name, str) or not name.strip():
+                continue
+            rid = resolve_entity_id(session, group_id, "asset", name.strip())
+            rec = session.get(Assets, rid) if isinstance(rid, _uuid.UUID) else None
+            if rec and rec.group_id == group_id and rec.id != a.id and rec.trashed_at is None and not is_playbook_file(rec):
+                out[str(a.id)] = rec
+                break
+    return out
+
+
+def _recording_fields(rec, start_seconds: int | None = None) -> dict:
+    """What a transcript file's hit or record adds about its recording: its id, its page (at the passage when there is a time), its
+    name, and a note telling the model to cite the recording."""
+    from marvin.services.media_time import asset_page_path
+
+    name = rec.name or rec.original_filename or rec.filename or "Untitled asset"
+    return {
+        "recordingAssetId": str(rec.id),
+        "recordingAssetUrl": asset_page_path(str(rec.id), start_seconds),
+        "recordingTitle": name,
+        "note": f"a transcript file of the recording '{name}'; cite the recording (recordingAssetUrl), not this file or its url",
+    }
+
+
+SEARCH_OVERFETCH = 3
+"""search_content asks the index for this many times its top_k, so the near-duplicates it folds away leave room for other hits."""
+SEARCH_MAX_CANDIDATES = 50
+
+
+PLACEHOLDER_TITLES = frozenset({"untitled entry", "untitled resource", "untitled asset"})
+"""What resolve_retrieved_sources calls an item with no name: unrelated items, never one title."""
+
+
+def _normalised_snippet(text: str) -> str:
+    import re
+
+    return " ".join(re.sub(r"[^\w\s]", " ", (text or "").casefold()).split())
+
+
+def _collapse_near_duplicates(results: list[dict], limit: int) -> list[dict]:
+    """The first ``limit`` hits once near-duplicates are folded away, best first (``results`` comes best first).
+
+    A hit duplicates an earlier, kept hit of ANOTHER entity when they share a title (ignoring case), the same snippet (ignoring case,
+    punctuation and spacing) or the recording they cite (a recording, and every transcript file of it, cite the recording). Two
+    transcription runs made several files of one recording, named alike, that filled every slot while the recording itself never
+    made the cut. Several passages of one entity stay. With nothing to fold it is ``results[:limit]``.
+
+    One exception to best-first: when the recording itself is among the hits, its transcript files go, even ones that scored higher.
+    A file's indexed text is its name and a line like "Speech in X, as text (faster-whisper)." (the transcript is in the file), so
+    it outscores the recording on the name while the recording's own chunk holds the passage and its time.
+    """
+    present = {r.get("entityId") for r in results if r.get("entityType") == "asset"}
+    owner: dict = {}  # key → the entity of the kept hit that holds it
+    kept: list[dict] = []
+    for r in results:
+        if len(kept) >= limit:
+            break
+        if r.get("recordingAssetId") and r["recordingAssetId"] in present:
+            continue
+        me = f"{r.get('entityType')}:{r.get('entityId')}"
+        keys = [f"cite:asset:{r['recordingAssetId']}" if r.get("recordingAssetId") else f"cite:{me}"]
+        if (title := (r.get("title") or "").strip().casefold()) and title not in PLACEHOLDER_TITLES:
+            keys.append(f"title:{title}")
+        if snippet := _normalised_snippet(r.get("snippet") or ""):
+            keys.append(f"snippet:{snippet}")
+        if any(owner.get(k, me) != me for k in keys):
+            continue
+        for k in keys:
+            owner.setdefault(k, me)
+        kept.append(r)
+    return kept
+
+
 def _resolve_collection(ctx: ToolContext, ident: str):
     ident = (ident or "").strip()
     if not ident:
@@ -171,7 +265,7 @@ def _resolve_collection(ctx: ToolContext, ident: str):
 @register_tool(
     name="search_content",
     uses_ai=True,
-    description="Semantic search over workspace content (entries, resources, and assets). Returns the most relevant snippets with their entity ids/titles, and (for entry hits) lean image refs so results can show thumbnails. The index gives relevance + ids; call get_entry for the full record. Use this to ground answers.",  # noqa: E501
+    description="Semantic search over workspace content (entries, resources, and assets). Returns the most relevant snippets with their entity ids/titles, and (for entry hits) lean image refs so results can show thumbnails. The index gives relevance + ids; call get_entry for the full record. Use this to ground answers. A hit from a transcript file names its recording (recordingAssetId, recordingAssetUrl): cite the recording by its asset page link with the time, never the file or a raw storage URL.",  # noqa: E501
     input_schema={"type": "object", "properties": {"query": {"type": "string", "description": "what to search for"}}, "required": ["query"]},
 )
 def search_content(ctx: ToolContext, args: dict) -> str:
@@ -189,17 +283,22 @@ def search_content(ctx: ToolContext, args: dict) -> str:
     if not emb_model:
         return json.dumps({"error": "semantic search unavailable (no embedding model configured)"})
     top_k = getattr(get_app_settings(), "AI_RAG_TOP_K", 5)
+    candidates = max(top_k, min(top_k * SEARCH_OVERFETCH, SEARCH_MAX_CANDIDATES))
     built = (
         ContextBuilder(ctx.session, ctx.group_id)
-        .with_semantic_search(query, embedder, emb_model, limit=top_k, entity_types=indexable_types())
+        .with_semantic_search(query, embedder, emb_model, limit=candidates, entity_types=indexable_types())
         .build()
     )
     retrieved = built.retrieved or []
     sources = resolve_retrieved_sources(ctx.session, retrieved)
+    asset_ids = _as_uuids({c.get("entity_id") for c in retrieved if c.get("entity_type") == "asset"})
+    file_assets = ctx.session.query(Assets).filter(Assets.group_id == ctx.group_id, Assets.id.in_(asset_ids)).all() if asset_ids else []
+    recordings = _transcript_recordings(ctx.session, ctx.group_id, file_assets)
     results = []
     for i, chunk in enumerate(retrieved):
         src = sources[i] if i < len(sources) else {}
         text = chunk.get("text") or chunk.get("content") or ""
+        rec = recordings.get(src.get("entity_id")) if src.get("entity_type") == "asset" else None
         results.append(
             {
                 "title": src.get("title"),
@@ -209,8 +308,11 @@ def search_content(ctx: ToolContext, args: dict) -> str:
                 "score": src.get("score"),
                 # A timestamped transcript's chunk: where in the recording it starts (its first [h:mm:ss], from the whole chunk).
                 **({"startSeconds": src["start_seconds"]} if "start_seconds" in src else {}),
+                # A transcript FILE's hit names its recording, the thing to cite (and opens it at the passage when it has a time).
+                **(_recording_fields(rec, src.get("start_seconds")) if rec else {}),
             }
         )
+    results = _collapse_near_duplicates(results, top_k)
     # The index only knows relevance + ids. Hydrate lean image refs for entry hits from the DB
     # (source of truth) so search results can show thumbnails too — fresh even as the index lags.
     entry_uuids = []
@@ -891,7 +993,7 @@ def list_assets(ctx: ToolContext, args: dict) -> str:
 
 @register_tool(
     name="get_asset",
-    description="Get one asset COMPLETE by slug or id: filename, type, mime, dimensions, file size, a real displayable `url`, alt text, description, and metadata. Use the `url` to show/reference the image; never invent one.",  # noqa: E501
+    description="Get one asset COMPLETE by slug or id: filename, type, mime, dimensions, file size, a real displayable `url`, alt text, description, and metadata. Use the `url` to show/reference the image; never invent one. Cite a recording (audio, video) by its asset page link (/workspace/assets/<id>/view?t=<seconds> for a moment), never by a raw storage `url`; a transcript file names its recording in `recordingAssetId` / `recordingAssetUrl`.",  # noqa: E501
     input_schema={"type": "object", "properties": {"id_or_slug": {"type": "string", "description": "asset slug or id"}}, "required": ["id_or_slug"]},
 )
 def get_asset(ctx: ToolContext, args: dict) -> str:
@@ -928,6 +1030,8 @@ def get_asset(ctx: ToolContext, args: dict) -> str:
             "updatedAt": a.update_at.isoformat() if getattr(a, "update_at", None) else None,
             "uploadedBy": str(a.uploaded_by) if a.uploaded_by else None,
             **_trash_fields(a),
+            # A transcript file names its recording, the thing to cite (Ask pasted this file's storage url instead).
+            **(_recording_fields(rec) if (rec := _transcript_recordings(ctx.session, ctx.group_id, [a]).get(str(a.id))) else {}),
         }
     )
 
