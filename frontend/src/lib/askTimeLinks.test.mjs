@@ -142,6 +142,11 @@ describe("answerMarkdownHtml", () => {
     for (const s of [0, 10, 20, 30]) assert.ok(html.includes(`href="${href(s)}"`), `t=${s}`);
   });
 
+  test("escaped brackets: the time inside them is the link", () => {
+    const html = answerMarkdownHtml("\\[0:00:10\\] words", ONE);
+    assert.ok(html.includes(`[<a href="${href(10)}"`) && html.includes(">0:00:10</a>]"), html);
+  });
+
   test("code, links and raw HTML are left alone", () => {
     const md = [
       "`[0:00:10]` and",

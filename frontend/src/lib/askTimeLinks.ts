@@ -181,7 +181,14 @@ function linkToken(text: string, link: TimeLink, title: string): Tokens.Link {
 function linkRun(tokens: Token[], sources: readonly CitedSource[], titles: Map<string, string>): void {
   const acc = { text: "", leaves: [] as Leaf[], rawOpen: 0 };
   flatten(tokens, true, acc);
-  const links = timeLinksIn(acc.text, sources);
+  const inLeaf = (s: number, e: number) => acc.leaves.some((f) => s >= f.start && e <= f.end);
+  const links = timeLinksIn(acc.text, sources).map((l) => {
+    if (inLeaf(l.start, l.end)) return l;
+    // An escaped bracket (`\[0:00:10\]`) is a token of its own: the link is the time inside it.
+    const start = acc.text[l.start] === "[" ? l.start + 1 : l.start;
+    const end = acc.text[l.end - 1] === "]" ? l.end - 1 : l.end;
+    return { ...l, start, end };
+  });
   if (!links.length) return;
   for (const leaf of acc.leaves) {
     const inside = links.filter((l) => l.start >= leaf.start && l.end <= leaf.end); // a time across two leaves stays text
