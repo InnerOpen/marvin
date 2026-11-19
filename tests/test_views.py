@@ -669,3 +669,87 @@ def test_a_clip_and_a_lane_may_name_the_recording_their_facts_are_read_from():
 )
 def test_a_wrong_recording_key_says_what_is_wrong(mutate, words):
     assert words in (_bad(mutate) or "")
+
+
+PLAN = {
+    "kind": "timeline",
+    "title": "Agenda",
+    "unit": "minutes",
+    "entry_type": "event",
+    "spine": {
+        "entry_type": "session",
+        "of": "event",
+        "order": "order",
+        "picture": "picture",
+        "seconds": {"hold": "minutes", "defaults": {"hold": 30}},
+    },
+    "lanes": [
+        {"id": "people", "title": "People", "entry_type": "speaker", "of": "event", "in": "session", "who": "role", "seconds": "minutes"},
+        {"id": "cues", "title": "Cues", "entry_type": "cue", "placed": {"field": "cues", "ref": "cue", "at": "at"}, "seconds": "minutes"},
+    ],
+    "picker": {"subtitle": "venue", "strip": True},
+}
+
+
+@pytest.mark.parametrize("unit", ["seconds", "minutes", "hours", "days"])
+def test_a_view_may_name_the_unit_its_lengths_and_offsets_count(unit):
+    assert payload_problem({**PLAN, "unit": unit}, "agenda") is None
+
+
+def test_a_view_in_seconds_may_say_so_and_keeps_every_key_of_sound():
+    # `unit` absent and `unit: seconds` are the same view: the Studio's timeline, sound and all
+    assert payload_problem({**TIMELINE, "unit": "seconds"}, "story-timeline") is None
+    assert payload_problem(TIMELINE, "story-timeline") is None
+
+
+@pytest.mark.parametrize("unit", ["weeks", "Minutes", 60, None])
+def test_an_unknown_unit_is_refused(unit):
+    assert "unit is one of seconds, minutes, hours, days" in (payload_problem({**PLAN, "unit": unit}, "agenda") or "")
+
+
+@pytest.mark.parametrize(
+    ("mutate", "key"),
+    [
+        (lambda p: p["lanes"][0].update(audio="audio"), "lane 'people' audio"),
+        (lambda p: p["lanes"][0].update(estimate_from="text"), "lane 'people' estimate_from"),
+        (lambda p: p["lanes"][0].update(words="words"), "lane 'people' words"),
+        (lambda p: p["lanes"][0].update(nudge="nudge"), "lane 'people' nudge"),
+        (lambda p: p["lanes"][0].update(recording="recording", audio="audio"), "lane 'people' audio"),
+        (lambda p: p["lanes"][0].update(waveform="waveform"), "lane 'people' waveform"),
+        (lambda p: p["lanes"][1].update(volume="volume"), "lane 'cues' volume"),
+        (lambda p: p["lanes"][1].update(loop="loop"), "lane 'cues' loop"),
+        (lambda p: p["lanes"][1]["placed"].update(volume="volume"), "lane 'cues' placed.volume"),
+        (lambda p: p["lanes"].append({"id": "music", "title": "Music", "entry_type": "sound", "bed": {"field": "music"}}), "lane 'music' bed"),
+        (
+            lambda p: p["lanes"].append({"id": "overlay", "title": "Overlay", "entry_type": "session", "cover": {"field": "overlay"}}),
+            "lane 'overlay' cover",
+        ),
+        (lambda p: p["spine"].update(clip={"field": "clip"}), "spine.clip"),
+        (lambda p: p["spine"].update(word_cues={"field": "cues", "lane": "people"}), "spine.word_cues"),
+        (lambda p: p["spine"].update(starts_during="starts_during"), "spine.starts_during"),
+        (lambda p: p["spine"]["seconds"].update(picture_lead="picture_lead"), "spine.seconds.picture_lead"),
+        (lambda p: p["spine"]["seconds"].update(entry={"picture_lead": "picture_lead"}), "spine.seconds.entry.picture_lead"),
+        (lambda p: p["picker"].update(play="video"), "picker.play"),
+    ],
+)
+def test_a_view_in_another_unit_refuses_the_keys_of_sound_and_names_the_one(mutate, key):
+    payload = copy.deepcopy(PLAN)
+    mutate(payload)
+    problem = payload_problem(payload, "agenda") or ""
+    assert f"counts in minutes, but {key} is for sound or video" in problem
+    assert payload_problem({**payload, "unit": "seconds"}, "agenda") is None, "the same keys are fine in seconds"
+
+
+def test_a_view_in_another_unit_keeps_what_is_not_sound():
+    # bands, groups, cards, marks, a pause between scenes, `simultaneous` (two people at once) and the item's own defaults are not sound
+    payload = copy.deepcopy(PLAN)
+    payload["spine"].update(
+        group={"entry_type": "block", "field": "block"},
+        bands=[{"entry_type": "room", "field": "room"}],
+        cards={"intro": {"title": "intro_title", "default_seconds": 5}},
+        scene_break={"field": "room", "seconds": "room_change"},
+    )
+    payload["spine"]["seconds"].update(lead="lead", gap="gap", tail="tail", entry={"gap": "gap"})
+    payload["lanes"][0]["simultaneous"] = "together"
+    payload["lanes"].append({"id": "track", "title": "Track", "entry_type": "session", "marks": {"field": "track"}})
+    assert payload_problem({**payload, "unit": "days"}, "agenda") is None

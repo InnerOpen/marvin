@@ -11,11 +11,11 @@ import { getAuthToken } from "@/lib/api/client";
 import { getView, type ViewRead } from "@/lib/api/views";
 import { getWizard } from "@/lib/api/wizards";
 import type { Step } from "@/lib/wizard";
-import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type CueMark, type Ghost, type Group, type Item, type ItemClip, type Piece, CLIP_GUESS_SECONDS, mixStretches, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, recordingRefs, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ringSpan, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview } from "@/lib/timeline";
+import { type Bed, type CueMark, type Ghost, type Group, type Item, type ItemClip, type Piece, CLIP_GUESS_SECONDS, mixStretches, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, recordingRefs, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ringSpan, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview, unitOf } from "@/lib/timeline";
+import { timeWords } from "@/lib/timelineUnits";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 import { cameraWords, parseWordCues } from "@/lib/wordCues";
 import { cueChips, effectWords, emphasisWords } from "@/lib/cueKinds";
@@ -155,6 +155,14 @@ if (spec && authToken) {
 // than the page, never squashed. Positions are percentages of the strip, so it fills the page at any width and the lanes line up under the cards;
 // the strip is never narrower than the pixels the shortest card needs, and past that the box scrolls.
 const total = laid?.total ?? 0;
+// The unit the view counts in. Seconds is real time: takes play, beds sound, the render's pauses show. Minutes, hours and days are a plan with
+// none of that (the validator refuses its keys); every time on the page is written in the view's unit.
+const unit = unitOf(spec);
+const realTime = unit === "seconds";
+const timeText = timeWords(unit);
+// A plan names its items by type (a session, a day); a seconds view keeps the words it always had (a beat, the story).
+const spineNoun = realTime ? "beat" : (spec?.spine.entry_type.replace(/-/g, " ") ?? "item");
+const entryNoun = realTime ? "story" : (spec?.entry_type.replace(/-/g, " ") ?? "entry");
 // One track for the whole story, or (`?stack=chapters`) one track per chapter, each with its own ruler and lanes, stacked down the page.
 interface Track {
   id: string | null;
@@ -181,13 +189,23 @@ const PAGE_PX = 1400;
 // The cards are where the pictures are up (a picture lead brings one in before its words); an overlay that comes in on a word is drawn as narrow
 // as it is, so it never widens the strip.
 const sized = (items: Item[]) => items.filter((i) => !i.overlay).map((i) => ({ seconds: i.onScreen.seconds }));
+// In a plan a short piece is drawn at least wide enough to read its name (a one-minute cue in a day-long agenda would be a sliver), and pieces
+// closer than that stack on rows. What that width spans in the view's unit is counted at the narrowest the strip is drawn, so two never overlap;
+// a piece across its whole item (a post on its day) is as wide as its card already.
+const PLAN_PIECE_PX = 120;
+const planRows = (pieces: Piece[], track: Track) => {
+  const least = (PLAN_PIECE_PX * track.seconds) / Math.max(1, minInnerWidth(sized(track.items), track.seconds));
+  // given last to first, so pieces that start together stack in their own order (the moderator above the panel, the first post on top)
+  const rows = stackRows(pieces.map((p) => ({ start: p.start, seconds: p.spans ? p.seconds : Math.max(p.seconds, least) })).reverse());
+  return rows.reverse();
+};
 const tickWant = (track: Track) => Math.max(3, Math.round(10 * Math.max(share(track), minInnerWidth(sized(track.items), track.seconds) / PAGE_PX)));
 const itemTitle = (item: Item) => {
   const shown = item.onScreen;
-  const said = [`${item.title}${item.text ? ` — ${item.text}` : ""}`, `${timecode(shown.start)} → ${timecode(shown.start + shown.seconds)} (${shown.seconds.toFixed(1)} s${item.estimated ? ", estimated" : ""})`];
+  const said = [`${item.title}${item.text ? ` — ${item.text}` : ""}`, `${timeText.position(shown.start)} → ${timeText.position(shown.start + shown.seconds)} (${timeText.length(shown.seconds)}${item.estimated ? ", estimated" : ""})`];
   const o = item.overlay;
   if (o) said.push(`Comes in during ${o.title} at word ${o.word + 1}${o.text ? ` (“${o.text}”)` : ""}${o.estimated ? ", placed by the text: no word timings yet" : ""}, over the picture before; it adds no time of its own`);
-  else if (Math.abs(shown.start - item.start) > 0.005) said.push(`The picture comes ${Math.abs(item.start - shown.start).toFixed(2)} s ${shown.start < item.start ? "before" : "after"} its sound starts (${timecode(item.start)})`);
+  else if (Math.abs(shown.start - item.start) > 0.005) said.push(`The picture comes ${Math.abs(item.start - shown.start).toFixed(2)} s ${shown.start < item.start ? "before" : "after"} its sound starts (${timeText.position(item.start)})`);
   if (item.clip) said.push(clipTitle(item.clip));
   return said.join("\n");
 };
@@ -202,7 +220,7 @@ const MEASURED: Record<ItemClip["measured"], string> = {
 const clipTitle = (c: ItemClip) =>
   [
     `Clip: ${c.name}${c.url ? "" : " (its file is not attached: the render plays the beat without it)"}`,
-    `${timecode(c.start)} → ${timecode(c.start + c.seconds)} (${c.seconds.toFixed(1)} s, ${MEASURED[c.measured]})${c.from > 0 ? `, from ${c.from} s into the file` : ""}`,
+    `${timeText.position(c.start)} → ${timeText.position(c.start + c.seconds)} (${c.seconds.toFixed(1)} s, ${MEASURED[c.measured]})${c.from > 0 ? `, from ${c.from} s into the file` : ""}`,
     c.shown < c.seconds - 0.005 && `Its picture is cut after ${c.shown.toFixed(1)} s by the next picture; its sound plays on`,
     `In the ${c.corner.replace("-", " ")} corner, ${c.shape}${c.look !== "pip" ? ` (${c.look}: plays in a corner for now)` : ""} · ${c.sound ? `its sound plays${c.sound.volume !== null && c.sound.volume < 1 ? ` at ${Math.round(c.sound.volume * 100)}%` : ""}` : "no sound"}`,
     c.text && `“${c.text}”`,
@@ -216,15 +234,15 @@ const stackHref = (on: boolean) => {
   else u.searchParams.delete("stack");
   return `${u.pathname}${u.search}`;
 };
-const steps = spec && laid ? progress(spec, laid) : [];
+const steps = spec && laid ? progress(spec, laid, { item: spineNoun, items: `${spineNoun}s` }) : [];
 const lanes = spec?.lanes ?? [];
 const firstWords = (text: string, n = 8) => {
   const words = text.trim().split(/\s+/).filter(Boolean);
   return words.slice(0, n).join(" ") + (words.length > n ? "…" : "");
 };
-const playable = laid ? cues(laid, lanes) : [];
+const playable = laid && realTime ? cues(laid, lanes) : []; // nothing plays in a plan
 const playJson = JSON.stringify(playable).replace(/</g, "\\u003c");
-const overJson = JSON.stringify(laid ? overlays(laid, lanes) : []).replace(/</g, "\\u003c");
+const overJson = JSON.stringify(laid && realTime ? overlays(laid, lanes) : []).replace(/</g, "\\u003c");
 // A line in a lane that names a nudge field can be dragged to nudge it: each item's timed pieces, to lay them again as one moves (lib/timelineDrag).
 const nudgeField = new Map(lanes.filter((l) => l.in && l.nudge).map((l) => [l.id, l.nudge as string]));
 const itemOfPiece = new Map((laid?.items ?? []).flatMap((i) => lanes.filter((l) => l.in).flatMap((l) => (i.lanes[l.id] ?? []).map((p) => [p.id, i.id] as const))));
@@ -238,14 +256,14 @@ const dragJson = JSON.stringify(
 // A cue on a word, as its marker on the line reads: what plays or moves there, and where.
 const cueTitle = (c: CueMark) =>
   [
-    `${c.text ? `After “${c.text}”` : "Before the first word"} (word ${c.word})${c.estimated ? ", placed by the text: no word timings" : ""} · ${timecode(c.at)}`,
+    `${c.text ? `After “${c.text}”` : "Before the first word"} (word ${c.word})${c.estimated ? ", placed by the text: no word timings" : ""} · ${timeText.position(c.at)}`,
     c.sound && `Sound: ${c.sound.title}${c.sound.heard ? "" : " (no take yet: nothing plays)"}`,
     c.camera && `Camera: ${cameraWords(c.camera as Parameters<typeof cameraWords>[0])}`,
     c.look && `Look: ${effectWords("look", c.look)}`,
-    c.mix && `Mix: ${effectWords("mix", c.mix)}${c.mixSpan ? `, ${timecode(c.mixSpan.start)} → ${timecode(c.mixSpan.start + c.mixSpan.seconds)} (the voice is untouched)` : ""}`,
+    c.mix && `Mix: ${effectWords("mix", c.mix)}${c.mixSpan ? `, ${timeText.position(c.mixSpan.start)} → ${timeText.position(c.mixSpan.start + c.mixSpan.seconds)} (the voice is untouched)` : ""}`,
     c.emphasis && `${emphasisWords(c.emphasis)}: the word after it stands out in the captions`,
     c.nudge && (c.sound || c.camera || c.look || c.mix || c.emphasis) && `What it plays and changes is nudged ${nudgeWords(c.nudge)} from the word`,
-    c.pic && `Picture: ${c.pic}, from ${timecode(c.picAt)}`,
+    c.pic && `Picture: ${c.pic}, from ${timeText.position(c.picAt)}`,
     c.stored && `Stored on beat ${c.stored.title}: its line was moved here, so it plays here. Open beat ${c.stored.title} to move it.`,
   ]
     .filter(Boolean)
@@ -361,12 +379,12 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   )}
 
   {spec && entry && laid && (
-    <div class="tl" data-noun={spec.spine.entry_type.replace(/-/g, " ")} data-total={total} data-sizes={JSON.stringify(PICTURE_SIZES)} data-shape={shape ?? undefined}>
+    <div class="tl" data-noun={spec.spine.entry_type.replace(/-/g, " ")} data-unit={realTime ? undefined : unit} data-total={total} data-sizes={JSON.stringify(PICTURE_SIZES)} data-shape={shape ?? undefined}>
       <header class="tl-head">
         <div class="tl-title">
           <h2>{entry.title}</h2>
           <p class="tl-facts">
-            <strong class="tl-total">{timecode(total)}</strong>
+            <strong class="tl-total">{timeText.total(total)}</strong>
             {steps.length > 0 && <span class="muted"> · {progressLine(steps)}</span>}
             {laid.items.some((i) => i.estimated) && <span class="muted" title="A line with no take yet is measured by its words, at 150 a minute."> · lengths with no take are estimates</span>}
           </p>
@@ -406,7 +424,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
             {stacked && (
               <h3 class="tl-track-title">
                 {track.id ? <a href={open(track.id)}>{track.title}</a> : <span>{track.title || `No ${spec.spine.group!.entry_type.replace(/-/g, " ")}`}</span>}
-                <span class="muted"> {timecode(track.start)} → {timecode(track.start + track.seconds)} · {track.seconds.toFixed(1)} s</span>
+                <span class="muted"> {timeText.position(track.start)} → {timeText.position(track.start + track.seconds)} · {timeText.length(track.seconds)}</span>
               </h3>
             )}
             <div class="tl-scroll" data-scroll tabindex="0" aria-label="Timeline: scroll sideways">
@@ -417,7 +435,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       const place = `left:${pctIn(track, g.start)};width:${pctIn(track, track.start + g.seconds)}`;
                       // The whole band opens the entry it names (the chapter); a stretch with none is only a label.
                       return g.id ? (
-                        <a class="tl-group is-link" role="listitem" href={open(g.id)} style={place} title={`${g.title}\n${timecode(g.start)} → ${timecode(g.start + g.seconds)}\nClick to open it`}>
+                        <a class="tl-group is-link" role="listitem" href={open(g.id)} style={place} title={`${g.title}\n${timeText.position(g.start)} → ${timeText.position(g.start + g.seconds)}\nClick to open it`}>
                           <span>{g.title}</span>
                         </a>
                       ) : (
@@ -434,7 +452,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     {bandsOver(band.id ?? band.field, track).map((b) => {
                       const from = clip(b, track);
                       const place = `left:${pctIn(track, from.from)};width:${pctIn(track, track.start + from.seconds)}`;
-                      const words = `${band.title ?? band.entry_type}: ${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)}`;
+                      const words = `${band.title ?? band.entry_type}: ${b.title}\n${timeText.position(b.start)} → ${timeText.position(b.start + b.seconds)}`;
                       // The whole band opens the entry it names (the scene); one whose entry was not found is only a label.
                       return b.id ? (
                         <a class="tl-band is-link" role="listitem" href={open(b.id)} style={place} title={`${words}\nClick to open it`}>
@@ -497,7 +515,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           <button type="button" class="tl-redo" data-review={JSON.stringify({ id: item.id, field: spec.spine.status, value: spec.spine.review.redo })} title={`Make this ${spec.spine.entry_type.replace(/-/g, " ")} again: its status becomes ${spec.spine.review.redo}`}>Redo</button>
                         </span>
                       )}
-                      <span class="tl-len">{item.onScreen.seconds.toFixed(1)}s</span>
+                      <span class="tl-len">{timeText.short(item.onScreen.seconds)}</span>
                       {item.clip && (
                         <span class:list={["tl-clip", `at-${item.clip.corner}`, { guess: item.clip.measured === "estimated", refused: !!item.clip.problem }]} role="img" aria-label={clipTitle(item.clip)} title={clipTitle(item.clip)}>
                           <span class:list={["tl-clip-face", item.clip.shape]}>
@@ -517,10 +535,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                 </div>
 
                 <div class="tl-ruler" aria-hidden="true">
-                  {tickLevels(track.seconds, tickWant(track)).map(({ t, levels }) => (
-                    <span class:list={["tl-tick", ...levels.map((z) => `z${z}`)]} style={`left:${pctIn(track, track.start + t)}`}><i /><b>{timecode(track.start + t)}</b></span>
+                  {tickLevels(track.seconds, tickWant(track), timeText.steps).map(({ t, levels }) => (
+                    <span class:list={["tl-tick", ...levels.map((z) => `z${z}`), { end: !realTime && t >= track.seconds }]} style={`left:${pctIn(track, track.start + t)}`}><i /><b>{timeText.position(track.start + t)}</b></span>
                   ))}
-                  {minorTickLevels(track.seconds, tickWant(track)).map(({ t, levels }) => (
+                  {minorTickLevels(track.seconds, tickWant(track), timeText.steps).map(({ t, levels }) => (
                     <span class:list={["tl-tick", "minor", ...levels.map((z) => `z${z}`)]} style={`left:${pctIn(track, track.start + t)}`}><i /></span>
                   ))}
                 </div>
@@ -528,7 +546,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                 {lanes.map((lane) => {
                   // Pieces that overlap in time (two sound effects at one moment) stack on rows instead of sitting on top of each other.
                   const lanePieces = track.items.flatMap((item) => item.lanes[lane.id] ?? []);
-                  const laneRows = stackRows(lanePieces);
+                  const laneRows = realTime ? stackRows(lanePieces) : planRows(lanePieces, track);
                   // A clip's sound, in the lane the spec names, on rows of its own under the lines (it is the beat's, not a line of it).
                   const clipSounds = spec.spine.clip?.lane === lane.id ? track.items.flatMap((i) => (i.clip?.sound ? [i.clip.sound] : [])) : [];
                   const clipRows = stackRows(clipSounds).map((r) => r + (lanePieces.length ? Math.max(...laneRows) + 1 : 0));
@@ -542,7 +560,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   return (
                   <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title} style={lane.bed || laneRows.some((r) => r > 0) || clipRows.some((r) => r > 0) || bedRows.some((r) => r > 0) ? `height:${laneHeight}px` : undefined}>
                     <span class="tl-lane-name">
-                      {!lane.cover && !lane.marks && <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>}
+                      {realTime && !lane.cover && !lane.marks && <button type="button" class="tl-mute" data-mute={lane.id} aria-pressed="false" title={`Mute ${lane.title.toLowerCase()}`} aria-label={`Mute ${lane.title}`}>🔊</button>}
                       {lane.title}
                       {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.estimated && !p.unmeasured)) && <em>hatched: no take yet, length estimated</em>}
                       {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.unmeasured)) && <em>dashed edge: take attached, length not stored</em>}
@@ -557,7 +575,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           data-start={b.start}
                           data-end={b.start + b.seconds}
                           style={`left:${pctIn(track, clip(b, track).from)};width:${pctIn(track, track.start + clip(b, track).seconds)}${bedRows[n] ? `;top:${18 + bedRows[n] * 44}px` : ""}`}
-                          title={`${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)} · level ${Math.round(b.volume * 100)}%${b.loop ? ", loops" : ""}${b.muffled ? ", muffled" : ""}${b.over ? "\nthe beat's own, over its scene's bed" : ""}${b.fadeIn > 0 ? `\nfades in over ${b.fadeIn.toFixed(1)} s` : ""}${b.fadeOut > 0 ? `\nfades out over ${b.fadeOut.toFixed(1)} s` : ""}${b.audio ? "" : "\nno take yet"}`}
+                          title={`${b.title}\n${timeText.position(b.start)} → ${timeText.position(b.start + b.seconds)} · level ${Math.round(b.volume * 100)}%${b.loop ? ", loops" : ""}${b.muffled ? ", muffled" : ""}${b.over ? "\nthe beat's own, over its scene's bed" : ""}${b.fadeIn > 0 ? `\nfades in over ${b.fadeIn.toFixed(1)} s` : ""}${b.fadeOut > 0 ? `\nfades out over ${b.fadeOut.toFixed(1)} s` : ""}${b.audio ? "" : "\nno take yet"}`}
                         >
                           {fadeRamps(b, track).inPct > 0 && <i class="tl-fade in" aria-hidden="true" style={`width:${fadeRamps(b, track).inPct}%`} title={`fades in over ${b.fadeIn.toFixed(1).replace(/\.0$/, "")} s`} />}
                           {fadeRamps(b, track).outPct > 0 && <i class="tl-fade out" aria-hidden="true" style={`width:${fadeRamps(b, track).outPct}%`} title={`fades out over ${b.fadeOut.toFixed(1).replace(/\.0$/, "")} s`} />}
@@ -575,7 +593,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                               class:list={["tl-step", { off: st.volume === 0, muffled: st.muffled }, st.source && `by-${st.source}`]}
                               aria-hidden="true"
                               style={`left:${st.left}%;width:${st.width}%;height:${Math.max(st.height, st.volume === 0 ? 0 : 8)}%`}
-                              title={`${timecode(st.start)} → ${timecode(st.end)} · ${st.volume === 0 ? "silent" : `level ${Math.round(st.volume * 100)}%`}${stepSetBy(st)}${st.muffled ? " · heard from inside (muffled)" : ""}${st.ramp ? ` · eases in over ${st.ramp.toFixed(1).replace(/\.0$/, "")} s` : ""}`}
+                              title={`${timeText.position(st.start)} → ${timeText.position(st.end)} · ${st.volume === 0 ? "silent" : `level ${Math.round(st.volume * 100)}%`}${stepSetBy(st)}${st.muffled ? " · heard from inside (muffled)" : ""}${st.ramp ? ` · eases in over ${st.ramp.toFixed(1).replace(/\.0$/, "")} s` : ""}`}
                             >
                               {st.source && st.width >= 7 && <b class="tl-step-tag">{st.source} {Math.round(st.volume * 100)}%{st.muffled ? " ≈" : ""}</b>}
                             </i>
@@ -587,8 +605,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       ))}
                     {lane.bed &&
                       mixesIn(track).map((m) => (
-                        <span class={`tl-mix ${m.kind}`} role="img" aria-label={`${m.words}: ${lane.title.toLowerCase()} ${m.kind === "duck" ? "dips" : "goes silent"} from ${timecode(m.start)}`} style={`left:${pctIn(track, clip(m, track).from)};width:${pctIn(track, track.start + clip(m, track).seconds)}`}>
-                          <small title={`${m.words}\n${timecode(m.start)} → ${timecode(m.start + m.seconds)} · ${m.kind === "duck" ? "this lane dips" : "this lane goes silent"}; the voice is untouched`}>{m.chip}</small>
+                        <span class={`tl-mix ${m.kind}`} role="img" aria-label={`${m.words}: ${lane.title.toLowerCase()} ${m.kind === "duck" ? "dips" : "goes silent"} from ${timeText.position(m.start)}`} style={`left:${pctIn(track, clip(m, track).from)};width:${pctIn(track, track.start + clip(m, track).seconds)}`}>
+                          <small title={`${m.words}\n${timeText.position(m.start)} → ${timeText.position(m.start + m.seconds)} · ${m.kind === "duck" ? "this lane dips" : "this lane goes silent"}; the voice is untouched`}>{m.chip}</small>
                         </span>
                       ))}
                     {lane.cover &&
@@ -599,7 +617,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           data-start={c.start}
                           data-end={c.start + c.seconds}
                           style={`left:${pctIn(track, clip(c, track).from)};width:${pctIn(track, track.start + clip(c, track).seconds)}`}
-                          title={c.card ? `${c.name}\n${timecode(c.start)} → ${timecode(c.start + c.seconds)} · written on the ${c.from}` : `${c.name}\n${timecode(c.start)} → ${timecode(c.start + c.seconds)} · ${c.blend}${c.opacity < 1 ? ` at ${Math.round(c.opacity * 100)}%` : ""} · from the ${c.from}`}
+                          title={c.card ? `${c.name}\n${timeText.position(c.start)} → ${timeText.position(c.start + c.seconds)} · written on the ${c.from}` : `${c.name}\n${timeText.position(c.start)} → ${timeText.position(c.start + c.seconds)} · ${c.blend}${c.opacity < 1 ? ` at ${Math.round(c.opacity * 100)}%` : ""} · from the ${c.from}`}
                         >
                           <span>{c.name}</span>
                           <small>{c.card ? `on the ${c.from}` : <>{c.blend}{c.opacity < 1 ? ` ${Math.round(c.opacity * 100)}%` : ""} · {c.from}</>}</small>
@@ -613,18 +631,18 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           data-start={m.start}
                           data-end={m.start + m.seconds}
                           style={`left:${pctIn(track, clip(m, track).from)};width:${pctIn(track, track.start + clip(m, track).seconds)}`}
-                          title={`${m.label}${m.count > 1 ? ` (${m.count} beats)` : ""}\n${timecode(m.start)} → ${timecode(m.start + m.seconds)} · ${m.custom ? "written out on the beat itself" : m.from === spec.spine.entry_type ? `set on the ${m.from}` : `from the ${m.from}`}`}
+                          title={`${m.label}${m.count > 1 ? ` (${m.count} beats)` : ""}\n${timeText.position(m.start)} → ${timeText.position(m.start + m.seconds)} · ${m.custom ? "written out on the beat itself" : m.from === spec.spine.entry_type ? `set on the ${m.from}` : `from the ${m.from}`}`}
                         >
                           <span>{m.icon ? `${m.icon} ` : ""}{m.label}</span>
                           {(m.custom || m.from !== spec.spine.entry_type) && <small>{m.custom ? "exact numbers" : m.from}</small>}
                         </span>
                       ))}
-                    {quiets(track.items, lane).map((q) => (
-                      <span class={`tl-quiet ${q.kind}`} aria-hidden="true" style={`left:${pctIn(track, q.start)};width:${pctIn(track, track.start + q.seconds)}`} title={`${quietWords(q.kind)} (${q.seconds.toFixed(2)} s)\n${timecode(q.start)} → ${timecode(q.start + q.seconds)}`}>
+                    {realTime && quiets(track.items, lane).map((q) => (
+                      <span class={`tl-quiet ${q.kind}`} aria-hidden="true" style={`left:${pctIn(track, q.start)};width:${pctIn(track, track.start + q.seconds)}`} title={`${quietWords(q.kind)} (${q.seconds.toFixed(2)} s)\n${timeText.position(q.start)} → ${timeText.position(q.start + q.seconds)}`}>
                         <small>{q.seconds.toFixed(2).replace(/\.?0+$/, "")}</small>
                       </span>
                     ))}
-                    {lane.in &&
+                    {realTime && lane.in &&
                       overlapsIn(lanePieces, laneRows).map((o) => (
                         <>
                           <span class="tl-overlap" aria-hidden="true" style={`left:${pctIn(track, o.start)};width:${pctIn(track, track.start + o.seconds)};top:${18 + o.rows[0] * 28}px;height:${(o.rows[1] - o.rows[0]) * 28 + 24}px`} />
@@ -633,7 +651,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                           </span>
                         </>
                       ))}
-                    {(lane.in || lane.placed) &&
+                    {realTime && (lane.in || lane.placed) &&
                       nudgeGhosts(lanePieces, laneRows).map((g) => (
                         <>
                           <span class:list={["tl-ghost", { busy: !g.free }]} role="img" aria-label={ghostWords(g)} title={ghostWords(g)} style={`left:${pctIn(track, g.start)};width:${pctIn(track, track.start + g.seconds)};top:${18 + g.row * 28}px`}>
@@ -668,12 +686,12 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         data-from={p.seconds > 0 ? p.start : undefined}
                         data-to={p.seconds > 0 ? p.start + p.seconds : undefined}
                         data-drag={nudgeField.has(lane.id) && p.seconds > 0 && itemOfPiece.has(p.id) ? JSON.stringify({ item: itemOfPiece.get(p.id), field: nudgeField.get(lane.id) }) : undefined}
-                        data-drag-sound={lane.placed && p.slot ? JSON.stringify(soundDrag(lane, p)) : undefined}
-                        style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + (ringIn(p, track)?.drawn ?? p.seconds))};min-width:${p.seconds === 0 ? 10 : 18}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}${ringIn(p, track) ? `;--ring-at:${percent(ringIn(p, track)!.mark, ringIn(p, track)!.drawn)}` : ""}`}
-                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}${p.cue ? `\nA cue on a word: after “${p.cue.text}” in ${p.cue.line}${p.audio ? "" : " (no take yet: nothing plays)"}` : ""}${p.nudge && !p.cue ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? "\nSpoken at the same time as the line before" : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}${lane.placed && p.slot ? (p.cue ? `\n${p.nudge ? `Nudged ${nudgeWords(p.nudge)} from its word. ` : ""}Drag it to play it later or earlier than its word (it snaps to 0.05 s; hold shift for free)` : "\nDrag it to move it: it may start before its beat, over the one before, but not before the film starts (it snaps to 0.05 s; hold shift for free)") : ""}${ringWords(p, track)}`}
+                        data-drag-sound={realTime && lane.placed && p.slot ? JSON.stringify(soundDrag(lane, p)) : undefined}
+                        style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + (ringIn(p, track)?.drawn ?? p.seconds))};min-width:${realTime ? (p.seconds === 0 ? 10 : 18) : p.spans ? 18 : PLAN_PIECE_PX}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}${ringIn(p, track) ? `;--ring-at:${percent(ringIn(p, track)!.mark, ringIn(p, track)!.drawn)}` : ""}`}
+                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timeText.position(p.start)}${p.seconds ? ` → ${timeText.position(p.start + p.seconds)} (${timeText.length(p.seconds)}${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${timeText.length(p.at)}` : ""}${p.cue ? `\nA cue on a word: after “${p.cue.text}” in ${p.cue.line}${p.audio ? "" : " (no take yet: nothing plays)"}` : ""}${p.nudge && !p.cue ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? (realTime ? "\nSpoken at the same time as the line before" : "\nAt the same time as the one before") : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}${realTime && lane.placed && p.slot ? (p.cue ? `\n${p.nudge ? `Nudged ${nudgeWords(p.nudge)} from its word. ` : ""}Drag it to play it later or earlier than its word (it snaps to 0.05 s; hold shift for free)` : "\nDrag it to move it: it may start before its beat, over the one before, but not before the film starts (it snaps to 0.05 s; hold shift for free)") : ""}${ringWords(p, track)}`}
                       >
                         {ringIn(p, track) && <i class="tl-ring" aria-hidden="true"><b>ring ›</b></i>}
-                        {p.wave && (
+                        {realTime && p.wave && (
                           <svg class="tl-wave" viewBox={`0 0 ${p.wave.length} 100`} preserveAspectRatio="none" aria-hidden="true"><polygon points={wavePolygon(p.wave)} /></svg>
                         )}
                         {p.who && <b>{p.who}</b>}
@@ -689,7 +707,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         data-from={p.start}
                         data-to={p.start + p.seconds}
                         style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:18px${clipRows[n] ? `;top:${18 + clipRows[n] * 28}px` : ""}`}
-                        title={`The beat's clip: ${p.title}${p.text !== p.title ? `\n“${p.text}”` : ""}\n${timecode(p.start)} → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.estimated ? `, a ${CLIP_GUESS_SECONDS} s guess: its length is not known yet` : ""})${p.volume !== null && p.volume < 1 ? ` · at ${Math.round(p.volume * 100)}%` : ""}\nIts sound plays like a spoken line, from where its picture comes in; the music dips under it`}
+                        title={`The beat's clip: ${p.title}${p.text !== p.title ? `\n“${p.text}”` : ""}\n${timeText.position(p.start)} → ${timeText.position(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.estimated ? `, a ${CLIP_GUESS_SECONDS} s guess: its length is not known yet` : ""})${p.volume !== null && p.volume < 1 ? ` · at ${Math.round(p.volume * 100)}%` : ""}\nIts sound plays like a spoken line, from where its picture comes in; the music dips under it`}
                       >
                         <b>Clip</b>
                         <span>{firstWords(p.text)}</span>
@@ -740,13 +758,17 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           </section>
         ))
       )}
-      <p class="tl-hint muted">Click a card to put the playhead there; Open takes you to it. Space plays and pauses. A take plays as recorded; a line with none passes in silence for its estimated length. Sound effects and beds (ambience, music) play over it at their levels, when they have a take.</p>
+      {realTime ? (
+        <p class="tl-hint muted">Click a card to put the playhead there; Open takes you to it. Space plays and pauses. A take plays as recorded; a line with none passes in silence for its estimated length. Sound effects and beds (ambience, music) play over it at their levels, when they have a take.</p>
+      ) : (
+        <p class="tl-hint muted">Click a card to put the playhead there; Open takes you to it. Times are in {unit}.</p>
+      )}
       <div class="tl-actions">
-        <span class="tl-nav" role="group" aria-label="Move through the story">
+        <span class="tl-nav" role="group" aria-label={`Move through the ${entryNoun}`}>
           <button type="button" class="button secondary" data-jump="start" aria-label="Back to the start" title="Back to the start (Home)" disabled={laid.items.length === 0}>|&lt;</button>
-          <button type="button" class="button secondary" data-jump="back" aria-label="Previous beat" title="Previous beat: the start of this one first (←)" disabled={laid.items.length === 0}>&lt;&lt;</button>
-          <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>
-          <button type="button" class="button secondary" data-jump="next" aria-label="Next beat" title="Next beat (→)" disabled={laid.items.length === 0}>&gt;&gt;</button>
+          <button type="button" class="button secondary" data-jump="back" aria-label={`Previous ${spineNoun}`} title={`Previous ${spineNoun}: the start of this one first (←)`} disabled={laid.items.length === 0}>&lt;&lt;</button>
+          {realTime && <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>}
+          <button type="button" class="button secondary" data-jump="next" aria-label={`Next ${spineNoun}`} title={`Next ${spineNoun} (→)`} disabled={laid.items.length === 0}>&gt;&gt;</button>
           <button type="button" class="button secondary" data-jump="end" aria-label="On to the end" title="On to the end (End)" disabled={laid.items.length === 0}>&gt;|</button>
         </span>
         <span class="tl-clock" role="group" aria-label="Playhead position">
@@ -754,17 +776,17 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
             type="text"
             class="tl-clock-input"
             data-clock
-            value="0:00:00.000"
+            value={timeText.clock(0)}
             inputmode="decimal"
             spellcheck="false"
             autocomplete="off"
-            aria-label="Playhead time, hours:minutes:seconds.thousandths"
-            title="Where the playhead is: h:mm:ss.mmm. Type a time (1:23.5, 0:01:23.456 or 83.5) and press Enter to go there. , and . nudge it by a tenth of a second (Shift: a whole second)."
+            aria-label={realTime ? "Playhead time, hours:minutes:seconds.thousandths" : `Playhead position, in ${unit}`}
+            title={realTime ? "Where the playhead is: h:mm:ss.mmm. Type a time (1:23.5, 0:01:23.456 or 83.5) and press Enter to go there. , and . nudge it by a tenth of a second (Shift: a whole second)." : `Where the playhead is. Type a place (${unit === "days" ? "Day 3, or 2 weeks from the start" : "1 h 30 min, 1:30 or 90 min from the start"}; a plain number is in ${unit}) and press Enter to go there. , and . move it by ${timeText.length(timeText.nudge[0])} (Shift: ${timeText.length(timeText.nudge[1])}).`}
             disabled={laid.items.length === 0}
           />
-          <span class="tl-clock-beat" data-clock-beat title={`How far into the ${spec.spine.entry_type.replace(/-/g, " ")} the playhead is: the "at" a sound placed in it needs`}></span>
+          <span class="tl-clock-beat" data-clock-beat title={`How far into the ${spec.spine.entry_type.replace(/-/g, " ")} the playhead is: the "at" a ${realTime ? "sound" : "piece"} placed in it needs`}></span>
         </span>
-        <button type="button" class="button secondary tl-fold" data-fold aria-expanded="true" aria-label="Fold the controls down to Play and the clock" title="Fold the controls down to Play and the clock, to see more of the timeline">⌄</button>
+        <button type="button" class="button secondary tl-fold" data-fold aria-expanded="true" aria-label={`Fold the controls down to ${realTime ? "Play and the clock" : "the clock"}`} title={`Fold the controls down to ${realTime ? "Play and the clock" : "the clock"}, to see more of the timeline`}>⌄</button>
         <span class="tl-zoom" role="group" aria-label="Zoom" title="How wide the timeline is: Fit is the page, 2× is two pages. Also + and −.">
           {ZOOM_LEVELS.map((z) => (
             <button type="button" data-zoom={z} aria-pressed={z === 1 ? "true" : "false"}>{z === 1 ? "Fit" : `${z}×`}</button>
@@ -793,7 +815,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   // The player: walks the cues (each a stretch of time, with a take to play or silence to wait), moves the playhead and lights the item and
   // piece under it. Nothing is stitched: a story plays from its takes as they are, and improves as takes land.
   interface Cue { item: string; piece: string | null; lane: string | null; start: number; seconds: number; audio: string | null }
-  import { clockText, gainAt, jumpTo, parseClock, placeIn, type Jump, type Overlay } from "@/lib/timeline";
+  import { gainAt, jumpTo, placeIn, unitOf, type Jump, type Overlay } from "@/lib/timeline";
+  import { timeWords } from "@/lib/timelineUnits";
   import { fetchApi } from "@/lib/api/client";
   import { getRunState, startRun } from "@/lib/api/workflowRuns";
   import { followed, type JobRow } from "@/lib/timelineRun";
@@ -865,6 +888,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       });
     };
     const total = Number(root.dataset.total || "0");
+    const timeText = timeWords(unitOf({ unit: root.dataset.unit })); // the clock reads and writes the view's unit
+    const foldsTo = timeText.unit === "seconds" ? "Play and the clock" : "the clock";
     const playBtn = root.querySelector<HTMLButtonElement>("[data-play]");
     // Each track (the whole story, or one chapter when stacked) has its own box, strip and playhead; the playhead shows in the track holding `at`.
     const tracks = [...root.querySelectorAll<HTMLElement>("[data-track]")].map((el, i, all) => ({
@@ -890,8 +915,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       if (!foldButton) return;
       foldButton.setAttribute("aria-expanded", on ? "false" : "true");
       foldButton.textContent = on ? "⌃" : "⌄";
-      foldButton.setAttribute("aria-label", on ? "Show all the controls" : "Fold the controls down to Play and the clock");
-      foldButton.title = on ? "Show all the controls" : "Fold the controls down to Play and the clock, to see more of the timeline";
+      foldButton.setAttribute("aria-label", on ? "Show all the controls" : `Fold the controls down to ${foldsTo}`);
+      foldButton.title = on ? "Show all the controls" : `Fold the controls down to ${foldsTo}, to see more of the timeline`;
     };
     foldButton?.addEventListener("click", () => {
       const on = !bar?.classList.contains("is-folded");
@@ -992,10 +1017,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     const clockInput = root.querySelector<HTMLInputElement>("[data-clock]");
     const clockBeat = root.querySelector<HTMLElement>("[data-clock-beat]");
     const showClock = (t: number) => {
-      if (clockInput && document.activeElement !== clockInput) clockInput.value = clockText(t); // not while it is being typed in
+      if (clockInput && document.activeElement !== clockInput) clockInput.value = timeText.clock(t); // not while it is being typed in
       if (!clockBeat) return;
       const here = placeIn(soundStarts, t);
-      clockBeat.textContent = here ? `${noun} ${itemMarks[here.index].name} +${here.offset.toFixed(3)} s` : "";
+      clockBeat.textContent = here ? `${noun} ${itemMarks[here.index].name} +${timeText.offset(here.offset)}` : "";
     };
     const show = (t: number) => {
       at = Math.max(0, Math.min(total, t));
@@ -1256,11 +1281,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     clockInput?.addEventListener("focus", () => clockInput.select());
     clockInput?.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
-        clockInput.value = clockText(at);
+        clockInput.value = timeText.clock(at);
         clockInput.blur();
       } else if (e.key === "Enter") {
         e.preventDefault();
-        const t = parseClock(clockInput.value);
+        const t = timeText.parse(clockInput.value);
         clockInput.classList.toggle("bad", t === null);
         if (t === null) return;
         clockInput.blur();
@@ -1322,8 +1347,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         }
       }
       if ((e.key === "," || e.key === "." || e.key === "<" || e.key === ">") && !e.metaKey && !e.ctrlKey && !e.altKey && !target?.closest("a, select")) {
-        e.preventDefault(); // , and . move the playhead a tenth of a second, a whole second with Shift, to place something exactly
-        return goTo(at + (e.key === "," || e.key === "<" ? -1 : 1) * (e.shiftKey ? 1 : 0.1));
+        e.preventDefault(); // , and . move the playhead a step of the view's unit (a tenth of a second), a bigger one with Shift, to place something exactly
+        return goTo(at + (e.key === "," || e.key === "<" ? -1 : 1) * timeText.nudge[e.shiftKey ? 1 : 0]);
       }
       if (e.code !== "Space" || target?.closest("button, a")) return;
       e.preventDefault();
@@ -1477,6 +1502,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece b, .tl-piece span { position: relative; z-index: 1; }
   .tl-piece b { font-weight: 600; }
   .tl-piece span { overflow: hidden; text-overflow: ellipsis; }
+  /* A plan (a view in minutes, hours or days; `data-unit` is only set then): a who as long as a channel's name shortens like the text after it,
+     and a ruler label of words ("Day 15", "1 h 30 min") stays on one line. */
+  .tl[data-unit] .tl-piece b { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .tl[data-unit] .tl-tick b { white-space: nowrap; }
+  .tl[data-unit] .tl-tick.end b { transform: translateX(-100%); } /* the end's label inside the strip, not cut off at its edge */
   .tl-piece.estimated { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--panel)) 0 6px, var(--panel) 6px 10px); border-style: dashed; }
   .tl-piece.unmeasured { border-right-style: dashed; border-right-width: 3px; }
   .tl-piece.untimed { border-style: dotted; background: var(--panel-2); padding: 0 4px; }

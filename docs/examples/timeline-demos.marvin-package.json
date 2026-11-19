@@ -1,0 +1,686 @@
+{
+  "format": 1,
+  "slug": "timeline-demos",
+  "name": "Timeline Demos",
+  "version": "1",
+  "description": "Two timelines that are not audio or video, to show the Timeline view in other units: an event agenda in minutes and a content plan in days. Entry types are prefixed demo-; scripts/seed_timeline_demos.py makes sample entries.",
+  "blueprints": [
+    {
+      "kind": "entry_type",
+      "slug": "demo-event",
+      "name": "Demo event",
+      "description": "A conference day or other event, laid out as an agenda of sessions (Timeline Demos).",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo event",
+        "icon": "🎤",
+        "color": "#7C3AED",
+        "description": "A conference day or other event, laid out as an agenda of sessions (Timeline Demos).",
+        "sort_order": 0,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "venue",
+              "label": "Venue",
+              "type": "text",
+              "placeholder": "e.g. Harbour Hall, Leeds"
+            },
+            {
+              "key": "date",
+              "label": "Date",
+              "type": "text",
+              "placeholder": "e.g. 2027-03-12"
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "review",
+                "ready"
+              ],
+              "defaultValue": "draft"
+            },
+            {
+              "key": "cover",
+              "label": "Cover picture",
+              "type": "asset",
+              "role": "cover",
+              "accept": "image/*",
+              "helpText": "Shown on the event's card in the agenda's picker."
+            },
+            {
+              "key": "about",
+              "label": "About",
+              "type": "textarea",
+              "rows": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-block",
+      "name": "Demo block",
+      "description": "A part of an event's day (the morning, the afternoon): the agenda groups its sessions under it.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo block",
+        "icon": "🧱",
+        "color": "#7C3AED",
+        "description": "A part of an event's day (the morning, the afternoon): the agenda groups its sessions under it.",
+        "sort_order": 1,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "event",
+              "label": "Event (event entry slug)",
+              "type": "text",
+              "ref": "demo-event",
+              "required": true,
+              "helpText": "The event this belongs to: pick it from the list."
+            },
+            {
+              "key": "order",
+              "label": "Order",
+              "type": "number",
+              "required": true,
+              "helpText": "Where this part comes in the day: 1 for the first."
+            }
+          ]
+        },
+        "capabilities_json": {
+          "offer_in_new": false
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-session",
+      "name": "Demo session",
+      "description": "One session of an event: a talk, a panel, a break. Its length is in minutes.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo session",
+        "icon": "🗣️",
+        "color": "#2563EB",
+        "description": "One session of an event: a talk, a panel, a break. Its length is in minutes.",
+        "sort_order": 2,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "event",
+              "label": "Event (event entry slug)",
+              "type": "text",
+              "ref": "demo-event",
+              "required": true,
+              "helpText": "The event this belongs to: pick it from the list."
+            },
+            {
+              "key": "block",
+              "label": "Part of the day (block entry slug)",
+              "type": "text",
+              "ref": "demo-block",
+              "ref_match": {
+                "event": "event"
+              },
+              "helpText": "The part of the day it is in (only this event's)."
+            },
+            {
+              "key": "order",
+              "label": "Order",
+              "type": "number",
+              "required": true,
+              "helpText": "Where the session comes in the day: 1 for the first."
+            },
+            {
+              "key": "minutes",
+              "label": "Length (minutes)",
+              "type": "number",
+              "min": 0,
+              "helpText": "How long the session lasts. Empty: 30 minutes, or as long as its people speak in all, if longer."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "review",
+                "ready"
+              ],
+              "defaultValue": "draft"
+            },
+            {
+              "key": "picture",
+              "label": "Picture",
+              "type": "asset",
+              "role": "picture",
+              "accept": "image/*"
+            },
+            {
+              "key": "summary",
+              "label": "Summary",
+              "type": "textarea",
+              "rows": 3
+            },
+            {
+              "key": "cues",
+              "label": "Room and AV cues",
+              "type": "json",
+              "helpText": "Cues in this session: [{\"cue\": \"<cue entry slug>\", \"at\": 0}]. `at` is minutes from the start of the session."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-speaker",
+      "name": "Demo speaker",
+      "description": "Someone on stage in one session of an event: a host, a speaker, a panelist.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo speaker",
+        "icon": "🧑‍🏫",
+        "color": "#0EA5E9",
+        "description": "Someone on stage in one session of an event: a host, a speaker, a panelist.",
+        "sort_order": 3,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "event",
+              "label": "Event (event entry slug)",
+              "type": "text",
+              "ref": "demo-event",
+              "required": true,
+              "helpText": "The event this belongs to: pick it from the list."
+            },
+            {
+              "key": "session",
+              "label": "Session (session entry slug)",
+              "type": "text",
+              "ref": "demo-session",
+              "ref_match": {
+                "event": "event"
+              },
+              "required": true,
+              "helpText": "The session they are on stage in (only this event's)."
+            },
+            {
+              "key": "role",
+              "label": "Role",
+              "type": "select",
+              "options": [
+                "Host",
+                "Speaker",
+                "Panelist",
+                "Moderator"
+              ],
+              "defaultValue": "Speaker"
+            },
+            {
+              "key": "minutes",
+              "label": "Speaks for (minutes)",
+              "type": "number",
+              "min": 0,
+              "helpText": "How long they speak, one after another in the order below. Empty: on stage for the whole session (a panel)."
+            },
+            {
+              "key": "order",
+              "label": "Order",
+              "type": "number",
+              "helpText": "Who speaks first: 1 for the first."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-cue",
+      "name": "Demo cue",
+      "description": "A room or AV cue an event's sessions can place: walk-in music, lights, the livestream.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo cue",
+        "icon": "💡",
+        "color": "#F59E0B",
+        "description": "A room or AV cue an event's sessions can place: walk-in music, lights, the livestream.",
+        "sort_order": 4,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "kind",
+              "label": "Kind",
+              "type": "select",
+              "options": [
+                "Sound",
+                "Lights",
+                "Video",
+                "Stage"
+              ],
+              "defaultValue": "Stage"
+            },
+            {
+              "key": "minutes",
+              "label": "Length (minutes)",
+              "type": "number",
+              "min": 0,
+              "helpText": "How long the cue runs."
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "type": "textarea",
+              "rows": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-plan",
+      "name": "Demo content plan",
+      "description": "A content plan over days: what goes out where, day by day (Timeline Demos).",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo content plan",
+        "icon": "📅",
+        "color": "#16A34A",
+        "description": "A content plan over days: what goes out where, day by day (Timeline Demos).",
+        "sort_order": 5,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "starts",
+              "label": "Starts",
+              "type": "text",
+              "placeholder": "e.g. Mon 1 Mar 2027"
+            },
+            {
+              "key": "goal",
+              "label": "Goal",
+              "type": "textarea",
+              "rows": 2
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "review",
+                "ready"
+              ],
+              "defaultValue": "draft"
+            },
+            {
+              "key": "cover",
+              "label": "Cover picture",
+              "type": "asset",
+              "role": "cover",
+              "accept": "image/*"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-day",
+      "name": "Demo day",
+      "description": "One day of a content plan; its posts are listed under it.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo day",
+        "icon": "🗓️",
+        "color": "#16A34A",
+        "description": "One day of a content plan; its posts are listed under it.",
+        "sort_order": 6,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "plan",
+              "label": "Plan (content plan entry slug)",
+              "type": "text",
+              "ref": "demo-plan",
+              "required": true,
+              "helpText": "The content plan this belongs to: pick it from the list."
+            },
+            {
+              "key": "number",
+              "label": "Day",
+              "type": "number",
+              "required": true,
+              "helpText": "Which day of the plan: 1 for the first."
+            },
+            {
+              "key": "days",
+              "label": "Lasts (days)",
+              "type": "number",
+              "min": 0,
+              "helpText": "Empty: one day."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "review",
+                "ready"
+              ],
+              "defaultValue": "draft"
+            }
+          ]
+        },
+        "capabilities_json": {
+          "offer_in_new": false
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-post",
+      "name": "Demo post",
+      "description": "One post of a content plan, on one day and one channel.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo post",
+        "icon": "✉️",
+        "color": "#DB2777",
+        "description": "One post of a content plan, on one day and one channel.",
+        "sort_order": 7,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "plan",
+              "label": "Plan (content plan entry slug)",
+              "type": "text",
+              "ref": "demo-plan",
+              "required": true,
+              "helpText": "The content plan this belongs to: pick it from the list."
+            },
+            {
+              "key": "day",
+              "label": "Day (day entry slug)",
+              "type": "text",
+              "ref": "demo-day",
+              "ref_match": {
+                "plan": "plan"
+              },
+              "required": true,
+              "helpText": "The day it goes out (only this plan's)."
+            },
+            {
+              "key": "channel",
+              "label": "Channel",
+              "type": "select",
+              "options": [
+                "Instagram",
+                "LinkedIn",
+                "Newsletter"
+              ],
+              "defaultValue": "Instagram"
+            },
+            {
+              "key": "order",
+              "label": "Order",
+              "type": "number",
+              "helpText": "Which goes out first on its day."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "review",
+                "scheduled",
+                "published"
+              ],
+              "defaultValue": "draft"
+            },
+            {
+              "key": "copy",
+              "label": "Copy",
+              "type": "textarea",
+              "rows": 4
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "timeline-demos-events",
+      "name": "Timeline Demos: Events",
+      "description": "Events, the parts of their day, their sessions, the people on stage and the room cues.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:demo-event",
+        "entry_type:demo-block",
+        "entry_type:demo-session",
+        "entry_type:demo-speaker",
+        "entry_type:demo-cue"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "Events, the parts of their day, their sessions, the people on stage and the room cues.",
+        "icon": "🎤",
+        "color": "#7C3AED",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 1,
+        "smart_rules": {
+          "entry_types": [
+            "demo-event",
+            "demo-block",
+            "demo-session",
+            "demo-speaker",
+            "demo-cue"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "timeline-demos-plans",
+      "name": "Timeline Demos: Content plans",
+      "description": "Content plans, their days and their posts.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:demo-plan",
+        "entry_type:demo-day",
+        "entry_type:demo-post"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "Content plans, their days and their posts.",
+        "icon": "📅",
+        "color": "#16A34A",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 2,
+        "smart_rules": {
+          "entry_types": [
+            "demo-plan",
+            "demo-day",
+            "demo-post"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "view",
+      "slug": "event-agenda",
+      "name": "Event agenda",
+      "description": "An event's day as time, in minutes: its sessions in order, grouped by the part of the day, with who is on stage and the room cues under them.",
+      "payload": {
+        "kind": "timeline",
+        "title": "Event agenda",
+        "unit": "minutes",
+        "entry_type": "demo-event",
+        "sidebar": {
+          "label": "Event agenda",
+          "icon": "🎤"
+        },
+        "spine": {
+          "entry_type": "demo-session",
+          "of": "event",
+          "order": "order",
+          "group": {
+            "entry_type": "demo-block",
+            "field": "block",
+            "order": "order"
+          },
+          "picture": "picture",
+          "status": "status",
+          "seconds": {
+            "hold": "minutes",
+            "defaults": {
+              "hold": 30
+            }
+          }
+        },
+        "lanes": [
+          {
+            "id": "people",
+            "title": "People",
+            "entry_type": "demo-speaker",
+            "of": "event",
+            "in": "session",
+            "order": "order",
+            "who": "role",
+            "seconds": "minutes"
+          },
+          {
+            "id": "cues",
+            "title": "Room and AV cues",
+            "entry_type": "demo-cue",
+            "placed": {
+              "field": "cues",
+              "ref": "cue",
+              "at": "at"
+            },
+            "seconds": "minutes"
+          }
+        ],
+        "picker": {
+          "picture": "cover",
+          "subtitle": [
+            "venue",
+            "date"
+          ],
+          "badges": [
+            "status"
+          ],
+          "strip": {
+            "limit": 12
+          }
+        }
+      }
+    },
+    {
+      "kind": "view",
+      "slug": "content-plan",
+      "name": "Content plan",
+      "description": "A content plan as time, in days: one card per day, with the posts that go out that day and their channel under it.",
+      "payload": {
+        "kind": "timeline",
+        "title": "Content plan",
+        "unit": "days",
+        "entry_type": "demo-plan",
+        "sidebar": {
+          "label": "Content plan",
+          "icon": "📅"
+        },
+        "spine": {
+          "entry_type": "demo-day",
+          "of": "plan",
+          "order": "number",
+          "status": "status",
+          "seconds": {
+            "hold": "days",
+            "defaults": {
+              "hold": 1
+            }
+          }
+        },
+        "lanes": [
+          {
+            "id": "posts",
+            "title": "Posts",
+            "entry_type": "demo-post",
+            "of": "plan",
+            "in": "day",
+            "order": "order",
+            "who": "channel",
+            "status": "status"
+          }
+        ],
+        "picker": {
+          "picture": "cover",
+          "subtitle": [
+            "starts"
+          ],
+          "badges": [
+            "status"
+          ]
+        }
+      }
+    }
+  ]
+}

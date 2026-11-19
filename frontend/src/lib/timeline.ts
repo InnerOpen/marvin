@@ -246,6 +246,9 @@ export interface TimelineSpec {
   kind: "timeline";
   title: string;
   description?: string;
+  /** What every length and offset of the view counts (`seconds`, `hold`, a lane's `seconds`, a placed `at`): seconds when absent. A view in
+   * another unit has no sound (the validator refuses its keys), so nothing in it plays. */
+  unit?: TimeUnit;
   entry_type: string;
   /** The entry's field holding the picture's shape, by its trailing WxH (a story's `format`: short-9x16, square-1x1, wide-16x9). */
   aspect?: string;
@@ -288,6 +291,8 @@ export interface Piece {
   estimated: boolean;
   /** True when there is a take but its length was never stored (an upload), so `seconds` is still the text's estimate. */
   unmeasured: boolean;
+  /** In a unit other than seconds: it has no length of its own and is drawn across its whole item (a post on its day). */
+  spans?: boolean;
   audio: string | null;
   /** The recording's peaks (0 to 1, a few hundred at most) for its waveform, when the entry holds them. */
   wave: number[] | null;
@@ -554,6 +559,13 @@ export interface Layout {
 }
 
 export const DEFAULT_SECONDS = { hold: 4, lead: 0.3, gap: 0.25, tail: 0.35 };
+/** The defaults of a view in another unit: one unit for an item with nothing timed in it, and none of the render's pauses around speech. */
+export const PLAIN_DEFAULTS = { hold: 1, lead: 0, gap: 0, tail: 0 };
+
+export const TIME_UNITS = ["seconds", "minutes", "hours", "days"] as const;
+export type TimeUnit = (typeof TIME_UNITS)[number];
+/** The unit a view counts in; seconds when it names none (or one this page does not know). */
+export const unitOf = (spec: { unit?: unknown } | null | undefined): TimeUnit => TIME_UNITS.find((u) => u === spec?.unit) ?? "seconds";
 export const WORDS_PER_MINUTE = 150;
 export const MIN_ESTIMATE_SECONDS = 1;
 /** The narrowest card: a 0.3 s item is still something to click. */
@@ -852,9 +864,12 @@ const level = (v: unknown): number | null => {
 /**
  * Lay the view out. Spine rows are sorted by the spine's order field and gathered under their group (chapters in their own order; items
  * whose group is unknown come last, under no title). Each `in` lane's rows are the pieces of the item their `in` field names, timed one after
- * another from the item's lead; each `placed` lane's pieces sit where the item's JSON list puts them. Unknown references are ignored.
+ * another from the item's lead; each `placed` lane's pieces sit where the item's JSON list puts them. Unknown references are ignored. In a unit
+ * other than seconds the defaults are PLAIN_DEFAULTS and an `in` piece with no length of its own spans its item (a post on its day).
  */
-export function layout(spec: TimelineSpec, rows: Rows): Layout {
+export function layout(declared: TimelineSpec, rows: Rows): Layout {
+  const realTime = unitOf(declared) === "seconds";
+  const spec = realTime ? declared : withPlainDefaults(declared);
   const lanes = spec.lanes ?? [];
   const inLanes = lanes.filter((l) => l.in);
   const placedLanes = lanes.filter((l) => l.placed);
@@ -1002,6 +1017,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
           if (p.audio && p.seconds > 0) ringEnd = Math.max(ringEnd, p.start + p.seconds); // one with no take plays nothing, so holds nothing
         }
       }
+      if (!realTime) spanItem(item, inLanes);
       cuts.push({ start: clock, seconds: item.seconds, firstWord: timed[0] ? timed[0].natural : null, lead: pictureLeadOf(row, spec.spine.seconds, rows.entry), anchor: overlay?.at ?? null });
       clock += item.seconds;
       made.push(item);
@@ -1044,6 +1060,25 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   const bands: Record<string, Band[]> = {};
   for (const band of spec.spine.bands ?? []) bands[band.id ?? band.field] = bandsOf(band, shown, rows, band.id ?? band.field);
   return { total: clock, groups: out, items, bands, beds, covers, marks };
+}
+
+/** The view with PLAIN_DEFAULTS under its own: a plan's items hold one unit and its lanes have no speech pauses unless it says so. */
+function withPlainDefaults(spec: TimelineSpec): TimelineSpec {
+  const seconds = spec.spine.seconds;
+  return { ...spec, spine: { ...spec.spine, seconds: { ...seconds, defaults: { ...PLAIN_DEFAULTS, ...seconds?.defaults } } } };
+}
+
+/** In a unit other than seconds, an `in` piece with no length of its own belongs to the whole item (a post on its day, a speaker for the whole
+ * session): it spans it, instead of a sliver at its start. */
+function spanItem(item: Item, inLanes: LaneSpec[]): void {
+  for (const lane of inLanes) {
+    for (const p of item.lanes[lane.id] ?? []) {
+      if (p.seconds > 0) continue;
+      p.start = p.natural = item.start;
+      p.seconds = item.seconds;
+      p.spans = true;
+    }
+  }
 }
 
 /** A bed's level as the render plays it: the level set where the sound is named (a beat's, else its scene's or the story's) *replaces* the
@@ -1776,12 +1811,13 @@ export const percent = (seconds: number, total: number): string => `${total > 0 
 
 export const widthOf = (seconds: number, pxPerSecond: number): number => Math.max(MIN_ITEM_PX, Math.round(seconds * pxPerSecond));
 
-const TICK_STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+/** The ruler's steps in seconds (lib/timelineUnits.ts has the other units'). */
+export const TICK_STEPS: readonly number[] = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
 
-/** Ruler ticks: a step chosen so there are about `want` of them, from the first to just past the end. */
-export function ticks(total: number, want = 10): number[] {
+/** Ruler ticks: a step of `steps` chosen so there are about `want` of them, from the first to just past the end. */
+export function ticks(total: number, want = 10, steps: readonly number[] = TICK_STEPS): number[] {
   if (total <= 0) return [0];
-  const step = TICK_STEPS.find((s) => total / s <= want) ?? TICK_STEPS[TICK_STEPS.length - 1];
+  const step = steps.find((s) => total / s <= want) ?? steps[steps.length - 1];
   const out: number[] = [];
   for (let t = 0; t <= total + 1e-9; t += step) out.push(Number(t.toFixed(3)));
   return out;
@@ -1791,24 +1827,24 @@ export const ZOOM_LEVELS = [1, 2, 4, 8] as const;
 
 /** Ruler ticks for every zoom level at once: each tick says at which levels it shows (a finer step at a higher zoom), so the page can
  * render them all and switch with CSS. Level 1 is the strip fitted to the page; level n is n pages wide. */
-export function tickLevels(total: number, want = 10): { t: number; levels: number[] }[] {
+export function tickLevels(total: number, want = 10, steps: readonly number[] = TICK_STEPS): { t: number; levels: number[] }[] {
   const byLevel = new Map<number, Set<number>>();
-  for (const level of ZOOM_LEVELS) for (const t of ticks(total, want * level)) byLevel.set(t, (byLevel.get(t) ?? new Set()).add(level));
+  for (const level of ZOOM_LEVELS) for (const t of ticks(total, want * level, steps)) byLevel.set(t, (byLevel.get(t) ?? new Set()).add(level));
   return [...byLevel.entries()].sort((a, b) => a[0] - b[0]).map(([t, levels]) => ({ t, levels: [...levels].sort((a, b) => a - b) }));
 }
 
 /** Unlabelled marks between the ruler's numbered ticks (whole seconds when there is room), for every zoom level at once, as `tickLevels` does: each says at
  * which levels it shows. A mark that is a numbered tick at a level is left out of that level. The step is the smallest that divides the numbered step evenly
  * and keeps the marks under about six per numbered tick, so a 60 s story shows a mark every second and a long film every few. */
-export function minorTickLevels(total: number, want = 10): { t: number; levels: number[] }[] {
+export function minorTickLevels(total: number, want = 10, steps: readonly number[] = TICK_STEPS): { t: number; levels: number[] }[] {
   const byT = new Map<number, number[]>();
   if (total <= 0) return [];
   for (const level of ZOOM_LEVELS) {
     const target = want * level;
-    const major = TICK_STEPS.find((s) => total / s <= target) ?? TICK_STEPS[TICK_STEPS.length - 1];
-    const minor = TICK_STEPS.find((m) => m < major && Math.abs(major / m - Math.round(major / m)) < 1e-9 && total / m <= target * 6);
+    const major = steps.find((s) => total / s <= target) ?? steps[steps.length - 1];
+    const minor = steps.find((m) => m < major && Math.abs(major / m - Math.round(major / m)) < 1e-9 && total / m <= target * 6);
     if (minor === undefined) continue;
-    const isMajor = new Set(ticks(total, target));
+    const isMajor = new Set(ticks(total, target, steps));
     for (let t = 0; t <= total + 1e-9; t += minor) {
       const at = Number(t.toFixed(3));
       if (!isMajor.has(at)) byT.set(at, [...(byT.get(at) ?? []), level]);
