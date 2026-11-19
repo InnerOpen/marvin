@@ -362,12 +362,14 @@ def search_for(conn: Connection, args: dict | None) -> dict:
     out = call_tool_for(conn, "search_content", {"query": query})
     results, seen = [], set()
     for r in [] if "error" in out else out.get("results", []):
-        kind, entity_id = r.get("entityType"), r.get("entityId")
+        kind, entity_id, title = r.get("entityType"), r.get("entityId"), r.get("title")
+        if kind == "asset" and r.get("recordingAssetId"):  # a transcript file's hit: link the recording it names
+            entity_id, title = r["recordingAssetId"], r.get("recordingTitle") or title
         key = f"{kind}:{entity_id}"
         if kind in KINDS and entity_id and key not in seen:
             seen.add(key)
             url = r.get("url") or _admin_url(kind, entity_id, r.get("startSeconds"))
-            results.append({"id": key, "title": r.get("title") or key, "url": url})
+            results.append({"id": key, "title": title or key, "url": url})
     if not results:  # no semantic index here (or nothing in it): fall back to titles and slugs
         found = call_tool_for(conn, "find_entries", {"query": query, "limit": SEARCH_RESULTS})
         for e in found.get("entries", []):

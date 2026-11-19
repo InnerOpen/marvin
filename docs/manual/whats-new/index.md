@@ -125,6 +125,14 @@ Ask page and in the bubble: a `[0:00:10]`, `0:00:10` or `1:05` in a reply that c
 moment (when it cites several, only a time whose line names its recording before it), and a time in code, in a link or in a title
 stays text. Unreleased (2026-11-18).
 
+**Search and Ask cite the recording, not its transcript files.** `search_content` asks the index for three times as many hits as it
+shows (at most 50) and folds near-duplicates into the best of them: hits of different items with the same title (ignoring case) or
+the same snippet, and a recording with the transcript files made from it. A transcript file (`metadataJson.kind` `transcript`,
+naming its recording in `source` by id or slug, or in `derived_from`) adds `recordingAssetId`, `recordingAssetUrl` (the recording's
+page, at the passage's time when its text has one), `recordingTitle` and a `note` to cite the recording, both as a `search_content`
+hit and in `get_asset`. An agent run's `sources` and the MCP connector's `search` link the recording instead of the file. Results
+with nothing to fold are unchanged. Unreleased (2026-11-19).
+
 ## Rendered images
 
 A **Process an image** step can **render a template**: a built-in quote card, card, retro poster, trading card, meme,
