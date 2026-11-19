@@ -197,6 +197,10 @@ SEARCH_OVERFETCH = 3
 SEARCH_MAX_CANDIDATES = 50
 
 
+PLACEHOLDER_TITLES = frozenset({"untitled entry", "untitled resource", "untitled asset"})
+"""What resolve_retrieved_sources calls an item with no name: unrelated items, never one title."""
+
+
 def _normalised_snippet(text: str) -> str:
     import re
 
@@ -210,15 +214,22 @@ def _collapse_near_duplicates(results: list[dict], limit: int) -> list[dict]:
     punctuation and spacing) or the recording they cite (a recording, and every transcript file of it, cite the recording). Two
     transcription runs made several files of one recording, named alike, that filled every slot while the recording itself never
     made the cut. Several passages of one entity stay. With nothing to fold it is ``results[:limit]``.
+
+    One exception to best-first: when the recording itself is among the hits, its transcript files go, even ones that scored higher.
+    A file's indexed text is its name and a line like "Speech in X, as text (faster-whisper)." (the transcript is in the file), so
+    it outscores the recording on the name while the recording's own chunk holds the passage and its time.
     """
+    present = {r.get("entityId") for r in results if r.get("entityType") == "asset"}
     owner: dict = {}  # key → the entity of the kept hit that holds it
     kept: list[dict] = []
     for r in results:
         if len(kept) >= limit:
             break
+        if r.get("recordingAssetId") and r["recordingAssetId"] in present:
+            continue
         me = f"{r.get('entityType')}:{r.get('entityId')}"
         keys = [f"cite:asset:{r['recordingAssetId']}" if r.get("recordingAssetId") else f"cite:{me}"]
-        if title := (r.get("title") or "").strip().casefold():
+        if (title := (r.get("title") or "").strip().casefold()) and title not in PLACEHOLDER_TITLES:
             keys.append(f"title:{title}")
         if snippet := _normalised_snippet(r.get("snippet") or ""):
             keys.append(f"snippet:{snippet}")

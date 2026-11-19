@@ -104,43 +104,75 @@ def _get_asset(ws, ident) -> dict:
     return json.loads(get_tool("get_asset").handler(ws.ctx, {"id_or_slug": ident}))
 
 
-def test_transcript_files_fold_into_one_hit_that_cites_the_recording_at_its_passage(builtin, top_k, workspace, db_session):
+def test_the_recording_takes_the_place_of_its_transcript_files_and_keeps_its_passage(builtin, top_k, workspace, db_session):
+    """As in production: a transcript file's indexed text is its name and one "Speech in …" line, so files named after the recording
+    outscore it, while the recording's own chunk holds the passage and its time. The recording's hit stays; the files go."""
     ws = workspace
     top_k(4)
-    talk = ws.add("workshop-talk", "Workshop talk", _transcript(), meta={"recording": {"source": "browser"}}, asset_type="audio")
-    by_id = ws.add("talk-times", "Transcript with times: Workshop talk", "[0:12:30] we talk about leather and leather care.",
-                   meta={"kind": "transcript", "source": str(talk.id), "language": "en"})  # fmt: skip
-    by_slug = ws.add("talk-text", "Transcript: Workshop talk", "Speech in Workshop talk, as text (faster-whisper). hello leather",
-                     meta={"kind": "transcript", "source": "workshop-talk", "language": "en", "seconds": 9.5})  # fmt: skip
+    talk = ws.add("leather-talk", "Leather talk", _transcript(), meta={"recording": {"source": "browser"}}, asset_type="audio")
+    speech = "Speech in Leather talk, as text (faster-whisper)."
+    files = [
+        ws.add("lt-text", "Transcript: Leather talk", speech, meta={"kind": "transcript", "source": str(talk.id), "language": "en"}),
+        ws.add("lt-times", "Transcript with times: Leather talk", speech, meta={"kind": "transcript", "source": "leather-talk"}),
+        ws.add(
+            "lt-paras",
+            "Transcript in paragraphs: Leather talk",
+            speech,
+            meta={"kind": "transcript", "source": "rec-leather-talk", "derived_from": str(talk.id)},
+        ),  # fmt: skip
+    ]
     lost = ws.add("talk-json", "Transcript (json)", "leather leather hello as json", meta={"kind": "transcript", "source": "no-such-recording"})
     price_a = ws.add("price-a", "Price list", "leather prices for the middle of the year")
     price_b = ws.add("price-b", "price LIST", "leather costs in the middle, hello")
     db_session.commit()
+    file_ids = {str(f.id) for f in files}
+    (top,) = emb.search_embeddings(db_session, ws.gid, _fake_vector("leather"), 1, model=emb.BUILTIN_EMBEDDING_MODEL)
+    assert top["entity_id"] in file_ids  # a file really does outscore the recording
 
     out = _search(ws)
     hits = out["results"]
     assert out["count"] == len(hits) <= 4
-    # The best hit is the timestamped transcript file: it stays, and names the recording, opened at its passage.
-    best = hits[0]
-    assert best["entityId"] == str(by_id.id) and best["startSeconds"] == 750
-    assert best["recordingAssetId"] == str(talk.id)
-    assert best["recordingAssetUrl"] == f"/workspace/assets/{talk.id}/view?t=750"
-    assert best["recordingTitle"] == "Workshop talk" and "Workshop talk" in best["note"] and "cite the recording" in best["note"]
-    # Everything else citing that recording (its own chunks, the slug-named file) was folded into it.
-    citing = [h for h in hits if h["entityId"] == str(talk.id) or h.get("recordingAssetId") == str(talk.id)]
-    assert citing == [best]
-    assert str(by_slug.id) not in {h["entityId"] for h in hits}
+    talk_hits = [h for h in hits if h["entityId"] == str(talk.id)]
+    assert talk_hits and talk_hits[0]["startSeconds"] > 0  # the recording's own passage, with its time
+    assert not file_ids & {h["entityId"] for h in hits}
+    assert not any(h.get("recordingAssetId") for h in hits)
     # Two different assets with one title (ignoring case): only the better one.
     assert len([h for h in hits if h["entityId"] in (str(price_a.id), str(price_b.id))]) == 1
     # A transcript file whose source names nothing here is the hit it always was.
     (orphan,) = [h for h in hits if h["entityId"] == str(lost.id)]
     assert set(orphan) == TODAYS_HIT_KEYS
 
+    step = SimpleNamespace(tool="search_content", result=json.dumps(out))
+    cited = [s for s in extract_sources([step]) if s["entityId"] == str(talk.id)]
+    assert cited == [{"entityType": "asset", "entityId": str(talk.id), "title": "Leather talk", "startSeconds": talk_hits[0]["startSeconds"]}]
+
+
+def test_without_the_recording_among_the_hits_one_file_stands_for_it_and_names_it(builtin, top_k, workspace, db_session):
+    ws = workspace
+    top_k(4)
+    talk = ws.add("workshop-talk", "Workshop talk", _transcript(), asset_type="audio", index=False)
+    by_id = ws.add("talk-times", "Transcript with times: Workshop talk", "[0:12:30] we talk about leather and leather care.",
+                   meta={"kind": "transcript", "source": str(talk.id), "language": "en"})  # fmt: skip
+    by_slug = ws.add("talk-text", "Transcript: Workshop talk", "Speech in Workshop talk, as text (faster-whisper). hello leather",
+                     meta={"kind": "transcript", "source": "workshop-talk", "language": "en", "seconds": 9.5})  # fmt: skip
+    db_session.commit()
+
+    out = _search(ws)
+    hits = out["results"]
+    # The best hit is the timestamped transcript file: it stays, and names the recording, opened at its passage.
+    best = hits[0]
+    assert best["entityId"] == str(by_id.id) and best["startSeconds"] == 750
+    assert best["recordingAssetId"] == str(talk.id)
+    assert best["recordingAssetUrl"] == f"/workspace/assets/{talk.id}/view?t=750"
+    assert best["recordingTitle"] == "Workshop talk" and "Workshop talk" in best["note"] and "cite the recording" in best["note"]
+    assert set(best) == TODAYS_HIT_KEYS | RECORDING_KEYS | {"startSeconds"}  # added, never renamed
+    # The other file of that recording was folded into it.
+    assert [h for h in hits if h.get("recordingAssetId") == str(talk.id)] == [best]
+    assert str(by_slug.id) not in {h["entityId"] for h in hits}
+
     # The agent's citations: the recording (its name, the passage's time), once.
     step = SimpleNamespace(tool="search_content", result=json.dumps(out))
-    sources = extract_sources([step])
-    assert sources[0] == {"entityType": "asset", "entityId": str(talk.id), "title": "Workshop talk", "startSeconds": 750}
-    assert [s["entityId"] for s in sources].count(str(talk.id)) == 1
+    assert extract_sources([step]) == [{"entityType": "asset", "entityId": str(talk.id), "title": "Workshop talk", "startSeconds": 750}]
 
 
 def test_get_asset_of_a_transcript_file_names_its_recording(workspace, db_session):
@@ -192,6 +224,8 @@ def test_near_duplicate_snippets_of_different_entities_fold_and_passages_of_one_
     ]
     assert [h["entityId"] for h in builtins._collapse_near_duplicates(hits, 3)] == ["a", "a", "c"]
     assert builtins._collapse_near_duplicates(hits[3:], 5) == hits[3:]
+    untitled = [{"title": "Untitled asset", "entityType": "asset", "entityId": i, "snippet": f"text {i}"} for i in ("x", "y")]
+    assert builtins._collapse_near_duplicates(untitled, 5) == untitled  # items with no name are not one title
 
 
 def test_the_mcp_connectors_search_links_the_recording_of_a_transcript_file(monkeypatch):
