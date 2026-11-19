@@ -550,7 +550,8 @@ def _wizard_of(blueprint: dict, row, *, with_definition: bool):
 def list_views(session, group_id, entry_type: str | None = None, spine_type: str | None = None, with_definition: bool = False) -> list[ViewRead]:
     """The views the workspace's packages bring, by name. `entry_type` keeps only the views *of* that type (what an entry's page offers as a
     button); `spine_type` only those whose spine is that type (what an entry of the spine type is laid out in: a beat's cue lists come from
-    there) and then carries each definition, as does `with_definition`, so a page needs one call, not one per view."""
+    there) and then carries each definition, as does `with_definition`, so a page needs one call, not one per view. Without them a view's
+    definition carries only its `sidebar` key, when it has one: what the sidebar needs to link to it on every page, without the lanes."""
     full = with_definition or spine_type is not None
     views = (_view_of(b, row, with_definition=True) for row, b in _kept_blueprints(session, group_id, "view"))
     kept = [
@@ -560,8 +561,13 @@ def list_views(session, group_id, entry_type: str | None = None, spine_type: str
         and (spine_type is None or (v.definition.get("spine") or {}).get("entry_type") == spine_type)
     ]
     if not full:
-        kept = [v.model_copy(update={"definition": {}}) for v in kept]
+        kept = [v.model_copy(update={"definition": _listed(v.definition)}) for v in kept]
     return sorted(kept, key=lambda v: v.name.lower())
+
+
+def _listed(definition: dict) -> dict:
+    """What the views list carries of a definition: `sidebar` alone, when it is on (true or an object, even an empty one)."""
+    return {"sidebar": definition["sidebar"]} if definition.get("sidebar") not in (None, False) else {}
 
 
 def get_view(session, group_id, slug: str) -> ViewRead | None:

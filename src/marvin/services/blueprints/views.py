@@ -132,6 +132,9 @@ A timeline definition::
   entry's slug, ``item`` the input that gets the item's ``field`` value (a beat's number), ``inputs`` fixed values (a draft's quality).
 - ``actions`` are buttons on the page: each starts a ``wizard`` or a ``workflow`` the same package brings. A workflow action with ``run``
   (``{entry, inputs?}``) starts it at once, ``entry`` naming the input that gets the entry's slug, and the page follows the job it makes.
+- ``sidebar`` (``true`` or ``{label?, icon?}``) puts a link to the view's page (its picker of entries) in the sidebar, at the top of the
+  package's group (else under Guided setups): ``label`` defaults to the view's title, ``icon`` is a short emoji. Without it there is no link;
+  an entry's page offers its views as buttons either way.
 """
 
 from __future__ import annotations
@@ -142,6 +145,8 @@ from typing import Any
 VIEW_KINDS = ("timeline",)
 MAX_LANES = 6
 MAX_ACTIONS = 6
+MAX_SIDEBAR_LABEL = 40
+MAX_SIDEBAR_ICON = 8
 SECONDS_KEYS = ("hold", "lead", "gap", "tail")
 ENTRY_SECONDS_KEYS = (*SECONDS_KEYS, "picture_lead")
 IN_LANE_KEYS = ("nudge", "simultaneous", "words")
@@ -209,7 +214,21 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         return problem
     if problem := _check_clip(spine.get("clip"), lanes, f"{label} spine"):
         return problem
-    return _check_actions(payload.get("actions"), label)
+    return _check_actions(payload.get("actions"), label) or _check_sidebar(payload.get("sidebar"), label)
+
+
+def _check_sidebar(spec: Any, label: str) -> str | None:
+    """``sidebar``: a link to the view in the sidebar, ``true`` or ``{label?, icon?}`` (``false`` or absent: none)."""
+    if spec is None or isinstance(spec, bool):
+        return None
+    shape = f"{label}: sidebar is true or {{label?, icon?}}, a link to the view in the sidebar"
+    if not isinstance(spec, dict) or set(spec) - {"label", "icon"}:
+        return shape
+    for key, most in (("label", MAX_SIDEBAR_LABEL), ("icon", MAX_SIDEBAR_ICON)):
+        value = spec.get(key)
+        if value is not None and not (isinstance(value, str) and value.strip() and len(value) <= most):
+            return f"{label}: sidebar.{key} is a text of 1 to {most} characters"
+    return None
 
 
 def _check_word_cues(spec: Any, lanes: list[dict], label: str) -> str | None:

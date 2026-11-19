@@ -297,11 +297,22 @@ def _bad(mutate) -> str | None:
             lambda p: p["actions"].append({"label": "Go", "workflow": "kit-mark-sold", "run": {"entry": "story", "inputs": {"q": ["draft"]}}}),
             "run.inputs is",
         ),
+        (lambda p: p.update(sidebar="yes"), "sidebar is true or {label?, icon?}"),
+        (lambda p: p.update(sidebar={"title": "Timeline"}), "sidebar is true or {label?, icon?}"),
+        (lambda p: p.update(sidebar={"label": ""}), "sidebar.label is a text"),
+        (lambda p: p.update(sidebar={"label": "x" * 41}), "sidebar.label is a text"),
+        (lambda p: p.update(sidebar={"icon": 3}), "sidebar.icon is a text"),
+        (lambda p: p.update(sidebar={"icon": "🎞" * 9}), "sidebar.icon is a text"),
     ],
 )
 def test_a_wrong_view_says_what_is_wrong(mutate, words):
     problem = _bad(mutate)
     assert problem is not None and words in problem
+
+
+@pytest.mark.parametrize("sidebar", [True, False, {}, {"label": "Story timeline"}, {"label": "Timeline", "icon": "🎞"}])
+def test_a_view_may_ask_for_a_sidebar_link(sidebar):
+    assert payload_problem({**TIMELINE, "sidebar": sidebar}, "story-timeline") is None
 
 
 def test_a_view_without_lanes_or_actions_is_fine():
@@ -416,6 +427,25 @@ def test_a_view_is_read_by_slug_and_by_entry_type(db_session, workspace):  # noq
     assert [v.slug for v in by_spine] == ["story-timeline"] and by_spine[0].definition["spine"]["entry_type"] == "beat"
     assert service.list_views(db_session, workspace.id, spine_type="story") == []
     assert service.list_views(db_session, workspace.id, with_definition=True)[0].definition["kind"] == "timeline"
+
+
+def test_the_list_carries_a_views_sidebar_key_and_nothing_else_of_its_definition(db_session, workspace):  # noqa: F811
+    manifest = _with_view(payload={**TIMELINE, "sidebar": {"label": "Story timeline"}})
+    service.install(db_session, workspace.id, service.parse_manifest(manifest), actor_id=workspace.user_id)
+    db_session.commit()
+
+    assert service.list_views(db_session, workspace.id)[0].definition == {"sidebar": {"label": "Story timeline"}}
+    assert service.list_views(db_session, workspace.id, entry_type="story")[0].definition == {"sidebar": {"label": "Story timeline"}}
+    assert service.list_views(db_session, workspace.id, with_definition=True)[0].definition["lanes"]
+
+
+@pytest.mark.parametrize(("sidebar", "listed"), [({}, {"sidebar": {}}), (True, {"sidebar": True}), (False, {})])
+def test_a_sidebar_key_with_defaults_is_listed_and_false_is_not(db_session, workspace, sidebar, listed):  # noqa: F811
+    manifest = _with_view(payload={**TIMELINE, "sidebar": sidebar})
+    service.install(db_session, workspace.id, service.parse_manifest(manifest), actor_id=workspace.user_id)
+    db_session.commit()
+
+    assert service.list_views(db_session, workspace.id)[0].definition == listed
 
 
 def test_the_view_routes_exist_and_need_a_login(client):

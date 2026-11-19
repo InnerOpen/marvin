@@ -10,6 +10,7 @@
 import { RING } from "./cueFields.ts";
 import { type Effect, effectChip, effectWords, kindOf, mixSeconds } from "./cueKinds.ts";
 import { type StoredCue, cuesByHolder } from "./cueHomes.ts";
+import type { SidebarSpec } from "./viewLinks.ts";
 import { chipsOf } from "./wordCues.ts";
 
 export interface SecondsSpec {
@@ -250,6 +251,8 @@ export interface TimelineSpec {
   spine: SpineSpec;
   lanes?: LaneSpec[];
   actions?: ActionSpec[];
+  /** A link to the view in the sidebar (lib/viewLinks.ts). */
+  sidebar?: SidebarSpec;
 }
 
 /** An entry as the entries query returns it: the fields in dataJson, the attached assets with the field key as their role. */
