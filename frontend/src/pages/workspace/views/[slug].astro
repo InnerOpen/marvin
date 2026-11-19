@@ -14,9 +14,10 @@ import type { Step } from "@/lib/wizard";
 import { withReturn } from "@/lib/entryBack";
 import { listWizards } from "@/lib/api/wizards";
 import { buttonHref } from "@/lib/wizard";
-import { type Bed, type CueMark, type Ghost, type Group, type Item, type ItemClip, type Piece, CLIP_GUESS_SECONDS, mixStretches, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, recordingRefs, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ringSpan, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview, unitOf } from "@/lib/timeline";
-import { timeWords } from "@/lib/timelineUnits";
-import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
+import { type Bed, type CueMark, type Ghost, type Group, type Item, type ItemClip, type Piece, CLIP_GUESS_SECONDS, MAX_PER_ROWS, mixStretches, nudgeGhosts, overlapsIn, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, aspectOf, cues, layout, overlays, progress, quiets, recordingRefs, quietWords, stackRows, stackBeds, wavePolygon, progressLine, ringSpan, ZOOM_LEVELS, PICTURE_SIZES, cardMinPx, minInnerWidth, percent, tickLevels, minorTickLevels, canReview, unitOf } from "@/lib/timeline";
+import { dateWords, timeWords } from "@/lib/timelineUnits";
+import { type DateKind, type DateUnit, dateTicks, dayLabelPx, edgesOf, knownZone, localeOf, monthSpans, wallAt } from "@/lib/timelineDates";
+import { type Row, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
 import { cameraWords, parseWordCues } from "@/lib/wordCues";
 import { cueChips, effectWords, emphasisWords } from "@/lib/cueKinds";
 import type { PickerCard } from "@/lib/viewPicker";
@@ -50,6 +51,15 @@ let shape: number | null = null; // the picture's width over height (the entry's
 let itemRun: { workflow: string; base: Record<string, unknown>; item: string; label: string } | null = null;
 let actions: { label: string; href: string; run?: { workflow: string; inputs: Record<string, unknown> } }[] = [];
 const laneOpens: Record<string, (pieceSlug: string) => string> = {}; // lane id -> where a piece of it opens (a guided setup), when the lane says so
+// A view placed by date reads a moment with a zone in the viewer's own zone, which the page's script keeps in this cookie (UTC until it has).
+const TZ_COOKIE = "marvin.tz";
+const viewerZone = Astro.cookies.get(TZ_COOKIE)?.value;
+const timeZone = knownZone(viewerZone) ? viewerZone : "UTC";
+// …and writes its dates in the viewer's language, as the browser asks for it.
+const viewerLocale = spec?.spine.start ? localeOf(Astro.request.headers.get("accept-language")) : undefined;
+/** An entry type's fields, as its schema lists them: none when the type is not there or the list is refused (a date is then read by what it
+ * holds, and a row is titled by the value it names). */
+const fieldsOf = async (slug: string) => (((await typeBySlug(slug, authToken!, Astro.locals).catch(() => null))?.schemaJson ?? {}) as { fields?: { key?: string; type?: string; ref?: unknown }[] }).fields ?? [];
 if (spec && authToken) {
   entry = await entryOfType(spec.entry_type, entryRef, authToken);
   shape = spec.aspect && entry ? aspectOf((entry.dataJson as Record<string, unknown> | undefined)?.[spec.aspect]) : null;
@@ -113,7 +123,19 @@ if (spec && authToken) {
     // very file the entry holds.
     const refs = recordingRefs(spec, { spine: rows as LaidRow[], lanes });
     const recordings = (await Promise.all(Array.from({ length: Math.ceil(refs.length / MAX_ROWS) }, (_, i) => findEntries({ entries: refs.slice(i * MAX_ROWS, (i + 1) * MAX_ROWS) }, authToken, MAX_ROWS)))).flatMap((found) => found.entries as LaidRow[]);
-    laid = layout(spec, { entry: entry as LaidRow, spine: rows as LaidRow[], groups: groups as LaidRow[], lanes, via, bands: bandRows, recordings });
+    // Placed by date: which fields hold a plain date and which a datetime, as the types say (a date is read by its day alone, in any zone).
+    const kinds: Record<string, Record<string, DateKind>> = {};
+    if (spec.spine.start) {
+      const types = [...new Set([spec.entry_type, spec.spine.entry_type, ...(spec.lanes ?? []).filter((l) => l.start).map((l) => l.entry_type)])];
+      for (const type of types) kinds[type] = Object.fromEntries((await fieldsOf(type)).filter((f) => f.key && (f.type === "date" || f.type === "datetime")).map((f) => [f.key!, f.type as DateKind]));
+    }
+    // A lane drawn per a reference (a task's assignee): the entries it names, to title and sort its rows.
+    const named: Record<string, LaidRow[]> = {};
+    for (const lane of (spec.lanes ?? []).filter((l) => l.per)) {
+      const ref = (await fieldsOf(lane.entry_type)).find((f) => f.key === lane.per)?.ref;
+      if (typeof ref === "string" && ref) named[lane.id] = (await bySlugs(ref, slugsIn(lanes[lane.id] ?? [], lane.per))) as LaidRow[];
+    }
+    laid = layout(spec, { entry: entry as LaidRow, spine: rows as LaidRow[], groups: groups as LaidRow[], lanes, via, bands: bandRows, recordings, ...(spec.spine.start ? { kinds, timeZone } : {}), ...(Object.keys(named).length ? { per: named } : {}) });
 
     // A button on each item (a beat's draft) runs a workflow for just that item; off or missing, there is no button.
     const perItem = spec.spine.run;
@@ -159,7 +181,14 @@ const total = laid?.total ?? 0;
 // none of that (the validator refuses its keys); every time on the page is written in the view's unit.
 const unit = unitOf(spec);
 const realTime = unit === "seconds";
-const timeText = timeWords(unit);
+// A view placed by date writes a place as its date ("Mon 16 Nov"); `until` is where something ends (in days, the last day it covers).
+const dates = laid?.dates ?? null;
+const dateText = dates ? dateWords(unit as DateUnit, dates.origin, viewerLocale) : null;
+const timeText = dateText ?? { ...timeWords(unit), until: timeWords(unit).position };
+const dateSpan = dates ? { origin: dates.origin, end: wallAt(laid!.total, dates.origin, unit as DateUnit) } : null;
+// Placed by date, items that overlap stack on rows of the strip (the fewest that fit), and so do a lane's pieces on its rows.
+const stripRows = (track: { items: Item[] }) => (dates ? stackRows(track.items.map((i) => ({ start: i.onScreen.start, seconds: i.onScreen.seconds })), 0) : []);
+const undatedLane = (id: string | null) => (id ? (spec?.lanes ?? []).find((l) => l.id === id)?.title ?? id : (spec?.spine.entry_type.replace(/-/g, " ") ?? ""));
 // A plan names its items by type (a session, a day); a seconds view keeps the words it always had (a beat, the story).
 const spineNoun = realTime ? "beat" : (spec?.spine.entry_type.replace(/-/g, " ") ?? "item");
 const entryNoun = realTime ? "story" : (spec?.entry_type.replace(/-/g, " ") ?? "entry");
@@ -180,15 +209,25 @@ const tracks: Track[] = !laid
     ? laid.groups.map((g) => ({ id: g.id, title: g.title, start: g.start, seconds: g.seconds, items: g.items, groups: [g] }))
     : [{ id: null, title: "", start: 0, seconds: laid.total, items: laid.items, groups: laid.groups }];
 const pctIn = (track: Track, seconds: number) => percent(seconds - track.start, track.seconds);
+const rowsOfStrip = new Map(tracks.map((t) => [t, stripRows(t)] as const));
+const stripStyle = (track: Track) => {
+  const rows = Math.max(0, ...(rowsOfStrip.get(track) ?? [])) + 1;
+  const own = [shape ? `--tl-shape:${shape}` : "", rows > 1 ? `--tl-rows:${rows}` : ""].filter(Boolean).join(";");
+  return own || undefined;
+};
+const stripRowOf = (track: Track, item: Item) => rowsOfStrip.get(track)?.[track.items.indexOf(item)] ?? 0;
 // Stacked tracks share one scale: the longest chapter fills the page and a shorter one is proportionally shorter, so rows compare honestly.
 const longest = Math.max(1e-9, ...tracks.map((t) => t.seconds));
 const share = (track: Track) => (stacked ? track.seconds / longest : 1);
 // How many numbered ticks the ruler aims for: about ten to a page, and the strip is wider than the page when its shortest beat needs room (a long story of short
 // beats is several pages wide), so count the pages it really takes (taking a page as 1400 px), not just its share of the longest track.
 const PAGE_PX = 1400;
+// Placed by date, a `start` lane's piece is drawn as long as it lasts (an 8-hour shift is a third of its day), so the strip is never narrower
+// than its shortest one needs to be a card you can read and click, as for an item: a week of short shifts is wider than the page.
+const datedPieces = dates ? Object.values(dates.lanes).flat() : [];
 // The cards are where the pictures are up (a picture lead brings one in before its words); an overlay that comes in on a word is drawn as narrow
 // as it is, so it never widens the strip.
-const sized = (items: Item[]) => items.filter((i) => !i.overlay).map((i) => ({ seconds: i.onScreen.seconds }));
+const sized = (items: Item[]) => [...items.filter((i) => !i.overlay).map((i) => ({ seconds: i.onScreen.seconds })), ...datedPieces.map((p) => ({ seconds: p.seconds }))];
 // In a plan a short piece is drawn at least wide enough to read its name (a one-minute cue in a day-long agenda would be a sliver), and pieces
 // closer than that stack on rows. What that width spans in the view's unit is counted at the narrowest the strip is drawn, so two never overlap;
 // a piece across its whole item (a post on its day) is as wide as its card already.
@@ -200,9 +239,11 @@ const planRows = (pieces: Piece[], track: Track) => {
   return rows.reverse();
 };
 const tickWant = (track: Track) => Math.max(3, Math.round(10 * Math.max(share(track), minInnerWidth(sized(track.items), track.seconds) / PAGE_PX)));
+// As many dates on the ruler ("Mon 16 Nov") as fit in the strip at its narrowest (on a phone), more as it is zoomed.
+const dateWant = (track: Track) => Math.max(3, Math.floor(minInnerWidth(sized(track.items), track.seconds) / dayLabelPx(dateSpan!, viewerLocale)));
 const itemTitle = (item: Item) => {
   const shown = item.onScreen;
-  const said = [`${item.title}${item.text ? ` — ${item.text}` : ""}`, `${timeText.position(shown.start)} → ${timeText.position(shown.start + shown.seconds)} (${timeText.length(shown.seconds)}${item.estimated ? ", estimated" : ""})`];
+  const said = [`${item.title}${item.text ? ` — ${item.text}` : ""}`, `${timeText.position(shown.start)} → ${timeText.until(shown.start + shown.seconds)} (${timeText.length(shown.seconds)}${item.estimated ? ", estimated" : ""})`];
   const o = item.overlay;
   if (o) said.push(`Comes in during ${o.title} at word ${o.word + 1}${o.text ? ` (“${o.text}”)` : ""}${o.estimated ? ", placed by the text: no word timings yet" : ""}, over the picture before; it adds no time of its own`);
   else if (Math.abs(shown.start - item.start) > 0.005) said.push(`The picture comes ${Math.abs(item.start - shown.start).toFixed(2)} s ${shown.start < item.start ? "before" : "after"} its sound starts (${timeText.position(item.start)})`);
@@ -379,12 +420,12 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   )}
 
   {spec && entry && laid && (
-    <div class="tl" data-noun={spec.spine.entry_type.replace(/-/g, " ")} data-unit={realTime ? undefined : unit} data-total={total} data-sizes={JSON.stringify(PICTURE_SIZES)} data-shape={shape ?? undefined}>
+    <div class="tl" data-noun={spec.spine.entry_type.replace(/-/g, " ")} data-unit={realTime ? undefined : unit} data-total={total} data-sizes={JSON.stringify(PICTURE_SIZES)} data-shape={shape ?? undefined} data-origin={dates?.origin} data-locale={dates ? viewerLocale : undefined} data-zone={dates ? timeZone : undefined} data-zoned={dates?.zoned ? "" : undefined}>
       <header class="tl-head">
         <div class="tl-title">
           <h2>{entry.title}</h2>
           <p class="tl-facts">
-            <strong class="tl-total">{timeText.total(total)}</strong>
+            {dateText ? <strong class="tl-total" title={timeText.length(total)}>{dateText.range(total)}</strong> : <strong class="tl-total">{timeText.total(total)}</strong>}
             {steps.length > 0 && <span class="muted"> · {progressLine(steps)}</span>}
             {laid.items.some((i) => i.estimated) && <span class="muted" title="A line with no take yet is measured by its words, at 150 a minute."> · lengths with no take are estimates</span>}
           </p>
@@ -413,9 +454,18 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         )}
       </header>
 
-      {laid.items.length === 0 ? (
+      {dates && dates.undated.length > 0 && (
+        <div class="tl-undated" role="group" aria-label={`No date: ${dates.undated.length}`}>
+          <strong>No date <span class="muted">({dates.undated.length})</span></strong>
+          {dates.undated.map((u) => (
+            <a href={open(u.id)} title={`${u.title}: it has no date, so it is not on the timeline. Open it to give it one.`}><small>{undatedLane(u.lane)}</small> {u.title}</a>
+          ))}
+        </div>
+      )}
+
+      {(dates ? total === 0 : laid.items.length === 0) ? (
         <div class="card tl-empty">
-          <p>Nothing on the timeline yet: this {spec.entry_type.replace(/-/g, " ")} has no {spec.spine.entry_type.replace(/-/g, " ")}s.</p>
+          <p>Nothing on the timeline yet: this {spec.entry_type.replace(/-/g, " ")} has no {spec.spine.entry_type.replace(/-/g, " ")}s{dates ? " with a date" : ""}.</p>
           {actions.length > 0 && <p class="muted">The buttons above are how to make them.</p>}
         </div>
       ) : (
@@ -467,7 +517,15 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   </div>
                 ))}
 
-                <div class="tl-strip" role="list" aria-label={spec.spine.entry_type} style={shape ? `--tl-shape:${shape}` : undefined}>
+                {dateSpan && unit === "days" && (
+                  <div class="tl-months" aria-hidden="true">
+                    {monthSpans(dateSpan, "days", viewerLocale).map((m) => <span style={`left:${pctIn(track, m.start)};width:${pctIn(track, track.start + m.seconds)}`}><b>{m.label}</b></span>)}
+                  </div>
+                )}
+                {dateSpan && edgesOf(dateSpan, unit as DateUnit).map((e) => <i class={`tl-edge ${e.edge}`} aria-hidden="true" style={`left:${pctIn(track, e.t)}`} />)}
+                {dateSpan && <div class="tl-today" data-today hidden><b>{unit === "days" ? "Today" : "Now"}</b></div>}
+
+                <div class="tl-strip" role="list" aria-label={spec.spine.entry_type} style={stripStyle(track)}>
                   {track.items.map((item) => (
                     <div
                       class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated, overlay: !!item.overlay }]}
@@ -478,7 +536,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       data-start={item.onScreen.start}
                       data-end={item.onScreen.start + item.onScreen.seconds}
                       data-sound-start={item.start}
-                      style={`left:${pctIn(track, item.onScreen.start)};width:${pctIn(track, track.start + item.onScreen.seconds)}`}
+                      style={`left:${pctIn(track, item.onScreen.start)};width:${pctIn(track, track.start + item.onScreen.seconds)}${stripRowOf(track, item) ? `;--tl-row:${stripRowOf(track, item)}` : ""}`}
                       title={itemTitle(item)}
                     >
                       <button type="button" class="tl-seek" data-seek={item.onScreen.start} aria-label={`Go to ${item.title}`}>
@@ -535,18 +593,61 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                 </div>
 
                 <div class="tl-ruler" aria-hidden="true">
-                  {tickLevels(track.seconds, tickWant(track), timeText.steps).map(({ t, levels }) => (
+                  {dateSpan &&
+                    dateTicks(dateSpan, unit as DateUnit, dateWant(track), ZOOM_LEVELS, viewerLocale).major.map(({ t, levels, label, edge, day }) => (
+                      <span class:list={["tl-tick", ...levels.map((z) => `z${z}`), edge && `at-${edge}`, { day }]} style={`left:${pctIn(track, track.start + t)}`}><i /><b>{label}</b></span>
+                    ))}
+                  {dateSpan &&
+                    dateTicks(dateSpan, unit as DateUnit, dateWant(track), ZOOM_LEVELS, viewerLocale).minor.map(({ t, levels }) => (
+                      <span class:list={["tl-tick", "minor", ...levels.map((z) => `z${z}`)]} style={`left:${pctIn(track, track.start + t)}`}><i /></span>
+                    ))}
+                  {!dateSpan && tickLevels(track.seconds, tickWant(track), timeText.steps).map(({ t, levels }) => (
                     <span class:list={["tl-tick", ...levels.map((z) => `z${z}`), { end: !realTime && t >= track.seconds }]} style={`left:${pctIn(track, track.start + t)}`}><i /><b>{timeText.position(track.start + t)}</b></span>
                   ))}
-                  {minorTickLevels(track.seconds, tickWant(track), timeText.steps).map(({ t, levels }) => (
+                  {!dateSpan && minorTickLevels(track.seconds, tickWant(track), timeText.steps).map(({ t, levels }) => (
                     <span class:list={["tl-tick", "minor", ...levels.map((z) => `z${z}`)]} style={`left:${pctIn(track, track.start + t)}`}><i /></span>
                   ))}
                 </div>
 
                 {lanes.map((lane) => {
                   // Pieces that overlap in time (two sound effects at one moment) stack on rows instead of sitting on top of each other.
-                  const lanePieces = track.items.flatMap((item) => item.lanes[lane.id] ?? []);
-                  const laneRows = realTime ? stackRows(lanePieces) : planRows(lanePieces, track);
+                  const lanePieces = lane.start ? (dates?.lanes[lane.id] ?? []).filter((p) => p.start < track.start + track.seconds && p.start + p.seconds > track.start) : track.items.flatMap((item) => item.lanes[lane.id] ?? []);
+                  const perLane = lane.per ? laid!.per?.[lane.id] : undefined;
+                  if (perLane) {
+                    // One row per value (a person): the lane's title and the row's on its label, the row's pieces stacked in it as a lane's are.
+                    const shown = perLane.rows.map((r) => ({ ...r, pieces: lanePieces.filter((p) => (p.per ?? "") === r.key) })).filter((r) => r.pieces.length > 0);
+                    return (
+                      <div class="tl-per" data-lane={lane.id} role="group" aria-label={lane.title}>
+                        {shown.map((r) => {
+                          const subRows = realTime ? stackRows(r.pieces) : dates ? stackRows(r.pieces, 0) : planRows(r.pieces, track);
+                          const deepest = Math.max(0, ...subRows);
+                          return (
+                            <div class="tl-lane tl-per-row" role="list" aria-label={`${lane.title}: ${r.title}`} style={deepest > 0 ? `height:${44 + deepest * 28}px` : undefined}>
+                              <span class="tl-lane-name">{lane.title} {r.id ? <a class="tl-per-title" href={open(r.id)}>{r.title}</a> : <span class="tl-per-title">{r.title}</span>} <small>{r.pieces.length}</small></span>
+                              {r.pieces.map((p, n) => (
+                                <a
+                                  class:list={["tl-piece", { spans: p.spans }]}
+                                  role="listitem"
+                                  href={laneOpens[lane.id] ? laneOpens[lane.id](p.slug) : open(p.id)}
+                                  data-piece={p.id}
+                                  data-from={p.seconds > 0 ? p.start : undefined}
+                                  data-to={p.seconds > 0 ? p.start + p.seconds : undefined}
+                                  style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${realTime || dates || p.spans ? 18 : PLAN_PIECE_PX}px${subRows[n] ? `;top:${18 + subRows[n] * 28}px` : ""}`}
+                                  title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${r.title}${p.status ? ` · ${p.status}` : ""}\n${timeText.position(p.start)}${p.seconds ? ` → ${timeText.until(p.start + p.seconds)} (${timeText.length(p.seconds)})` : ""}`}
+                                >
+                                  {p.status && <i class="tl-dot" data-status={p.status} aria-hidden="true" />}
+                                  {p.who && <b>{p.who}</b>}
+                                  <span>{firstWords(p.text || p.title)}</span>
+                                </a>
+                              ))}
+                            </div>
+                          );
+                        })}
+                        {perLane.hidden > 0 && <p class="tl-per-more muted">{lane.title}: {perLane.hidden} more {perLane.hidden === 1 ? "row" : "rows"} not shown (at most {MAX_PER_ROWS})</p>}
+                      </div>
+                    );
+                  }
+                  const laneRows = realTime ? stackRows(lanePieces) : lane.start ? stackRows(lanePieces, 0) : planRows(lanePieces, track);
                   // A clip's sound, in the lane the spec names, on rows of its own under the lines (it is the beat's, not a line of it).
                   const clipSounds = spec.spine.clip?.lane === lane.id ? track.items.flatMap((i) => (i.clip?.sound ? [i.clip.sound] : [])) : [];
                   const clipRows = stackRows(clipSounds).map((r) => r + (lanePieces.length ? Math.max(...laneRows) + 1 : 0));
@@ -687,8 +788,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         data-to={p.seconds > 0 ? p.start + p.seconds : undefined}
                         data-drag={nudgeField.has(lane.id) && p.seconds > 0 && itemOfPiece.has(p.id) ? JSON.stringify({ item: itemOfPiece.get(p.id), field: nudgeField.get(lane.id) }) : undefined}
                         data-drag-sound={realTime && lane.placed && p.slot ? JSON.stringify(soundDrag(lane, p)) : undefined}
-                        style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + (ringIn(p, track)?.drawn ?? p.seconds))};min-width:${realTime ? (p.seconds === 0 ? 10 : 18) : p.spans ? 18 : PLAN_PIECE_PX}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}${ringIn(p, track) ? `;--ring-at:${percent(ringIn(p, track)!.mark, ringIn(p, track)!.drawn)}` : ""}`}
-                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timeText.position(p.start)}${p.seconds ? ` → ${timeText.position(p.start + p.seconds)} (${timeText.length(p.seconds)}${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${timeText.length(p.at)}` : ""}${p.cue ? `\nA cue on a word: after “${p.cue.text}” in ${p.cue.line}${p.audio ? "" : " (no take yet: nothing plays)"}` : ""}${p.nudge && !p.cue ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? (realTime ? "\nSpoken at the same time as the line before" : "\nAt the same time as the one before") : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}${realTime && lane.placed && p.slot ? (p.cue ? `\n${p.nudge ? `Nudged ${nudgeWords(p.nudge)} from its word. ` : ""}Drag it to play it later or earlier than its word (it snaps to 0.05 s; hold shift for free)` : "\nDrag it to move it: it may start before its beat, over the one before, but not before the film starts (it snaps to 0.05 s; hold shift for free)") : ""}${ringWords(p, track)}`}
+                        style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + (ringIn(p, track)?.drawn ?? p.seconds))};min-width:${realTime ? (p.seconds === 0 ? 10 : 18) : p.spans || lane.start ? 18 : PLAN_PIECE_PX}px${laneRows[n] ? `;top:${18 + laneRows[n] * 28}px` : ""}${ringIn(p, track) ? `;--ring-at:${percent(ringIn(p, track)!.mark, ringIn(p, track)!.drawn)}` : ""}`}
+                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timeText.position(p.start)}${p.seconds ? ` → ${timeText.until(p.start + p.seconds)} (${timeText.length(p.seconds)}${p.unmeasured ? ", a take is attached but its length is not stored: this is the estimate" : p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${timeText.length(p.at)}` : ""}${p.cue ? `\nA cue on a word: after “${p.cue.text}” in ${p.cue.line}${p.audio ? "" : " (no take yet: nothing plays)"}` : ""}${p.nudge && !p.cue ? `\nNudged ${nudgeWords(p.nudge)} from where it falls` : ""}${p.together ? (realTime ? "\nSpoken at the same time as the line before" : "\nAt the same time as the one before") : ""}${nudgeField.has(lane.id) && p.seconds > 0 ? "\nDrag it to nudge it (it snaps to 0.05 s; hold shift for free)" : ""}${realTime && lane.placed && p.slot ? (p.cue ? `\n${p.nudge ? `Nudged ${nudgeWords(p.nudge)} from its word. ` : ""}Drag it to play it later or earlier than its word (it snaps to 0.05 s; hold shift for free)` : "\nDrag it to move it: it may start before its beat, over the one before, but not before the film starts (it snaps to 0.05 s; hold shift for free)") : ""}${ringWords(p, track)}`}
                       >
                         {ringIn(p, track) && <i class="tl-ring" aria-hidden="true"><b>ring ›</b></i>}
                         {realTime && p.wave && (
@@ -816,7 +917,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   // piece under it. Nothing is stitched: a story plays from its takes as they are, and improves as takes land.
   interface Cue { item: string; piece: string | null; lane: string | null; start: number; seconds: number; audio: string | null }
   import { gainAt, jumpTo, placeIn, unitOf, type Jump, type Overlay } from "@/lib/timeline";
-  import { timeWords } from "@/lib/timelineUnits";
+  import { type DateUnit, nowMark, wallAt, wallNow } from "@/lib/timelineDates";
+  import { dateWords, timeWords } from "@/lib/timelineUnits";
   import { fetchApi } from "@/lib/api/client";
   import { getRunState, startRun } from "@/lib/api/workflowRuns";
   import { followed, type JobRow } from "@/lib/timelineRun";
@@ -888,7 +990,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       });
     };
     const total = Number(root.dataset.total || "0");
-    const timeText = timeWords(unitOf({ unit: root.dataset.unit })); // the clock reads and writes the view's unit
+    // the clock reads and writes the view's unit; placed by date, a date ("Mon 16 Nov")
+    const origin = root.dataset.origin === undefined ? null : Number(root.dataset.origin);
+    const viewUnit = unitOf({ unit: root.dataset.unit });
+    const timeText = origin === null ? timeWords(viewUnit) : dateWords(viewUnit as DateUnit, origin, root.dataset.locale);
     const foldsTo = timeText.unit === "seconds" ? "Play and the clock" : "the clock";
     const playBtn = root.querySelector<HTMLButtonElement>("[data-play]");
     // Each track (the whole story, or one chapter when stacked) has its own box, strip and playhead; the playhead shows in the track holding `at`.
@@ -993,6 +1098,37 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     } catch {
       /* same */
     }
+    // Placed by date: the server reads a moment with a zone in the viewer's zone, kept in a cookie (and the page is read once more when it
+    // was read in another); today (or now) is drawn from the viewer's own clock, and the page opens on it, else on the first thing drawn.
+    if (origin !== null) {
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      document.cookie = `marvin.tz=${encodeURIComponent(zone)}; path=/; max-age=31536000; samesite=lax`;
+      const RELOADED = "tl-zone-reloaded";
+      try {
+        if (root.dataset.zoned !== undefined && root.dataset.zone !== zone && !sessionStorage.getItem(RELOADED)) {
+          sessionStorage.setItem(RELOADED, "1");
+          location.reload();
+        }
+      } catch {
+        /* without storage the page stays as read, in the zone it names */
+      }
+      const unit = viewUnit as DateUnit;
+      const today = nowMark({ origin, end: wallAt(total, origin, unit) }, unit, wallNow());
+      const drawn = [...root.querySelectorAll<HTMLElement>("[data-item][data-start], .tl-piece[data-from]")].map((el) => Number(el.dataset.start ?? el.dataset.from));
+      const target = today?.start ?? (drawn.length ? Math.min(...drawn) : 0);
+      for (const { inner, scroll, seconds, start } of tracks) {
+        const mark = inner?.querySelector<HTMLElement>("[data-today]");
+        if (mark && today && seconds > 0) {
+          mark.hidden = false;
+          mark.style.left = `${((today.start - start) / seconds) * 100}%`;
+          mark.style.width = today.seconds > 0 ? `${(today.seconds / seconds) * 100}%` : "";
+          mark.classList.toggle("is-day", today.seconds > 0);
+          mark.title = today.seconds > 0 ? `Today: ${timeText.position(today.start)}` : `Now: ${timeText.position(today.start)}`;
+        }
+        if (inner && scroll && seconds > 0) scroll.scrollLeft = Math.max(0, ((target - start) / seconds) * inner.offsetWidth - scroll.clientWidth / 3);
+      }
+    }
+
     let at = 0; // seconds into the timeline
     let playing = false;
     let frame = 0;
@@ -1415,8 +1551,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-group.is-link > span::after { content: " ↗"; color: var(--muted); font-size: 12px; font-weight: 400; }
   .tl-group + .tl-group { border-left: 1px solid var(--line); }
 
-  .tl-strip { position: relative; height: calc(var(--tl-h, 120px) + 8px); }
-  .tl-item { position: absolute; top: 0; height: var(--tl-h, 120px); box-sizing: border-box; padding-right: 3px; }
+  /* `--tl-rows` / `--tl-row`: a view placed by date stacks items that overlap on rows of the strip (one row, at the top, when unset) */
+  .tl-strip { position: relative; height: calc((var(--tl-h, 120px) + 8px) * var(--tl-rows, 1)); }
+  .tl-item { position: absolute; top: calc((var(--tl-h, 120px) + 8px) * var(--tl-row, 0)); height: var(--tl-h, 120px); box-sizing: border-box; padding-right: 3px; }
   .tl-seek { display: block; width: 100%; height: 100%; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); overflow: hidden; cursor: pointer; text-align: left; color: var(--muted); }
   .tl-item.estimated .tl-seek { border-style: dashed; }
   /* a picture that comes in on a word of the line before (an overlay beat): as narrow as it is up, marked where it comes in */
@@ -1507,6 +1644,31 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl[data-unit] .tl-piece b { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .tl[data-unit] .tl-tick b { white-space: nowrap; }
   .tl[data-unit] .tl-tick.end b { transform: translateX(-100%); } /* the end's label inside the strip, not cut off at its edge */
+  /* A view placed by date: what has no date in a tray above the track; the months over the strip; a line down where a week or a month starts
+     (in hours and minutes, every day); today's column (now's line, in hours and minutes); a lane drawn per person as one row each. */
+  .tl-undated { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 10px; font-size: 13px; min-width: 0; }
+  .tl-undated a { max-width: 100%; box-sizing: border-box; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-undated a:hover, .tl-undated a:focus-visible { border-color: var(--accent); }
+  .tl-undated small { color: var(--muted); }
+  .tl-months { position: relative; height: 20px; margin-bottom: 4px; }
+  .tl-months span { position: absolute; top: 0; height: 18px; box-sizing: border-box; padding: 0 6px; border-left: 2px solid var(--accent); font-size: 12px; font-weight: 600; line-height: 18px; white-space: nowrap; overflow: clip; }
+  .tl-months b { position: sticky; left: 0; font-weight: inherit; } /* the month's name slides along inside it, so it shows wherever the strip is scrolled */
+  .tl-edge { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed color-mix(in srgb, var(--muted) 40%, transparent); pointer-events: none; }
+  .tl-edge.month { border-left: 1px solid color-mix(in srgb, var(--muted) 75%, transparent); }
+  .tl-edge.day { border-left-style: dotted; }
+  .tl-today { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--accent); z-index: 2; pointer-events: none; }
+  .tl-today.is-day { border-left: 0; box-shadow: inset 1px 0 0 var(--accent), inset -1px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .tl-today[hidden] { display: none; }
+  .tl-today b { position: absolute; top: 0; left: 0; padding: 0 5px; border-radius: 0 0 4px 0; background: var(--accent); color: #fff; font-size: 10px; font-weight: 600; line-height: 16px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+  .tl-tick.at-month i { width: 2px; background: var(--ink); }
+  .tl-tick.at-week i, .tl-tick.at-day i { width: 2px; }
+  .tl-tick.at-month b { color: var(--ink); font-weight: 600; }
+  .tl-tick.day b { transform: none; padding-left: 3px; }
+  .tl-per-row .tl-lane-name .tl-per-title { margin-left: 4px; color: var(--ink); font-weight: 600; text-transform: none; letter-spacing: 0; text-decoration: none; }
+  .tl-per-row .tl-lane-name a.tl-per-title:hover, .tl-per-row .tl-lane-name a.tl-per-title:focus-visible { text-decoration: underline; }
+  .tl-per-row .tl-lane-name small { margin-left: 2px; text-transform: none; }
+  .tl-per-more { margin: 6px 0 0; font-size: 12px; }
+  .tl-piece .tl-dot { flex: none; position: relative; z-index: 1; }
   .tl-piece.estimated { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--panel)) 0 6px, var(--panel) 6px 10px); border-style: dashed; }
   .tl-piece.unmeasured { border-right-style: dashed; border-right-width: 3px; }
   .tl-piece.untimed { border-style: dotted; background: var(--panel-2); padding: 0 4px; }
@@ -1635,7 +1797,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     .tl-actions .tl-zoom a, .tl-actions .tl-zoom button { flex: 1 1 auto; text-align: center; padding: 6px 4px; font-size: 12px; }
     .tl-links .button { flex: 1 1 45%; text-align: center; font-size: 13px; padding: 6px 8px; }
     .tl { padding-bottom: 150px; }
-    .tl-strip { height: calc(var(--tl-h, 96px) + 8px); }
-    .tl-item { height: var(--tl-h, 96px); }
+    .tl-strip { height: calc((var(--tl-h, 96px) + 8px) * var(--tl-rows, 1)); }
+    .tl-item { top: calc((var(--tl-h, 96px) + 8px) * var(--tl-row, 0)); height: var(--tl-h, 96px); }
   }
 </style>

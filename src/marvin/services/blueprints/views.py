@@ -41,6 +41,19 @@ A timeline definition::
   ``seconds.picture_lead`` (on the item or ``seconds.entry``) or ``picker.play``, and its page has no Play, mute or waveform. Its defaults are
   a ``hold`` of 1 and no ``lead``, ``gap`` or ``tail`` (the render's pauses around speech), and an ``in`` piece with no length of its own
   spans its item (a post on its day). An older Marvin ignores ``unit`` and draws such a view in seconds.
+- ``spine.start`` (a view in minutes, hours or days only) names a ``date`` or ``datetime`` field on each item: the item is placed at its date,
+  not after the one before, and lasts its ``hold``; empty time is drawn as empty time and items that overlap stack on rows. A lane's ``start``
+  does the same for its entries, which then belong to no item and last the lane's ``seconds`` (one unit when empty): a lane shape of its own,
+  with ``of`` required as for ``in``; a piece of an ``in`` or ``placed`` lane keeps following its item. ``range`` ({from?, to?}) names date
+  fields on the view's entry that widen what is shown (an empty week still shows); the range runs from the earliest start to the latest end of
+  what is drawn, rounded out to whole days, hours or quarter hours. A plain date has no zone (that day, for everyone; a ``date`` field is read
+  by its day alone), a datetime written without a zone is that time on the wall, and one with a zone is read in the viewer's zone, its length
+  in real time. An item or lane entry with no date is listed apart, not drawn. A view placed by date has no ``group``, ``bands``, ``cards`` or
+  ``scene_break`` (they follow items one after another). An older Marvin refuses a lane with ``start``.
+- A lane of pieces (``in``, ``placed`` or ``start``) may name ``per``, a field on its entries: it is drawn as one row per value, with its own
+  label. A reference (a field with ``ref``) titles its row by the entry it names, sorted by that entry's ``per_order`` field, else by title;
+  any other value is its row's title; pieces with none go on a last row. ``per`` may not go with a key of sound or of an ``in`` lane's timing
+  (``audio``, ``words``, ``nudge``, ``simultaneous``...), nor, in seconds, on a ``placed`` lane (its pieces are dragged).
 - ``spine``: the items laid out in time. ``of`` is the field on each that holds the entry's slug, ``order`` the field they sort by,
   ``group`` an optional type the items are grouped under (chapters: ``field`` on an item holds the group's slug). ``picture`` is an asset
   field, ``text`` a text shown when there is no picture, ``status`` a status field drawn as a dot. ``seconds`` names the fields that time an
@@ -176,6 +189,11 @@ SOUND_SPINE_KEYS = ("clip", "word_cues", "starts_during")
 SECONDS_KEYS = ("hold", "lead", "gap", "tail")
 ENTRY_SECONDS_KEYS = (*SECONDS_KEYS, "picture_lead")
 IN_LANE_KEYS = ("nudge", "simultaneous", "words")
+# A view placed by date (`spine.start`) has no order to follow, so these, which wrap or pause between consecutive items, have no place in it.
+IN_ORDER_SPINE_KEYS = ("group", "bands", "cards", "scene_break")
+RANGE_KEYS = ("from", "to")
+# The lane shapes made of pieces, which `per` can split into rows; a bed, a cover and marks are drawn per item.
+PIECE_SHAPES = ("in", "placed", "start")
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _ID = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
@@ -242,6 +260,8 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         return problem
     return (
         _check_unit(payload, spine, lanes, label)
+        or _check_dates(payload, spine, lanes, label)
+        or _check_rows(payload, lanes, label)
         or _check_actions(payload.get("actions"), label)
         or _check_sidebar(payload.get("sidebar"), label)
         or _check_picker(payload.get("picker"), spine, label)
@@ -256,6 +276,46 @@ def _check_unit(payload: dict, spine: dict, lanes: list[dict], label: str) -> st
     if unit == "seconds" or not (key := _sound_key(payload, spine, lanes)):
         return None
     return f"{label} counts in {unit}, but {key} is for sound or video, which run in seconds: a view in {unit} has none (leave unit out for seconds)"
+
+
+def _check_dates(payload: dict, spine: dict, lanes: list[dict], label: str) -> str | None:
+    """``spine.start``, a lane's ``start`` and ``range``: a view placed by date, in a unit of the calendar, instead of one item after another."""
+    dated_lane = next((lane.get("id") for lane in lanes if lane.get("start") is not None), None)
+    if spine.get("start") is None:
+        if dated_lane is not None:
+            return f"lane {dated_lane!r} of {label}: start places its pieces by date, which needs spine.start (a view is placed by date or in order)"
+        return None if payload.get("range") is None else f"{label}: range widens a view placed by date, so the spine needs start"
+    unit = payload.get("unit", "seconds")
+    if unit == "seconds":
+        return f"{label}: spine.start places items by date, which needs a unit of minutes, hours or days (in seconds items run one after another)"
+    if key := next((k for k in IN_ORDER_SPINE_KEYS if spine.get(k) is not None), None):
+        return f"{label}: spine.{key} follows items one after another, so a view placed by date (spine.start) has none"
+    found = payload.get("range")
+    if found is None:
+        return None
+    if not isinstance(found, dict) or not found or set(found) - set(RANGE_KEYS):
+        return f"{label}: range is {{from?, to?}}, date fields on the view's entry that widen what the view shows (an empty week still shows)"
+    return _fields(found, RANGE_KEYS, f"{label} range")
+
+
+def _check_rows(payload: dict, lanes: list[dict], label: str) -> str | None:
+    """A lane's ``per``: its pieces drawn on one row per value of a field (a person, a room), sorted by ``per_order``."""
+    for lane in lanes:
+        where = f"lane {lane.get('id')!r} of {label}"
+        if lane.get("per") is None:
+            if lane.get("per_order") is not None:
+                return f"{where}: per_order sorts the rows of per, so it needs per"
+            continue
+        if problem := _fields(lane, ("per", "per_order"), where):
+            return problem
+        if not any(lane.get(k) is not None for k in PIECE_SHAPES):
+            return f"{where}: per splits a lane's pieces into rows, so it is for a lane with in, placed or start, not a bed, cover or marks"
+        # The player, the mixer and dragging go by a lane's own rows; a lane drawn per value keeps out of their way rather than teach them rows.
+        if key := next((k for k in (*SOUND_LANE_KEYS, *IN_LANE_KEYS) if lane.get(k) is not None), None):
+            return f"{where}: per draws a row per value, which sound and dragging do not follow: leave out {key} or per"
+        if payload.get("unit", "seconds") == "seconds" and lane.get("placed") is not None:
+            return f"{where}: in seconds a placed lane's pieces are dragged on its own rows, so per is not for it"
+    return None
 
 
 def _sound_key(payload: dict, spine: dict, lanes: list[dict]) -> str | None:
@@ -463,7 +523,7 @@ def _check_review(spine: dict, label: str) -> str | None:
 def _check_spine(spine: dict, label: str) -> str | None:
     if (problem := _slug(spine, "entry_type", label)) or (problem := _field(spine, "of", label, required=True)):
         return problem
-    if problem := _fields(spine, ("order", "picture", "text", "status", "title", "starts_during"), label):
+    if problem := _fields(spine, ("order", "picture", "text", "status", "title", "starts_during", "start"), label):
         return problem
     group = spine.get("group")
     if group is not None:
@@ -548,15 +608,15 @@ def _check_lane(lane: dict, label: str) -> str | None:
         return f"{label} needs a title"
     if problem := _slug(lane, "entry_type", label):
         return problem
-    shapes = [k for k in ("in", "placed", "bed", "cover", "marks") if lane.get(k) is not None]
+    shapes = [k for k in ("in", "placed", "start", "bed", "cover", "marks") if lane.get(k) is not None]
     if len(shapes) != 1:
         return (
             f"{label}: one of `in` (the field holding the spine item's slug), `placed` ({{field, ref, at}}), "
-            "`bed` ({field, via?}), `cover` ({field, via?}) or `marks` ({field, via?})"
+            "`start` (a date field: each piece placed by its own date), `bed` ({field, via?}), `cover` ({field, via?}) or `marks` ({field, via?})"
         )
-    if problem := _field(lane, "of", label, required=shapes == ["in"]):
+    if problem := _field(lane, "of", label, required=shapes in (["in"], ["start"])):
         return problem
-    if shapes == ["in"] and (problem := _field(lane, "in", label)):
+    if shapes in (["in"], ["start"]) and (problem := _field(lane, shapes[0], label)):
         return problem
     if (placed := lane.get("placed")) is not None:
         if not isinstance(placed, dict):

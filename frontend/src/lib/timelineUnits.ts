@@ -1,11 +1,13 @@
 /**
  * How a `timeline` view writes time in its unit (services/blueprints/views.py `unit`): the ruler's steps, a position, a length, the playhead clock
  * and what may be typed into it. Seconds hands back the very functions the Timeline has always used, so a view that names no unit draws exactly
- * what it drew before; minutes, hours and days write plain words ("1 h 30 min", "Day 3", "2 weeks"). Pure.
+ * what it drew before; minutes, hours and days write plain words ("1 h 30 min", "Day 3", "2 weeks"). A view placed by date (`spine.start`)
+ * writes a place as its date instead (`dateWords`). Pure.
  */
 
 import { timecode } from "./audioTimeline.ts";
 import { TICK_STEPS, type TimeUnit, clockText, parseClock } from "./timeline.ts";
+import { DAY_MS, type DateUnit, formats, isMidnight, momentOf, placeOf, wallAt, wallNow } from "./timelineDates.ts";
 
 export interface TimeWords {
   unit: TimeUnit;
@@ -151,4 +153,33 @@ export function timeWords(unit: TimeUnit): TimeWords {
   const length = (t: number) => lengthText(t, unit);
   const position = (t: number) => positionText(t, unit);
   return { unit, steps: UNIT_STEPS[unit], position, length, short: length, total: length, offset: length, clock: position, parse: (text) => parseLength(text, unit), nudge: NUDGES[unit] };
+}
+
+/**
+ * How a view placed by date writes a place: the date, and the time when it is not the start of a day ("Mon 16 Nov", "Mon 16 Nov, 14:00").
+ * Where something ends (`until`) in days is the last day it covers, so three days from Monday read "→ Wed 18 Nov". Lengths are written as in
+ * any view in the unit; the clock takes a date ("2026-11-19", "2026-11-19 14:00"), "today" or "now", or a length from the start.
+ */
+export function dateWords(unit: DateUnit, origin: number, locale?: string): TimeWords & { until: (t: number) => string; range: (end: number) => string } {
+  const f = formats(locale);
+  const place = (w: number) => (isMidnight(w) ? f.day.format(w) : `${f.day.format(w)}, ${f.time.format(w)}`);
+  const position = (t: number) => place(wallAt(t, origin, unit));
+  const until = (t: number) => {
+    const w = wallAt(t, origin, unit);
+    return unit === "days" && isMidnight(w) && t > 0 ? f.day.format(w - DAY_MS) : place(w);
+  };
+  const parse = (text: string): number | null => {
+    const typed = text.trim().toLowerCase();
+    if (typed === "today" || typed === "now") return placeOf(typed === "today" ? Math.floor(wallNow() / DAY_MS) * DAY_MS : wallNow(), origin, unit);
+    const at = momentOf(typed.replace(" ", "T"), undefined, "UTC");
+    return at ? placeOf(at.wall, origin, unit) : parseLength(text, unit);
+  };
+  const length = (t: number) => lengthText(t, unit);
+  // the first and the last day, or the moment when the range does not start or end at a midnight
+  const range = (end: number) => {
+    const [from, to] = [origin, wallAt(end, origin, unit)];
+    const said = (w: number) => (isMidnight(w) ? f.dayYear.format(w) : `${f.dayYear.format(w)}, ${f.time.format(w)}`);
+    return `${said(from)} – ${isMidnight(to) ? f.dayYear.format(to - DAY_MS) : said(to)}`;
+  };
+  return { unit, steps: [], position, until, length, short: length, total: length, offset: length, clock: position, parse, nudge: NUDGES[unit], range };
 }

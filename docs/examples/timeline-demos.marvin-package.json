@@ -2,8 +2,8 @@
   "format": 1,
   "slug": "timeline-demos",
   "name": "Timeline Demos",
-  "version": "1",
-  "description": "Two timelines that are not audio or video, to show the Timeline view in other units: an event agenda in minutes and a content plan in days. Entry types are prefixed demo-; scripts/seed_timeline_demos.py makes sample entries.",
+  "version": "2",
+  "description": "Four timelines that are not audio or video, to show the Timeline view in other units: an event agenda in minutes and a content plan in days, laid one after another, and a team calendar in days and a shift roster in hours, placed by date with a row per person. Entry types are prefixed demo-; scripts/seed_timeline_demos.py makes sample entries.",
   "blueprints": [
     {
       "kind": "entry_type",
@@ -496,6 +496,385 @@
       }
     },
     {
+      "kind": "entry_type",
+      "slug": "demo-person",
+      "name": "Demo person",
+      "description": "Someone on a team calendar or a shift roster (Timeline Demos): their tasks and shifts are drawn on a row of their own.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo person",
+        "icon": "🧑",
+        "color": "#0EA5E9",
+        "description": "Someone on a team calendar or a shift roster (Timeline Demos): their tasks and shifts are drawn on a row of their own.",
+        "sort_order": 8,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "role",
+              "label": "Role",
+              "type": "text",
+              "placeholder": "e.g. Designer, Chef"
+            },
+            {
+              "key": "order",
+              "label": "Order on the timeline",
+              "type": "number",
+              "helpText": "The rows of people go by this, lowest first; then by name."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-calendar",
+      "name": "Demo calendar",
+      "description": "A team's calendar: milestones on their dates, and the work of each person on a row of their own (Timeline Demos).",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo calendar",
+        "icon": "📆",
+        "color": "#0D9488",
+        "description": "A team's calendar: milestones on their dates, and the work of each person on a row of their own (Timeline Demos).",
+        "sort_order": 9,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "from",
+              "label": "Shows from",
+              "type": "date",
+              "helpText": "The first day the calendar shows, even with nothing on it."
+            },
+            {
+              "key": "to",
+              "label": "Shows until",
+              "type": "date",
+              "helpText": "The last day it shows."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "active",
+                "done"
+              ],
+              "defaultValue": "active"
+            },
+            {
+              "key": "about",
+              "label": "About",
+              "type": "textarea",
+              "rows": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-milestone",
+      "name": "Demo milestone",
+      "description": "A date on a team calendar (a review, a launch), for a day or more.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo milestone",
+        "icon": "🏁",
+        "color": "#0D9488",
+        "description": "A date on a team calendar (a review, a launch), for a day or more.",
+        "sort_order": 10,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "calendar",
+              "label": "Calendar",
+              "type": "text",
+              "ref": "demo-calendar",
+              "required": true,
+              "helpText": "The calendar it is on: pick it from the list."
+            },
+            {
+              "key": "date",
+              "label": "Date",
+              "type": "date",
+              "helpText": "The day it starts. Empty: it is listed under No date."
+            },
+            {
+              "key": "days",
+              "label": "Lasts (days)",
+              "type": "number",
+              "min": 0,
+              "helpText": "Empty: one day."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "planned",
+                "review",
+                "done"
+              ],
+              "defaultValue": "planned"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-task",
+      "name": "Demo task",
+      "description": "A piece of work on a team calendar, from its start for some days, done by one person.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo task",
+        "icon": "✅",
+        "color": "#0D9488",
+        "description": "A piece of work on a team calendar, from its start for some days, done by one person.",
+        "sort_order": 11,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "calendar",
+              "label": "Calendar",
+              "type": "text",
+              "ref": "demo-calendar",
+              "required": true,
+              "helpText": "The calendar it is on: pick it from the list."
+            },
+            {
+              "key": "start",
+              "label": "Starts",
+              "type": "date",
+              "helpText": "Empty: it is listed under No date."
+            },
+            {
+              "key": "days",
+              "label": "Takes (days)",
+              "type": "number",
+              "min": 0,
+              "helpText": "Empty: one day."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "todo",
+                "doing",
+                "review",
+                "done"
+              ],
+              "defaultValue": "todo"
+            },
+            {
+              "key": "assignee",
+              "label": "Assignee",
+              "type": "text",
+              "ref": "demo-person",
+              "required": false,
+              "helpText": "Who does it: pick it from the list."
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "type": "textarea",
+              "rows": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-roster",
+      "name": "Demo roster",
+      "description": "A week of shifts, each person's on a row of their own, hour by hour (Timeline Demos).",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo roster",
+        "icon": "🗓️",
+        "color": "#D97706",
+        "description": "A week of shifts, each person's on a row of their own, hour by hour (Timeline Demos).",
+        "sort_order": 12,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "from",
+              "label": "Week from",
+              "type": "date",
+              "helpText": "The first day of the week."
+            },
+            {
+              "key": "to",
+              "label": "Until",
+              "type": "date",
+              "helpText": "The last day."
+            },
+            {
+              "key": "status",
+              "label": "Status",
+              "type": "select",
+              "options": [
+                "draft",
+                "published"
+              ],
+              "defaultValue": "draft"
+            },
+            {
+              "key": "about",
+              "label": "About",
+              "type": "textarea",
+              "rows": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-roster-day",
+      "name": "Demo roster day",
+      "description": "A day of a roster: the strip's card for it, with a note for the day.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo roster day",
+        "icon": "📅",
+        "color": "#D97706",
+        "description": "A day of a roster: the strip's card for it, with a note for the day.",
+        "sort_order": 13,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "roster",
+              "label": "Roster",
+              "type": "text",
+              "ref": "demo-roster",
+              "required": true,
+              "helpText": "The roster it belongs to: pick it from the list."
+            },
+            {
+              "key": "date",
+              "label": "Date",
+              "type": "date",
+              "required": true
+            },
+            {
+              "key": "hours",
+              "label": "Hours",
+              "type": "number",
+              "min": 0,
+              "helpText": "Empty: the whole day."
+            },
+            {
+              "key": "note",
+              "label": "Note",
+              "type": "text",
+              "placeholder": "e.g. Delivery at 7"
+            }
+          ]
+        },
+        "capabilities_json": {
+          "offer_in_new": false
+        }
+      }
+    },
+    {
+      "kind": "entry_type",
+      "slug": "demo-shift",
+      "name": "Demo shift",
+      "description": "A shift on a roster: who works it, from when, for how many hours, in which role.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [],
+      "parameters": [],
+      "payload": {
+        "name": "Demo shift",
+        "icon": "⏱️",
+        "color": "#D97706",
+        "description": "A shift on a roster: who works it, from when, for how many hours, in which role.",
+        "sort_order": 14,
+        "is_rendered": false,
+        "schema_json": {
+          "fields": [
+            {
+              "key": "roster",
+              "label": "Roster",
+              "type": "text",
+              "ref": "demo-roster",
+              "required": true,
+              "helpText": "The roster it is on: pick it from the list."
+            },
+            {
+              "key": "person",
+              "label": "Person",
+              "type": "text",
+              "ref": "demo-person",
+              "required": false,
+              "helpText": "Who works it: pick it from the list."
+            },
+            {
+              "key": "start",
+              "label": "Starts",
+              "type": "datetime",
+              "helpText": "Empty: it is listed under No date."
+            },
+            {
+              "key": "hours",
+              "label": "Hours",
+              "type": "number",
+              "min": 0,
+              "helpText": "Empty: one hour."
+            },
+            {
+              "key": "role",
+              "label": "Role",
+              "type": "select",
+              "options": [
+                "Front desk",
+                "Kitchen",
+                "Floor",
+                "On call"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
       "kind": "collection",
       "slug": "timeline-demos-events",
       "name": "Timeline Demos: Events",
@@ -558,6 +937,74 @@
             "demo-plan",
             "demo-day",
             "demo-post"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "timeline-demos-calendars",
+      "name": "Timeline Demos: Team calendars",
+      "description": "Team calendars, their milestones and tasks, and the people who do them.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:demo-calendar",
+        "entry_type:demo-milestone",
+        "entry_type:demo-task",
+        "entry_type:demo-person"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "Team calendars, their milestones and tasks, and the people who do them.",
+        "icon": "📆",
+        "color": "#0D9488",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 3,
+        "smart_rules": {
+          "entry_types": [
+            "demo-calendar",
+            "demo-milestone",
+            "demo-task",
+            "demo-person"
+          ],
+          "match": "all"
+        }
+      }
+    },
+    {
+      "kind": "collection",
+      "slug": "timeline-demos-rosters",
+      "name": "Timeline Demos: Shift rosters",
+      "description": "Shift rosters, their days and shifts, and the people who work them.",
+      "required": false,
+      "category": "General",
+      "source": "core",
+      "requires": [
+        "entry_type:demo-roster",
+        "entry_type:demo-roster-day",
+        "entry_type:demo-shift",
+        "entry_type:demo-person"
+      ],
+      "parameters": [],
+      "payload": {
+        "description": "Shift rosters, their days and shifts, and the people who work them.",
+        "icon": "🗓️",
+        "color": "#D97706",
+        "is_smart": true,
+        "is_public": false,
+        "in_sidebar": true,
+        "sort_order": 4,
+        "smart_rules": {
+          "entry_types": [
+            "demo-roster",
+            "demo-roster-day",
+            "demo-shift",
+            "demo-person"
           ],
           "match": "all"
         }
@@ -675,6 +1122,122 @@
           "picture": "cover",
           "subtitle": [
             "starts"
+          ],
+          "badges": [
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "kind": "view",
+      "slug": "team-calendar",
+      "name": "Team calendar",
+      "description": "A team's calendar in days, placed by date: its milestones on their days, and each person's tasks on a row of their own.",
+      "payload": {
+        "kind": "timeline",
+        "title": "Team calendar",
+        "unit": "days",
+        "entry_type": "demo-calendar",
+        "range": {
+          "from": "from",
+          "to": "to"
+        },
+        "sidebar": {
+          "label": "Team calendar",
+          "icon": "📆"
+        },
+        "spine": {
+          "entry_type": "demo-milestone",
+          "of": "calendar",
+          "start": "date",
+          "status": "status",
+          "seconds": {
+            "hold": "days",
+            "defaults": {
+              "hold": 1
+            }
+          }
+        },
+        "lanes": [
+          {
+            "id": "work",
+            "title": "Work",
+            "entry_type": "demo-task",
+            "of": "calendar",
+            "start": "start",
+            "seconds": "days",
+            "status": "status",
+            "per": "assignee",
+            "per_order": "order"
+          }
+        ],
+        "picker": {
+          "subtitle": [
+            {
+              "field": "from",
+              "before": "From "
+            },
+            {
+              "field": "to",
+              "before": "to "
+            }
+          ],
+          "badges": [
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "kind": "view",
+      "slug": "shift-roster",
+      "name": "Shift roster",
+      "description": "A week of shifts in hours, placed by date and time: a card for each day, and each person's shifts on a row of their own.",
+      "payload": {
+        "kind": "timeline",
+        "title": "Shift roster",
+        "unit": "hours",
+        "entry_type": "demo-roster",
+        "range": {
+          "from": "from",
+          "to": "to"
+        },
+        "sidebar": {
+          "label": "Shift roster",
+          "icon": "🗓️"
+        },
+        "spine": {
+          "entry_type": "demo-roster-day",
+          "of": "roster",
+          "start": "date",
+          "text": "note",
+          "seconds": {
+            "hold": "hours",
+            "defaults": {
+              "hold": 24
+            }
+          }
+        },
+        "lanes": [
+          {
+            "id": "shifts",
+            "title": "Shifts",
+            "entry_type": "demo-shift",
+            "of": "roster",
+            "start": "start",
+            "seconds": "hours",
+            "who": "role",
+            "per": "person",
+            "per_order": "order"
+          }
+        ],
+        "picker": {
+          "subtitle": [
+            {
+              "field": "from",
+              "before": "Week of "
+            }
           ],
           "badges": [
             "status"
