@@ -122,7 +122,13 @@ def test_search_content_and_the_agents_sources_open_a_recording_at_the_matched_p
                   storage_key=f"lib/{gid.hex}/talk", uploaded_by=uid, description=desc)  # fmt: skip
     db_session.add(talk)
     db_session.flush()
-    chunks = emb.index_entity(db_session, gid, "asset", talk.id, f"Workshop talk\n{desc}", emb.BuiltinEmbedder(), emb.BUILTIN_EMBEDDING_MODEL)
+    # Indexed the way the asset_updated reaction indexes it: the asset descriptor decides it belongs and what text it embeds.
+    from marvin.services.ai.embeddings_registry import index_descriptor_for
+    from marvin.services.event_bus_service.event_types import EventTypes
+
+    describe = index_descriptor_for(EventTypes.asset_updated)
+    assert describe is not None and describe.entity_type == "asset" and describe.content_ok(talk)
+    chunks = emb.index_entity(db_session, gid, "asset", talk.id, describe.text(talk), emb.BuiltinEmbedder(), emb.BUILTIN_EMBEDDING_MODEL)
     assert chunks > 1  # the transcript really is cut, so the best chunk starts somewhere in the middle
     db_session.commit()
     try:
