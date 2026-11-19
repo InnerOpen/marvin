@@ -1,0 +1,1771 @@
+{
+ "story": {
+  "total": 24,
+  "groups": [
+   {
+    "card": "intro",
+    "id": null,
+    "slug": null,
+    "title": "Title card",
+    "start": 0,
+    "seconds": 2,
+    "items": [
+     {
+      "id": "card:intro",
+      "slug": "intro",
+      "key": "",
+      "title": "Title card",
+      "number": null,
+      "text": "Once",
+      "picture": null,
+      "status": "",
+      "start": 0,
+      "seconds": 2,
+      "onScreen": {
+       "start": 0,
+       "seconds": 2
+      },
+      "estimated": false,
+      "lanes": {},
+      "card": "intro"
+     }
+    ]
+   },
+   {
+    "id": "id-c1",
+    "slug": "c1",
+    "title": "c1",
+    "start": 2,
+    "seconds": 9,
+    "items": [
+     {
+      "id": "id-b1",
+      "slug": "b1",
+      "key": "",
+      "title": "b1",
+      "number": 1,
+      "text": "A street.",
+      "picture": "https://cdn/still.png",
+      "status": "",
+      "start": 2,
+      "seconds": 5,
+      "onScreen": {
+       "start": 2,
+       "seconds": 5
+      },
+      "estimated": true,
+      "lanes": {
+       "lines": [
+        {
+         "id": "id-l1",
+         "slug": "l1",
+         "title": "l1",
+         "text": "ignored because recorded",
+         "who": "Bob",
+         "status": "",
+         "start": 2.3,
+         "seconds": 2,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": "https://cdn/take.mp3",
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 2.3,
+         "together": false,
+         "words": null
+        },
+        {
+         "id": "id-l2",
+         "slug": "l2",
+         "title": "l2",
+         "text": "one two three",
+         "who": "Ann",
+         "status": "",
+         "start": 4.95,
+         "seconds": 1.2,
+         "estimated": true,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0.4,
+         "natural": 4.55,
+         "together": false,
+         "words": null
+        }
+       ],
+       "sounds": [
+        {
+         "id": "id-rain",
+         "slug": "rain",
+         "title": "rain",
+         "text": "",
+         "who": "",
+         "status": "",
+         "start": 3.5,
+         "seconds": 3,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": 1.5,
+         "nudge": 0,
+         "natural": 3.5,
+         "together": false,
+         "words": null,
+         "slot": {
+          "item": "id-b1",
+          "field": "sounds",
+          "index": 0,
+          "ref": "rain"
+         }
+        }
+       ]
+      },
+      "timing": {
+       "lead": 0.3,
+       "gap": 0.25,
+       "tail": 0.35
+      },
+      "pause": 0.5
+     },
+     {
+      "id": "id-b2",
+      "slug": "b2",
+      "key": "",
+      "title": "b2",
+      "number": 2,
+      "text": "A door.",
+      "picture": null,
+      "status": "",
+      "start": 7,
+      "seconds": 4,
+      "onScreen": {
+       "start": 7,
+       "seconds": 4
+      },
+      "estimated": false,
+      "lanes": {
+       "lines": [
+        {
+         "id": "id-l3",
+         "slug": "l3",
+         "title": "l3",
+         "text": "",
+         "who": "Ann",
+         "status": "",
+         "start": 7.3,
+         "seconds": 0,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 7.3,
+         "together": false,
+         "words": null
+        }
+       ],
+       "sounds": []
+      },
+      "timing": {
+       "lead": 0.3,
+       "gap": 0.25,
+       "tail": 0.35
+      },
+      "pause": 0
+     }
+    ]
+   },
+   {
+    "id": "id-c2",
+    "slug": "c2",
+    "title": "c2",
+    "start": 11,
+    "seconds": 6,
+    "items": [
+     {
+      "id": "id-b3",
+      "slug": "b3",
+      "key": "",
+      "title": "b3",
+      "number": 3,
+      "text": "",
+      "picture": null,
+      "status": "",
+      "start": 11,
+      "seconds": 6,
+      "onScreen": {
+       "start": 11,
+       "seconds": 6
+      },
+      "estimated": true,
+      "lanes": {
+       "lines": [
+        {
+         "id": "id-l4",
+         "slug": "l4",
+         "title": "l4",
+         "text": "a few words said here",
+         "who": "Bob",
+         "status": "",
+         "start": 11.3,
+         "seconds": 2,
+         "estimated": true,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 11.3,
+         "together": false,
+         "words": null
+        }
+       ],
+       "sounds": []
+      },
+      "timing": {
+       "lead": 0.3,
+       "gap": 0.25,
+       "tail": 0.35
+      },
+      "pause": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "slug": null,
+    "title": "",
+    "start": 17,
+    "seconds": 4,
+    "items": [
+     {
+      "id": "id-b4",
+      "slug": "b4",
+      "key": "",
+      "title": "b4",
+      "number": 4,
+      "text": "",
+      "picture": null,
+      "status": "",
+      "start": 17,
+      "seconds": 4,
+      "onScreen": {
+       "start": 17,
+       "seconds": 4
+      },
+      "estimated": false,
+      "lanes": {
+       "lines": [],
+       "sounds": []
+      },
+      "timing": {
+       "lead": 0.3,
+       "gap": 0.25,
+       "tail": 0.35
+      },
+      "pause": 0
+     }
+    ]
+   },
+   {
+    "card": "outro",
+    "id": null,
+    "slug": null,
+    "title": "End card",
+    "start": 21,
+    "seconds": 3,
+    "items": [
+     {
+      "id": "card:outro",
+      "slug": "outro",
+      "key": "",
+      "title": "End card",
+      "number": null,
+      "text": "The end",
+      "picture": null,
+      "status": "",
+      "start": 21,
+      "seconds": 3,
+      "onScreen": {
+       "start": 21,
+       "seconds": 3
+      },
+      "estimated": false,
+      "lanes": {},
+      "card": "outro"
+     }
+    ]
+   }
+  ],
+  "items": [
+   {
+    "id": "card:intro",
+    "slug": "intro",
+    "key": "",
+    "title": "Title card",
+    "number": null,
+    "text": "Once",
+    "picture": null,
+    "status": "",
+    "start": 0,
+    "seconds": 2,
+    "onScreen": {
+     "start": 0,
+     "seconds": 2
+    },
+    "estimated": false,
+    "lanes": {},
+    "card": "intro"
+   },
+   {
+    "id": "id-b1",
+    "slug": "b1",
+    "key": "",
+    "title": "b1",
+    "number": 1,
+    "text": "A street.",
+    "picture": "https://cdn/still.png",
+    "status": "",
+    "start": 2,
+    "seconds": 5,
+    "onScreen": {
+     "start": 2,
+     "seconds": 5
+    },
+    "estimated": true,
+    "lanes": {
+     "lines": [
+      {
+       "id": "id-l1",
+       "slug": "l1",
+       "title": "l1",
+       "text": "ignored because recorded",
+       "who": "Bob",
+       "status": "",
+       "start": 2.3,
+       "seconds": 2,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": "https://cdn/take.mp3",
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 2.3,
+       "together": false,
+       "words": null
+      },
+      {
+       "id": "id-l2",
+       "slug": "l2",
+       "title": "l2",
+       "text": "one two three",
+       "who": "Ann",
+       "status": "",
+       "start": 4.95,
+       "seconds": 1.2,
+       "estimated": true,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0.4,
+       "natural": 4.55,
+       "together": false,
+       "words": null
+      }
+     ],
+     "sounds": [
+      {
+       "id": "id-rain",
+       "slug": "rain",
+       "title": "rain",
+       "text": "",
+       "who": "",
+       "status": "",
+       "start": 3.5,
+       "seconds": 3,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": 1.5,
+       "nudge": 0,
+       "natural": 3.5,
+       "together": false,
+       "words": null,
+       "slot": {
+        "item": "id-b1",
+        "field": "sounds",
+        "index": 0,
+        "ref": "rain"
+       }
+      }
+     ]
+    },
+    "timing": {
+     "lead": 0.3,
+     "gap": 0.25,
+     "tail": 0.35
+    },
+    "pause": 0.5
+   },
+   {
+    "id": "id-b2",
+    "slug": "b2",
+    "key": "",
+    "title": "b2",
+    "number": 2,
+    "text": "A door.",
+    "picture": null,
+    "status": "",
+    "start": 7,
+    "seconds": 4,
+    "onScreen": {
+     "start": 7,
+     "seconds": 4
+    },
+    "estimated": false,
+    "lanes": {
+     "lines": [
+      {
+       "id": "id-l3",
+       "slug": "l3",
+       "title": "l3",
+       "text": "",
+       "who": "Ann",
+       "status": "",
+       "start": 7.3,
+       "seconds": 0,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 7.3,
+       "together": false,
+       "words": null
+      }
+     ],
+     "sounds": []
+    },
+    "timing": {
+     "lead": 0.3,
+     "gap": 0.25,
+     "tail": 0.35
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-b3",
+    "slug": "b3",
+    "key": "",
+    "title": "b3",
+    "number": 3,
+    "text": "",
+    "picture": null,
+    "status": "",
+    "start": 11,
+    "seconds": 6,
+    "onScreen": {
+     "start": 11,
+     "seconds": 6
+    },
+    "estimated": true,
+    "lanes": {
+     "lines": [
+      {
+       "id": "id-l4",
+       "slug": "l4",
+       "title": "l4",
+       "text": "a few words said here",
+       "who": "Bob",
+       "status": "",
+       "start": 11.3,
+       "seconds": 2,
+       "estimated": true,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 11.3,
+       "together": false,
+       "words": null
+      }
+     ],
+     "sounds": []
+    },
+    "timing": {
+     "lead": 0.3,
+     "gap": 0.25,
+     "tail": 0.35
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-b4",
+    "slug": "b4",
+    "key": "",
+    "title": "b4",
+    "number": 4,
+    "text": "",
+    "picture": null,
+    "status": "",
+    "start": 17,
+    "seconds": 4,
+    "onScreen": {
+     "start": 17,
+     "seconds": 4
+    },
+    "estimated": false,
+    "lanes": {
+     "lines": [],
+     "sounds": []
+    },
+    "timing": {
+     "lead": 0.3,
+     "gap": 0.25,
+     "tail": 0.35
+    },
+    "pause": 0
+   },
+   {
+    "id": "card:outro",
+    "slug": "outro",
+    "key": "",
+    "title": "End card",
+    "number": null,
+    "text": "The end",
+    "picture": null,
+    "status": "",
+    "start": 21,
+    "seconds": 3,
+    "onScreen": {
+     "start": 21,
+     "seconds": 3
+    },
+    "estimated": false,
+    "lanes": {},
+    "card": "outro"
+   }
+  ],
+  "bands": {
+   "scene": [
+    {
+     "id": "id-street",
+     "slug": "street",
+     "title": "street",
+     "start": 2,
+     "seconds": 5,
+     "items": [
+      "id-b1"
+     ]
+    },
+    {
+     "id": "id-hall",
+     "slug": "hall",
+     "title": "hall",
+     "start": 7,
+     "seconds": 10,
+     "items": [
+      "id-b2",
+      "id-b3"
+     ]
+    }
+   ]
+  },
+  "beds": {
+   "music": [
+    {
+     "id": "id-theme",
+     "slug": "theme",
+     "title": "theme",
+     "start": 0,
+     "seconds": 24,
+     "audio": "https://cdn/music.mp3",
+     "volume": 1,
+     "loop": true,
+     "muffled": false,
+     "items": [
+      "card:intro",
+      "id-b1",
+      "id-b2",
+      "id-b3",
+      "id-b4",
+      "card:outro"
+     ],
+     "steps": [
+      {
+       "start": 0,
+       "seconds": 11,
+       "volume": 1
+      },
+      {
+       "start": 11,
+       "seconds": 6,
+       "volume": 0
+      },
+      {
+       "start": 17,
+       "seconds": 7,
+       "volume": 1
+      }
+     ],
+     "fadeIn": 0,
+     "fadeOut": 0,
+     "duck": null
+    }
+   ]
+  },
+  "covers": {},
+  "marks": {}
+ },
+ "agenda": {
+  "total": 190,
+  "groups": [
+   {
+    "id": "id-am",
+    "slug": "am",
+    "title": "am",
+    "start": 0,
+    "seconds": 120,
+    "items": [
+     {
+      "id": "id-doors",
+      "slug": "doors",
+      "key": "",
+      "title": "doors",
+      "number": 1,
+      "text": "",
+      "picture": null,
+      "status": "ready",
+      "start": 0,
+      "seconds": 30,
+      "onScreen": {
+       "start": 0,
+       "seconds": 30
+      },
+      "estimated": false,
+      "lanes": {
+       "people": [],
+       "cues": [
+        {
+         "id": "id-music",
+         "slug": "music",
+         "title": "music",
+         "text": "",
+         "who": "",
+         "status": "",
+         "start": 0,
+         "seconds": 15,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": 0,
+         "nudge": 0,
+         "natural": 0,
+         "together": false,
+         "words": null,
+         "slot": {
+          "item": "id-doors",
+          "field": "cues",
+          "index": 0,
+          "ref": "music"
+         }
+        }
+       ]
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     },
+     {
+      "id": "id-keynote",
+      "slug": "keynote",
+      "key": "",
+      "title": "keynote",
+      "number": 2,
+      "text": "",
+      "picture": null,
+      "status": "",
+      "start": 30,
+      "seconds": 45,
+      "onScreen": {
+       "start": 30,
+       "seconds": 45
+      },
+      "estimated": false,
+      "lanes": {
+       "people": [
+        {
+         "id": "id-host",
+         "slug": "host",
+         "title": "host",
+         "text": "",
+         "who": "Host",
+         "status": "",
+         "start": 30,
+         "seconds": 5,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 30,
+         "together": false,
+         "words": null
+        },
+        {
+         "id": "id-speaker",
+         "slug": "speaker",
+         "title": "speaker",
+         "text": "",
+         "who": "Speaker",
+         "status": "",
+         "start": 35,
+         "seconds": 35,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 35,
+         "together": false,
+         "words": null
+        }
+       ],
+       "cues": [
+        {
+         "id": "id-lights",
+         "slug": "lights",
+         "title": "lights",
+         "text": "",
+         "who": "",
+         "status": "",
+         "start": 30,
+         "seconds": 1,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": 0,
+         "nudge": 0,
+         "natural": 30,
+         "together": false,
+         "words": null,
+         "slot": {
+          "item": "id-keynote",
+          "field": "cues",
+          "index": 0,
+          "ref": "lights"
+         }
+        },
+        {
+         "id": "id-slides",
+         "slug": "slides",
+         "title": "slides",
+         "text": "",
+         "who": "",
+         "status": "",
+         "start": 35,
+         "seconds": 1,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": 5,
+         "nudge": 0,
+         "natural": 35,
+         "together": false,
+         "words": null,
+         "slot": {
+          "item": "id-keynote",
+          "field": "cues",
+          "index": 1,
+          "ref": "slides"
+         }
+        }
+       ]
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     },
+     {
+      "id": "id-panel",
+      "slug": "panel",
+      "key": "",
+      "title": "panel",
+      "number": 3,
+      "text": "",
+      "picture": null,
+      "status": "",
+      "start": 75,
+      "seconds": 45,
+      "onScreen": {
+       "start": 75,
+       "seconds": 45
+      },
+      "estimated": false,
+      "lanes": {
+       "people": [
+        {
+         "id": "id-mod",
+         "slug": "mod",
+         "title": "mod",
+         "text": "",
+         "who": "Moderator",
+         "status": "",
+         "start": 75,
+         "seconds": 45,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 75,
+         "together": false,
+         "words": null,
+         "spans": true
+        },
+        {
+         "id": "id-p1",
+         "slug": "p1",
+         "title": "p1",
+         "text": "",
+         "who": "Panelist",
+         "status": "",
+         "start": 75,
+         "seconds": 45,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 75,
+         "together": false,
+         "words": null,
+         "spans": true
+        }
+       ],
+       "cues": []
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     }
+    ]
+   },
+   {
+    "id": "id-pm",
+    "slug": "pm",
+    "title": "pm",
+    "start": 120,
+    "seconds": 70,
+    "items": [
+     {
+      "id": "id-lunch",
+      "slug": "lunch",
+      "key": "",
+      "title": "lunch",
+      "number": 4,
+      "text": "",
+      "picture": null,
+      "status": "",
+      "start": 120,
+      "seconds": 60,
+      "onScreen": {
+       "start": 120,
+       "seconds": 60
+      },
+      "estimated": false,
+      "lanes": {
+       "people": [],
+       "cues": [
+        {
+         "id": "id-music",
+         "slug": "music",
+         "title": "music",
+         "text": "",
+         "who": "",
+         "status": "",
+         "start": 135,
+         "seconds": 15,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": 15,
+         "nudge": 0,
+         "natural": 135,
+         "together": false,
+         "words": null,
+         "slot": {
+          "item": "id-lunch",
+          "field": "cues",
+          "index": 0,
+          "ref": "music"
+         }
+        }
+       ]
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     },
+     {
+      "id": "id-closing",
+      "slug": "closing",
+      "key": "",
+      "title": "closing",
+      "number": 5,
+      "text": "",
+      "picture": null,
+      "status": "",
+      "start": 180,
+      "seconds": 10,
+      "onScreen": {
+       "start": 180,
+       "seconds": 10
+      },
+      "estimated": false,
+      "lanes": {
+       "people": [
+        {
+         "id": "id-closer",
+         "slug": "closer",
+         "title": "closer",
+         "text": "",
+         "who": "Host",
+         "status": "",
+         "start": 180,
+         "seconds": 10,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 180,
+         "together": false,
+         "words": null
+        }
+       ],
+       "cues": []
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     }
+    ]
+   }
+  ],
+  "items": [
+   {
+    "id": "id-doors",
+    "slug": "doors",
+    "key": "",
+    "title": "doors",
+    "number": 1,
+    "text": "",
+    "picture": null,
+    "status": "ready",
+    "start": 0,
+    "seconds": 30,
+    "onScreen": {
+     "start": 0,
+     "seconds": 30
+    },
+    "estimated": false,
+    "lanes": {
+     "people": [],
+     "cues": [
+      {
+       "id": "id-music",
+       "slug": "music",
+       "title": "music",
+       "text": "",
+       "who": "",
+       "status": "",
+       "start": 0,
+       "seconds": 15,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": 0,
+       "nudge": 0,
+       "natural": 0,
+       "together": false,
+       "words": null,
+       "slot": {
+        "item": "id-doors",
+        "field": "cues",
+        "index": 0,
+        "ref": "music"
+       }
+      }
+     ]
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-keynote",
+    "slug": "keynote",
+    "key": "",
+    "title": "keynote",
+    "number": 2,
+    "text": "",
+    "picture": null,
+    "status": "",
+    "start": 30,
+    "seconds": 45,
+    "onScreen": {
+     "start": 30,
+     "seconds": 45
+    },
+    "estimated": false,
+    "lanes": {
+     "people": [
+      {
+       "id": "id-host",
+       "slug": "host",
+       "title": "host",
+       "text": "",
+       "who": "Host",
+       "status": "",
+       "start": 30,
+       "seconds": 5,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 30,
+       "together": false,
+       "words": null
+      },
+      {
+       "id": "id-speaker",
+       "slug": "speaker",
+       "title": "speaker",
+       "text": "",
+       "who": "Speaker",
+       "status": "",
+       "start": 35,
+       "seconds": 35,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 35,
+       "together": false,
+       "words": null
+      }
+     ],
+     "cues": [
+      {
+       "id": "id-lights",
+       "slug": "lights",
+       "title": "lights",
+       "text": "",
+       "who": "",
+       "status": "",
+       "start": 30,
+       "seconds": 1,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": 0,
+       "nudge": 0,
+       "natural": 30,
+       "together": false,
+       "words": null,
+       "slot": {
+        "item": "id-keynote",
+        "field": "cues",
+        "index": 0,
+        "ref": "lights"
+       }
+      },
+      {
+       "id": "id-slides",
+       "slug": "slides",
+       "title": "slides",
+       "text": "",
+       "who": "",
+       "status": "",
+       "start": 35,
+       "seconds": 1,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": 5,
+       "nudge": 0,
+       "natural": 35,
+       "together": false,
+       "words": null,
+       "slot": {
+        "item": "id-keynote",
+        "field": "cues",
+        "index": 1,
+        "ref": "slides"
+       }
+      }
+     ]
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-panel",
+    "slug": "panel",
+    "key": "",
+    "title": "panel",
+    "number": 3,
+    "text": "",
+    "picture": null,
+    "status": "",
+    "start": 75,
+    "seconds": 45,
+    "onScreen": {
+     "start": 75,
+     "seconds": 45
+    },
+    "estimated": false,
+    "lanes": {
+     "people": [
+      {
+       "id": "id-mod",
+       "slug": "mod",
+       "title": "mod",
+       "text": "",
+       "who": "Moderator",
+       "status": "",
+       "start": 75,
+       "seconds": 45,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 75,
+       "together": false,
+       "words": null,
+       "spans": true
+      },
+      {
+       "id": "id-p1",
+       "slug": "p1",
+       "title": "p1",
+       "text": "",
+       "who": "Panelist",
+       "status": "",
+       "start": 75,
+       "seconds": 45,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 75,
+       "together": false,
+       "words": null,
+       "spans": true
+      }
+     ],
+     "cues": []
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-lunch",
+    "slug": "lunch",
+    "key": "",
+    "title": "lunch",
+    "number": 4,
+    "text": "",
+    "picture": null,
+    "status": "",
+    "start": 120,
+    "seconds": 60,
+    "onScreen": {
+     "start": 120,
+     "seconds": 60
+    },
+    "estimated": false,
+    "lanes": {
+     "people": [],
+     "cues": [
+      {
+       "id": "id-music",
+       "slug": "music",
+       "title": "music",
+       "text": "",
+       "who": "",
+       "status": "",
+       "start": 135,
+       "seconds": 15,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": 15,
+       "nudge": 0,
+       "natural": 135,
+       "together": false,
+       "words": null,
+       "slot": {
+        "item": "id-lunch",
+        "field": "cues",
+        "index": 0,
+        "ref": "music"
+       }
+      }
+     ]
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-closing",
+    "slug": "closing",
+    "key": "",
+    "title": "closing",
+    "number": 5,
+    "text": "",
+    "picture": null,
+    "status": "",
+    "start": 180,
+    "seconds": 10,
+    "onScreen": {
+     "start": 180,
+     "seconds": 10
+    },
+    "estimated": false,
+    "lanes": {
+     "people": [
+      {
+       "id": "id-closer",
+       "slug": "closer",
+       "title": "closer",
+       "text": "",
+       "who": "Host",
+       "status": "",
+       "start": 180,
+       "seconds": 10,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 180,
+       "together": false,
+       "words": null
+      }
+     ],
+     "cues": []
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   }
+  ],
+  "bands": {},
+  "beds": {},
+  "covers": {},
+  "marks": {}
+ },
+ "plan": {
+  "total": 6,
+  "groups": [
+   {
+    "id": null,
+    "slug": null,
+    "title": "",
+    "start": 0,
+    "seconds": 6,
+    "items": [
+     {
+      "id": "id-d1",
+      "slug": "d1",
+      "key": "",
+      "title": "d1",
+      "number": 1,
+      "text": "",
+      "picture": null,
+      "status": "ready",
+      "start": 0,
+      "seconds": 1,
+      "onScreen": {
+       "start": 0,
+       "seconds": 1
+      },
+      "estimated": false,
+      "lanes": {
+       "posts": [
+        {
+         "id": "id-p1",
+         "slug": "p1",
+         "title": "p1",
+         "text": "",
+         "who": "LinkedIn",
+         "status": "published",
+         "start": 0,
+         "seconds": 1,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 0,
+         "together": false,
+         "words": null,
+         "spans": true
+        },
+        {
+         "id": "id-p2",
+         "slug": "p2",
+         "title": "p2",
+         "text": "",
+         "who": "Instagram",
+         "status": "",
+         "start": 0,
+         "seconds": 1,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 0,
+         "together": false,
+         "words": null,
+         "spans": true
+        }
+       ]
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     },
+     {
+      "id": "id-d2",
+      "slug": "d2",
+      "key": "",
+      "title": "d2",
+      "number": 2,
+      "text": "",
+      "picture": null,
+      "status": "ready",
+      "start": 1,
+      "seconds": 1,
+      "onScreen": {
+       "start": 1,
+       "seconds": 1
+      },
+      "estimated": false,
+      "lanes": {
+       "posts": []
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     },
+     {
+      "id": "id-d3",
+      "slug": "d3",
+      "key": "",
+      "title": "d3",
+      "number": 3,
+      "text": "",
+      "picture": null,
+      "status": "draft",
+      "start": 2,
+      "seconds": 1,
+      "onScreen": {
+       "start": 2,
+       "seconds": 1
+      },
+      "estimated": false,
+      "lanes": {
+       "posts": []
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     },
+     {
+      "id": "id-d4",
+      "slug": "d4",
+      "key": "",
+      "title": "d4",
+      "number": 4,
+      "text": "",
+      "picture": null,
+      "status": "draft",
+      "start": 3,
+      "seconds": 2,
+      "onScreen": {
+       "start": 3,
+       "seconds": 2
+      },
+      "estimated": false,
+      "lanes": {
+       "posts": [
+        {
+         "id": "id-p3",
+         "slug": "p3",
+         "title": "p3",
+         "text": "",
+         "who": "Newsletter",
+         "status": "",
+         "start": 3,
+         "seconds": 2,
+         "estimated": false,
+         "unmeasured": false,
+         "audio": null,
+         "wave": null,
+         "volume": null,
+         "at": null,
+         "nudge": 0,
+         "natural": 3,
+         "together": false,
+         "words": null,
+         "spans": true
+        }
+       ]
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     },
+     {
+      "id": "id-d5",
+      "slug": "d5",
+      "key": "",
+      "title": "d5",
+      "number": 5,
+      "text": "",
+      "picture": null,
+      "status": "draft",
+      "start": 5,
+      "seconds": 1,
+      "onScreen": {
+       "start": 5,
+       "seconds": 1
+      },
+      "estimated": false,
+      "lanes": {
+       "posts": []
+      },
+      "timing": {
+       "lead": 0,
+       "gap": 0,
+       "tail": 0
+      },
+      "pause": 0
+     }
+    ]
+   }
+  ],
+  "items": [
+   {
+    "id": "id-d1",
+    "slug": "d1",
+    "key": "",
+    "title": "d1",
+    "number": 1,
+    "text": "",
+    "picture": null,
+    "status": "ready",
+    "start": 0,
+    "seconds": 1,
+    "onScreen": {
+     "start": 0,
+     "seconds": 1
+    },
+    "estimated": false,
+    "lanes": {
+     "posts": [
+      {
+       "id": "id-p1",
+       "slug": "p1",
+       "title": "p1",
+       "text": "",
+       "who": "LinkedIn",
+       "status": "published",
+       "start": 0,
+       "seconds": 1,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 0,
+       "together": false,
+       "words": null,
+       "spans": true
+      },
+      {
+       "id": "id-p2",
+       "slug": "p2",
+       "title": "p2",
+       "text": "",
+       "who": "Instagram",
+       "status": "",
+       "start": 0,
+       "seconds": 1,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 0,
+       "together": false,
+       "words": null,
+       "spans": true
+      }
+     ]
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-d2",
+    "slug": "d2",
+    "key": "",
+    "title": "d2",
+    "number": 2,
+    "text": "",
+    "picture": null,
+    "status": "ready",
+    "start": 1,
+    "seconds": 1,
+    "onScreen": {
+     "start": 1,
+     "seconds": 1
+    },
+    "estimated": false,
+    "lanes": {
+     "posts": []
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-d3",
+    "slug": "d3",
+    "key": "",
+    "title": "d3",
+    "number": 3,
+    "text": "",
+    "picture": null,
+    "status": "draft",
+    "start": 2,
+    "seconds": 1,
+    "onScreen": {
+     "start": 2,
+     "seconds": 1
+    },
+    "estimated": false,
+    "lanes": {
+     "posts": []
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-d4",
+    "slug": "d4",
+    "key": "",
+    "title": "d4",
+    "number": 4,
+    "text": "",
+    "picture": null,
+    "status": "draft",
+    "start": 3,
+    "seconds": 2,
+    "onScreen": {
+     "start": 3,
+     "seconds": 2
+    },
+    "estimated": false,
+    "lanes": {
+     "posts": [
+      {
+       "id": "id-p3",
+       "slug": "p3",
+       "title": "p3",
+       "text": "",
+       "who": "Newsletter",
+       "status": "",
+       "start": 3,
+       "seconds": 2,
+       "estimated": false,
+       "unmeasured": false,
+       "audio": null,
+       "wave": null,
+       "volume": null,
+       "at": null,
+       "nudge": 0,
+       "natural": 3,
+       "together": false,
+       "words": null,
+       "spans": true
+      }
+     ]
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   },
+   {
+    "id": "id-d5",
+    "slug": "d5",
+    "key": "",
+    "title": "d5",
+    "number": 5,
+    "text": "",
+    "picture": null,
+    "status": "draft",
+    "start": 5,
+    "seconds": 1,
+    "onScreen": {
+     "start": 5,
+     "seconds": 1
+    },
+    "estimated": false,
+    "lanes": {
+     "posts": []
+    },
+    "timing": {
+     "lead": 0,
+     "gap": 0,
+     "tail": 0
+    },
+    "pause": 0
+   }
+  ],
+  "bands": {},
+  "beds": {},
+  "covers": {},
+  "marks": {}
+ }
+}

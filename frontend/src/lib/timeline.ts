@@ -8,6 +8,7 @@
  */
 
 import { RING } from "./cueFields.ts";
+import { type DateKind, type DateUnit, type Moment, dateRange, momentOf, placeOf, rangeEnd, wallAt, wallEnd } from "./timelineDates.ts";
 import { type Effect, effectChip, effectWords, kindOf, mixSeconds } from "./cueKinds.ts";
 import { type StoredCue, cuesByHolder } from "./cueHomes.ts";
 import type { SidebarSpec } from "./viewLinks.ts";
@@ -63,6 +64,9 @@ export interface SpineSpec {
   word_cues?: { field: string; lane: string; sounds?: string };
   /** A video of the author on each item, played picture-in-picture over its picture with its own sound (ScreenplayStudio v223 render: clip.py). */
   clip?: ClipSpec;
+  /** A date or datetime field on each item: the item is placed at that date (lib/timelineDates.ts), not after the one before. Only in minutes,
+   * hours or days; an item without one is listed apart, not drawn. */
+  start?: string;
 }
 
 /**
@@ -231,6 +235,13 @@ export interface LaneSpec {
   /** A field on each lane entry naming its Recording (RECORDING): when that Recording is of the very file `audio` holds, its length and waveform
    * are read from it first, each falling back to the entry's own field. Word timings stay the asset's (what the render places cues by). */
   recording?: string;
+  /** In a view placed by date: a date or datetime field on each lane entry that places it by its own date, for `seconds` of the unit (one when
+   * empty), belonging to no item (a task with its own start). */
+  start?: string;
+  /** A field on each lane entry its pieces are drawn by, one row per value (a person, a room): a reference names an entry, whose title the row
+   * takes; any other value is the row's title. `per_order` is a field on the entry a reference names that sorts the rows (else by title). */
+  per?: string;
+  per_order?: string;
 }
 
 export interface ActionSpec {
@@ -259,6 +270,8 @@ export interface TimelineSpec {
   sidebar?: SidebarSpec;
   /** The page without an entry draws the entries to open as cards (lib/viewPicker.ts); without it, a plain list. */
   picker?: PickerSpec;
+  /** In a view placed by date: date fields on the view's entry that widen what it shows (an empty week still shows). */
+  range?: { from?: string; to?: string };
 }
 
 /** An entry as the entries query returns it: the fields in dataJson, the attached assets with the field key as their role. */
@@ -316,6 +329,8 @@ export interface Piece {
   /** For a sound set to ring over the next beats (`ring: true` on its row: lib/cueFields.ts RING): where its own beat ends. It plays in full from where it is placed
    * and does not make its beat longer (Studio v224), so past this it runs on over the beats after. */
   ringsFrom?: number;
+  /** In a lane drawn `per` a field: the value of that field on its entry (its row; empty for the last row). */
+  per?: string;
 }
 
 const rings = (row: Record<string, unknown>) => row[RING] === true;
@@ -556,6 +571,39 @@ export interface Layout {
   covers: Record<string, Cover[]>;
   /** Per marks lane, one mark for each item that has a choice, in time order. */
   marks: Record<string, Mark[]>;
+  /** Set on a view placed by date (`spine.start`). */
+  dates?: DatedLayout;
+  /** Per lane drawn `per` a field, its rows in order. */
+  per?: Record<string, PerRows>;
+}
+
+/** What a view placed by date adds: where it starts, and what has no date to be placed by. */
+export interface DatedLayout {
+  /** The wall time (lib/timelineDates.ts) place 0 stands for. */
+  origin: number;
+  /** True when some value was a moment with a zone, so the places depend on the zone it was read in. */
+  zoned: boolean;
+  /** The items and lane entries with no date, in the order they would be drawn (`lane` null for an item). */
+  undated: { id: string; slug: string; title: string; lane: string | null }[];
+  /** Per lane with `start`, its pieces in time order (they belong to no item). */
+  lanes: Record<string, Piece[]>;
+}
+
+/** The most rows a lane drawn `per` a field shows; the page says how many more there are. */
+export const MAX_PER_ROWS = 24;
+
+export interface PerRow {
+  /** The value its pieces hold ("" for the row of those with none). */
+  key: string;
+  title: string;
+  /** The entry a reference names, to open it from the row's label. */
+  id: string | null;
+}
+
+export interface PerRows {
+  rows: PerRow[];
+  /** How many rows there are past MAX_PER_ROWS, not drawn. */
+  hidden: number;
 }
 
 export const DEFAULT_SECONDS = { hold: 4, lead: 0.3, gap: 0.25, tail: 0.35 };
@@ -854,6 +902,12 @@ interface Rows {
   bands?: Record<string, Row[]>;
   /** The Recordings the items and pieces name (`clip.recording`, a lane's `recording`): `recordingRefs`, fetched by slug. */
   recordings?: Row[];
+  /** Per lane drawn `per` a reference field, the entries its pieces name (a lane's people), to title and sort its rows. */
+  per?: Record<string, Row[]>;
+  /** In a view placed by date: per entry type, which of its fields hold a `date` and which a `datetime` (the entry type's field types), and the
+   * zone a moment with a zone is read in (the viewer's; UTC when not known). */
+  kinds?: Record<string, Record<string, DateKind>>;
+  timeZone?: string;
 }
 
 const level = (v: unknown): number | null => {
@@ -865,7 +919,8 @@ const level = (v: unknown): number | null => {
  * Lay the view out. Spine rows are sorted by the spine's order field and gathered under their group (chapters in their own order; items
  * whose group is unknown come last, under no title). Each `in` lane's rows are the pieces of the item their `in` field names, timed one after
  * another from the item's lead; each `placed` lane's pieces sit where the item's JSON list puts them. Unknown references are ignored. In a unit
- * other than seconds the defaults are PLAIN_DEFAULTS and an `in` piece with no length of its own spans its item (a post on its day).
+ * other than seconds the defaults are PLAIN_DEFAULTS and an `in` piece with no length of its own spans its item (a post on its day). A view placed
+ * by date (`spine.start`) puts each item at its own date instead of after the one before (`datedPlan`); its `start` lanes' pieces at theirs.
  */
 export function layout(declared: TimelineSpec, rows: Rows): Layout {
   const realTime = unitOf(declared) === "seconds";
@@ -878,6 +933,7 @@ export function layout(declared: TimelineSpec, rows: Rows): Layout {
   const laneRows = (lane: LaneSpec) => [...(rows.lanes[lane.id] ?? [])].filter((r) => !isOff(r, lane)).sort(byOrder(lane.order));
   const bySlug = (lane: LaneSpec) => new Map(laneRows(lane).map((r) => [r.slug, r] as const));
   const recordings = recordingIndex(rows.recordings);
+  const plan = realTime ? null : datedPlan(spec, rows, laneRows);
   // A lane entry's piece, its facts read from its Recording first when the lane names one
   const pieceAt: PieceAt = (r, lane, start, at) => {
     const rec = recordingOf(r, lane.recording, lane.audio, recordings);
@@ -887,7 +943,7 @@ export function layout(declared: TimelineSpec, rows: Rows): Layout {
 
   const items: Item[] = [];
   let clock = 0;
-  const groups = groupRows(spec.spine, rows);
+  const groups = plan ? [{ id: null, slug: null, title: "", rows: plan.spine }] : groupRows(spec.spine, rows);
   const out: Group[] = [];
   const said = new Map<string, Piece>(); // every timed piece laid so far, by slug: an overlay comes in at a word of one of them
   const cuts: PictureCut[] = []; // each item's sound and what moves its picture, to cut the pictures from once everything is laid
@@ -925,6 +981,8 @@ export function layout(declared: TimelineSpec, rows: Rows): Layout {
   for (const g of groups) {
     const made: Item[] = [];
     for (const row of g.rows) {
+      const when = plan?.at.get(row.id);
+      if (plan && when) clock = placeOf(when.wall, plan.origin, plan.unit);
       const s = secondsOf(row, spec.spine.seconds, rows.entry);
       const item: Item = {
         id: row.id,
@@ -1017,6 +1075,7 @@ export function layout(declared: TimelineSpec, rows: Rows): Layout {
           if (p.audio && p.seconds > 0) ringEnd = Math.max(ringEnd, p.start + p.seconds); // one with no take plays nothing, so holds nothing
         }
       }
+      if (plan && when?.zoned) item.seconds = placeOf(wallEnd(when, item.seconds, plan.unit, plan.timeZone), plan.origin, plan.unit) - clock; // real hours, ending where the clock says
       if (!realTime) spanItem(item, inLanes);
       cuts.push({ start: clock, seconds: item.seconds, firstWord: timed[0] ? timed[0].natural : null, lead: pictureLeadOf(row, spec.spine.seconds, rows.entry), anchor: overlay?.at ?? null });
       clock += item.seconds;
@@ -1035,7 +1094,8 @@ export function layout(declared: TimelineSpec, rows: Rows): Layout {
     for (const lane of placedLanes) for (const p of last.lanes[lane.id] ?? []) if (p.ringsFrom !== undefined) p.ringsFrom = clock;
   }
   // The pictures are cut from the sound (a picture lead brings one in before its words); the chapters, beds, overlays, marks and bands follow them.
-  picturesOf(cuts, clock).forEach((cut, k) => {
+  // Placed by date, each is up for its own stretch: there is no cut to make between items that may be days apart or on top of each other.
+  (plan ? cuts.map(({ start, seconds }) => ({ start, seconds })) : picturesOf(cuts, clock)).forEach((cut, k) => {
     items[k].onScreen = cut;
     const clip = items[k].clip;
     if (clip) {
@@ -1047,8 +1107,8 @@ export function layout(declared: TimelineSpec, rows: Rows): Layout {
   });
   for (const g of out) {
     const [first, last] = [g.items[0], g.items[g.items.length - 1]];
-    g.start = first.onScreen.start;
-    g.seconds = last.onScreen.start + last.onScreen.seconds - g.start;
+    g.start = first?.onScreen.start ?? 0;
+    g.seconds = last ? last.onScreen.start + last.onScreen.seconds - g.start : 0;
   }
   const shown = items.map((i) => ({ ...i, start: i.onScreen.start, seconds: i.onScreen.seconds }));
   const beds: Record<string, Bed[]> = {};
@@ -1059,7 +1119,94 @@ export function layout(declared: TimelineSpec, rows: Rows): Layout {
   for (const lane of lanes.filter((l) => l.marks)) marks[lane.id] = marksOf(lane.marks!, spec, shown, rows, lane.id);
   const bands: Record<string, Band[]> = {};
   for (const band of spec.spine.bands ?? []) bands[band.id ?? band.field] = bandsOf(band, shown, rows, band.id ?? band.field);
-  return { total: clock, groups: out, items, bands, beds, covers, marks };
+  const laid: Layout = { total: clock, groups: out, items, bands, beds, covers, marks };
+  if (plan) placeByDate(laid, plan, lanes, laneRows);
+  const perLanes = lanes.filter((l) => l.per);
+  if (perLanes.length) laid.per = Object.fromEntries(perLanes.map((l) => [l.id, perRows(l, [...items.flatMap((i) => i.lanes[l.id] ?? []), ...(laid.dates?.lanes[l.id] ?? [])], rows.per?.[l.id] ?? [])]));
+  return laid;
+}
+
+/** A view placed by date, before it is laid out: each dated item's date, the items in date order, what has no date, and where place 0 is. */
+interface DatedPlan {
+  unit: DateUnit;
+  timeZone: string;
+  origin: number;
+  /** The wall times the entry's `range` starts and ends at, when it sets them. */
+  from: number | null;
+  until: number | null;
+  /** By row id, the date of every spine item and `start` lane entry that has one. */
+  at: Map<string, Moment>;
+  spine: Row[];
+  undated: DatedLayout["undated"];
+}
+
+/** Read the dates of a view placed by date (null for any other view): the items in date order (then their order field), and the origin, from
+ * the earliest of them and of the entry's `range.from` (lib/timelineDates.ts dateRange). */
+function datedPlan(spec: TimelineSpec, rows: Rows, laneRows: (lane: LaneSpec) => Row[]): DatedPlan | null {
+  if (!spec.spine.start) return null;
+  const unit = unitOf(spec) as DateUnit;
+  const timeZone = rows.timeZone ?? "UTC";
+  const read = (row: Row | undefined, type: string, key: string | undefined) => (row && key ? momentOf(field(row, key), rows.kinds?.[type]?.[key], timeZone) : null);
+  const at = new Map<string, Moment>();
+  const undated: DatedLayout["undated"] = [];
+  const note = (row: Row, moment: Moment | null, lane: string | null) => (moment ? at.set(row.id, moment) : undated.push({ id: row.id, slug: row.slug, title: row.title, lane }));
+  const ordered = [...rows.spine].sort(byOrder(spec.spine.order));
+  for (const row of ordered) note(row, read(row, spec.spine.entry_type, spec.spine.start), null);
+  for (const lane of (spec.lanes ?? []).filter((l) => l.start)) for (const row of laneRows(lane)) note(row, read(row, lane.entry_type, lane.start), lane.id);
+  const from = read(rows.entry, spec.entry_type, spec.range?.from);
+  const to = read(rows.entry, spec.entry_type, spec.range?.to);
+  const starts = [...at.values()].map((m) => ({ start: m.wall, end: m.wall }));
+  const widen = { from: from?.wall ?? null, to: to && rangeEnd(to) };
+  const origin = dateRange(starts, unit, widen)?.origin ?? 0;
+  const spine = ordered.filter((r) => at.has(r.id)).sort((a, b) => at.get(a.id)!.wall - at.get(b.id)!.wall); // a stable sort: the order field breaks a tie
+  return { unit, timeZone, origin, from: widen.from, until: widen.to, at, spine, undated };
+}
+
+/** The rest of a view placed by date, once its items are laid: each `start` lane's pieces at their own dates (for `seconds` of the unit, else
+ * one), and the range, from the first start to the last end of all that, widened by the entry's own `range` and rounded out. */
+function placeByDate(laid: Layout, plan: DatedPlan, lanes: LaneSpec[], laneRows: (lane: LaneSpec) => Row[]): void {
+  const { unit, origin, at } = plan;
+  const own: Record<string, Piece[]> = {};
+  for (const lane of lanes.filter((l) => l.start)) {
+    own[lane.id] = laneRows(lane)
+      .filter((r) => at.has(r.id))
+      .map((r) => {
+        const when = at.get(r.id)!;
+        const start = placeOf(when.wall, origin, unit);
+        const seconds = placeOf(wallEnd(when, positive(field(r, lane.seconds)) ?? PLAIN_DEFAULTS.hold, unit, plan.timeZone), origin, unit) - start;
+        return pieceOf(r, lane, seconds, false, start, null);
+      })
+      .sort((a, b) => a.start - b.start);
+  }
+  const spans = [...laid.items, ...Object.values(own).flat()].map((x) => ({ start: wallAt(x.start, origin, unit), end: wallAt(x.start + x.seconds, origin, unit) }));
+  const range = dateRange(spans, unit, { from: plan.from, to: plan.until }); // the same starts as the plan's, so the same origin
+  laid.total = range ? placeOf(range.end, origin, unit) : 0;
+  laid.dates = { origin, zoned: [...at.values()].some((m) => m.zoned), undated: plan.undated, lanes: own };
+}
+
+/**
+ * The rows of a lane drawn `per` a field: one for each value its pieces hold, titled by the entry a reference names (`named`, by slug), else by
+ * the value; sorted by the named entry's `per_order` field, then by title, with the row of the pieces that hold none last ("No assignee").
+ * At most MAX_PER_ROWS; the rest are counted.
+ */
+export function perRows(lane: LaneSpec, pieces: readonly Piece[], named: readonly Row[]): PerRows {
+  const bySlug = new Map(named.map((r) => [r.slug, r] as const));
+  const keys = [...new Set(pieces.map((p) => p.per ?? ""))];
+  const rowsOf = keys
+    .filter((k) => k !== "")
+    .map((key) => {
+      const ref = bySlug.get(key);
+      return { key, title: ref?.title || key, id: ref?.id ?? null, order: ref ? field(ref, lane.per_order) : undefined };
+    })
+    .sort((a, b) => {
+      const [x, y] = [num(a.order), num(b.order)];
+      if (x !== null && y !== null && x !== y) return x - y;
+      if ((x === null) !== (y === null)) return x === null ? 1 : -1;
+      return a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" });
+    })
+    .map(({ key, title, id }) => ({ key, title, id }));
+  if (keys.includes("")) rowsOf.push({ key: "", title: `No ${(lane.per ?? "").replace(/[-_]+/g, " ")}`, id: null });
+  return { rows: rowsOf.slice(0, MAX_PER_ROWS), hidden: Math.max(0, rowsOf.length - MAX_PER_ROWS) };
 }
 
 /** The view with PLAIN_DEFAULTS under its own: a plan's items hold one unit and its lanes have no speech pauses unless it says so. */
@@ -1460,6 +1607,7 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
     natural: start,
     together: lane.simultaneous ? field(row, lane.simultaneous) === true : false,
     words: wordTimings(row, lane),
+    ...(lane.per ? { per: str(field(row, lane.per)).trim() } : {}),
   };
 }
 

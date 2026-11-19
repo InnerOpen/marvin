@@ -753,3 +753,114 @@ def test_a_view_in_another_unit_keeps_what_is_not_sound():
     payload["lanes"][0]["simultaneous"] = "together"
     payload["lanes"].append({"id": "track", "title": "Track", "entry_type": "session", "marks": {"field": "track"}})
     assert payload_problem({**payload, "unit": "days"}, "agenda") is None
+
+
+CALENDAR = {
+    "kind": "timeline",
+    "title": "Team calendar",
+    "unit": "days",
+    "entry_type": "calendar",
+    "range": {"from": "from", "to": "to"},
+    "spine": {"entry_type": "milestone", "of": "calendar", "start": "date", "status": "status", "seconds": {"hold": "days"}},
+    "lanes": [
+        {
+            "id": "work",
+            "title": "Work",
+            "entry_type": "task",
+            "of": "calendar",
+            "start": "start",
+            "seconds": "days",
+            "per": "assignee",
+            "per_order": "order",
+        },
+        {"id": "notes", "title": "Notes", "entry_type": "note", "of": "calendar", "in": "milestone", "per": "author"},
+    ],
+}
+
+
+@pytest.mark.parametrize("unit", ["minutes", "hours", "days"])
+def test_a_view_in_a_unit_of_the_calendar_may_place_items_and_pieces_by_date_and_draw_a_row_per_value(unit):
+    assert payload_problem({**CALENDAR, "unit": unit}, "calendar") is None
+    # range is optional, and so is either end of it
+    assert payload_problem({k: v for k, v in CALENDAR.items() if k != "range"}, "calendar") is None
+    assert payload_problem({**CALENDAR, "range": {"from": "from"}}, "calendar") is None
+
+
+def test_a_view_in_seconds_may_not_place_by_date():
+    problem = payload_problem({**CALENDAR, "unit": "seconds"}, "calendar") or ""
+    assert "spine.start places items by date, which needs a unit of minutes, hours or days" in problem
+    assert "spine.start places items by date" in (payload_problem({k: v for k, v in CALENDAR.items() if k != "unit"}, "calendar") or "")
+
+
+@pytest.mark.parametrize(
+    ("mutate", "words"),
+    [
+        (lambda p: p["spine"].pop("start"), "lane 'work' of view 'calendar': start places its pieces by date, which needs spine.start"),
+        (lambda p: (p["spine"].pop("start"), p["lanes"].pop(0)), "range widens a view placed by date, so the spine needs start"),
+        (lambda p: p["spine"].update(start="Date"), "spine: start must be a field key"),
+        (lambda p: p["lanes"][0].update(start=3), "start must be a field key"),
+        (lambda p: p["lanes"][0].pop("of"), "lane 'work' of view 'calendar' needs of, a field key"),
+        (lambda p: p["lanes"][0].update({"in": "milestone"}), "one of `in`"),
+        (lambda p: p.update(range={"from": "from", "until": "to"}), "range is {from?, to?}"),
+        (lambda p: p.update(range={}), "range is {from?, to?}"),
+        (lambda p: p.update(range="from"), "range is {from?, to?}"),
+        (lambda p: p.update(range={"to": "To"}), "range: to must be a field key"),
+        (lambda p: p["spine"].update(group={"entry_type": "phase", "field": "phase"}), "spine.group follows items one after another"),
+        (lambda p: p["spine"].update(bands=[{"entry_type": "phase", "field": "phase"}]), "spine.bands follows items one after another"),
+        (lambda p: p["spine"].update(cards={"intro": {"title": "title"}}), "spine.cards follows items one after another"),
+        (lambda p: p["spine"].update(scene_break={"field": "phase", "seconds": "pause"}), "spine.scene_break follows items one after another"),
+    ],
+)
+def test_a_wrong_date_key_says_what_is_wrong(mutate, words):
+    payload = copy.deepcopy(CALENDAR)
+    mutate(payload)
+    assert words in (payload_problem(payload, "calendar") or "")
+
+
+@pytest.mark.parametrize(
+    ("mutate", "words"),
+    [
+        (lambda p: p["lanes"][0].update(per="Assignee"), "per must be a field key"),
+        (lambda p: p["lanes"][0].update(per_order="the order"), "per_order must be a field key"),
+        (lambda p: p["lanes"][0].pop("per"), "per_order sorts the rows of per, so it needs per"),
+        (
+            lambda p: p["lanes"].append({"id": "phase", "title": "Phase", "entry_type": "milestone", "marks": {"field": "phase"}, "per": "owner"}),
+            "per splits a lane's pieces into rows, so it is for a lane with in, placed or start",
+        ),
+        (
+            lambda p: p["lanes"][1].update(simultaneous="together"),
+            "per draws a row per value, which sound and dragging do not follow: leave out simultaneous",
+        ),
+    ],
+)
+def test_a_wrong_per_says_what_is_wrong(mutate, words):
+    payload = copy.deepcopy(CALENDAR)
+    mutate(payload)
+    assert words in (payload_problem(payload, "calendar") or "")
+
+
+def test_per_in_seconds_keeps_out_of_the_way_of_sound_and_dragging():
+    # a plain lane of pieces in a seconds view may be drawn per value; one that plays, or is dragged, may not
+    story = copy.deepcopy(TIMELINE)
+    story["lanes"][-1] = {
+        "id": "notes",
+        "title": "Notes",
+        "entry_type": "note",
+        "of": "story",
+        "in": "beat",
+        "per": "author",
+    }  # in the camera's place
+    assert payload_problem(story, "story-timeline") is None
+    lines = next(lane for lane in story["lanes"] if lane["id"] == "lines")
+    lines["per"] = "speaker"
+    assert "per draws a row per value, which sound and dragging do not follow: leave out audio or per" in (
+        payload_problem(story, "story-timeline") or ""
+    )
+    lines.pop("per")
+    sounds = next(lane for lane in story["lanes"] if lane.get("placed"))
+    sounds["per"] = "kind"
+    assert "per" in (payload_problem(story, "story-timeline") or "")
+    plan = copy.deepcopy(PLAN)
+    plan["lanes"][1]["per"] = "kind"
+    assert payload_problem(plan, "agenda") is None, "in another unit a placed lane is not dragged"
+    assert "in seconds a placed lane's pieces are dragged on its own rows" in (payload_problem({**plan, "unit": "seconds"}, "agenda") or "")

@@ -1,7 +1,12 @@
-"""Sample entries for the Timeline Demos package (docs/examples/timeline-demos.marvin-package.json): one conference day and one two-week content plan.
+"""Sample entries for the Timeline Demos package (docs/examples/timeline-demos.marvin-package.json): one conference day, one two-week content
+plan, a team calendar of five weeks and a week's shift roster.
 
 A package carries no entries, so this makes them through the API, in the workspace the token acts in. It looks every entry up by its slug
 first and makes only the missing ones, so it can be run again. It uses nothing but the standard library.
+
+The calendar and the roster are dated from the week the script first runs (the calendar from the Monday before it, the roster this Monday
+to Sunday), so today is on both. Running it again later changes nothing that is there: delete the calendar's and the roster's entries
+first to date them afresh.
 
     MARVIN_API_URL=https://marvin.example.com MARVIN_TOKEN=... python scripts/seed_timeline_demos.py
 
@@ -16,9 +21,12 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from datetime import date, datetime, time, timedelta
 
 EVENT = "demo-northern-dev-day"
 PLAN = "demo-spring-launch"
+CALENDAR = "demo-team-calendar"
+ROSTER = "demo-cafe-week"
 TIMEOUT_SECONDS = 30
 QUERY_LIMIT = 500
 
@@ -99,6 +107,70 @@ POSTS = [
 ]
 DAY_STATUS = {1: "ready", 2: "ready", 4: "ready", 5: "review", 8: "review"}
 
+# The people on the calendar and the roster: slug, name, role, order of their rows.
+PEOPLE = [
+    ("ada", "Ada Brooks", "Designer", 1),
+    ("ben", "Ben Okafor", "Engineer", 2),
+    ("chen", "Chen Wei", "Engineer", 3),
+    ("dana", "Dana Ruiz", "Product", 4),
+    ("eli", "Eli Novak", "Support", 5),
+    ("fay", "Fay Morgan", "Operations", 6),
+]
+# The calendar runs five weeks from the Monday of the week before; its milestones and tasks are days after this week's Monday (None: no date
+# yet). Milestones: slug, title, day, days, status. A gap after the interviews; the review and the interviews overlap.
+CALENDAR_WEEKS = 5
+MILESTONES = [
+    ("kickoff", "Kick-off", -5, 1, "done"),
+    ("design-review", "Design review", 1, 2, "review"),
+    ("interviews", "Customer interviews", 2, 3, "planned"),
+    ("beta-freeze", "Beta freeze", 9, 1, "planned"),
+    ("launch", "Launch", 15, 1, "planned"),
+    ("retro", "Retro", None, 1, "planned"),
+]
+# Tasks: slug, title, day, days, status, assignee (None: nobody yet). Ada's mockups and tokens overlap, so her row stacks them.
+TASKS = [
+    ("wireframes", "Wireframes", -6, 4, "done", "ada"),
+    ("interview-guide", "Interview guide", -3, 2, "done", "dana"),
+    ("api-sketch", "API sketch", -4, 5, "done", "ben"),
+    ("mockups", "Hi-fi mockups", 0, 4, "doing", "ada"),
+    ("auth", "Auth service", 0, 6, "doing", "ben"),
+    ("search", "Search index", 1, 5, "doing", "chen"),
+    ("interview-notes", "Interview notes", 2, 3, "todo", "dana"),
+    ("macros", "Support macros", 3, 2, "todo", "eli"),
+    ("tokens", "Design tokens", 2, 3, "todo", "ada"),
+    ("beta-build", "Beta build", 7, 3, "todo", "chen"),
+    ("help-centre", "Help centre articles", 8, 5, "review", "eli"),
+    ("launch-checklist", "Launch checklist", 10, 4, "todo", "dana"),
+    ("load-test", "Load test", 11, 2, "todo", "ben"),
+    ("launch-email", "Launch email", 13, 2, "todo", None),
+    ("press-kit", "Press kit", None, 3, "todo", "fay"),
+]
+# The roster: this week, Monday to Sunday, a note on some days. Shifts: day (0 is Monday), start (hour, minute), hours, role, person (None:
+# nobody yet), title. Dana's Monday night runs past midnight; Ada's Friday on call overlaps her own early shift.
+ROSTER_NOTES = {0: "Delivery at 7", 3: "Health inspection", 5: "Market day: busy"}
+SHIFTS = [
+    (0, (7, 0), 8, "Front desk", "ada", "Early"),
+    (0, (15, 0), 8, "Front desk", "ben", "Late"),
+    (0, (6, 0), 6, "Kitchen", "chen", "Breakfast"),
+    (0, (23, 0), 8, "On call", "dana", "Night"),
+    (1, (7, 0), 8, "Front desk", "eli", "Early"),
+    (1, (10, 0), 8, "Kitchen", "fay", "Day"),
+    (1, (15, 0), 8, "Floor", "ben", "Late"),
+    (2, (7, 0), 8, "Front desk", "ada", "Early"),
+    (2, (12, 0), 9, "Kitchen", "chen", "Long"),
+    (2, (15, 0), 8, "Floor", "dana", "Late"),
+    (3, (7, 0), 8, "Front desk", "ben", "Early"),
+    (3, (14, 0), 8, "Kitchen", "fay", "Late"),
+    (4, (7, 0), 8, "Front desk", "ada", "Early"),
+    (4, (13, 0), 4, "On call", "ada", "Cover"),
+    (4, (6, 0), 6, "Kitchen", "chen", "Breakfast"),
+    (4, (16, 0), 8, "Floor", "ben", "Late"),
+    (5, (10, 0), 8, "Kitchen", "fay", "Day"),
+    (5, (16, 0), 8, "Front desk", "eli", "Late"),
+    (6, (9, 0), 8, "Floor", "dana", "Day"),
+    (6, (18, 0), 6, "Floor", None, "Cover needed"),
+]
+
 
 class Api:
     """The few calls the seed needs, with the token on each."""
@@ -134,11 +206,14 @@ class Seeder:
         self.types = api.type_ids()
         missing = [
             t
-            for t in ("demo-event", "demo-block", "demo-session", "demo-speaker", "demo-cue", "demo-plan", "demo-day", "demo-post")
+            for t in (
+                *("demo-event", "demo-block", "demo-session", "demo-speaker", "demo-cue", "demo-plan", "demo-day", "demo-post"),
+                *("demo-person", "demo-calendar", "demo-milestone", "demo-task", "demo-roster", "demo-roster-day", "demo-shift"),
+            )
             if t not in self.types
         ]
         if missing:
-            sys.exit(f"Install the Timeline Demos package first: this workspace has no {', '.join(missing)}")
+            sys.exit(f"Install the Timeline Demos package (version 2) first: this workspace has no {', '.join(missing)}")
         self.have: dict[str, set[str]] = {}
         self.made = 0
         self.kept = 0
@@ -192,6 +267,41 @@ def seed_plan(s: Seeder) -> None:
         )
 
 
+def seed_people(s: Seeder) -> None:
+    for slug, name, role, order in PEOPLE:
+        s.entry("demo-person", f"demo-person-{slug}", name, {"role": role, "order": order})
+
+
+def seed_calendar(s: Seeder, monday: date) -> None:
+    first = monday - timedelta(weeks=1)
+    last = first + timedelta(weeks=CALENDAR_WEEKS, days=-1)
+    about = "Milestones on their dates; each person's work on a row of their own."
+    s.entry(
+        "demo-calendar", CALENDAR, "Product team: five weeks", {"from": first.isoformat(), "to": last.isoformat(), "status": "active", "about": about}
+    )
+    for slug, title, at, days, status in MILESTONES:
+        dated = {"date": (monday + timedelta(days=at)).isoformat()} if at is not None else {}
+        s.entry("demo-milestone", f"{CALENDAR}-{slug}", title, {"calendar": CALENDAR, **dated, "days": days, "status": status})
+    for slug, title, at, days, status, who in TASKS:
+        dated = {"start": (monday + timedelta(days=at)).isoformat()} if at is not None else {}
+        assignee = {"assignee": f"demo-person-{who}"} if who else {}
+        s.entry("demo-task", f"{CALENDAR}-task-{slug}", title, {"calendar": CALENDAR, **dated, "days": days, "status": status, **assignee})
+
+
+def seed_roster(s: Seeder, monday: date) -> None:
+    sunday = monday + timedelta(days=6)
+    s.entry("demo-roster", ROSTER, "Harbour Café: this week", {"from": monday.isoformat(), "to": sunday.isoformat(), "status": "published"})
+    for n in range(7):
+        on = monday + timedelta(days=n)
+        note = {"note": ROSTER_NOTES[n]} if n in ROSTER_NOTES else {}
+        s.entry("demo-roster-day", f"{ROSTER}-day-{n + 1}", f"{WEEKDAYS[n]} {on.day} {on:%b}", {"roster": ROSTER, "date": on.isoformat(), **note})
+    for n, (day, (hour, minute), hours, role, who, title) in enumerate(SHIFTS, 1):
+        # a time as the entry form writes it: the wall clock, with no zone
+        starts = datetime.combine(monday + timedelta(days=day), time(hour, minute)).strftime("%Y-%m-%dT%H:%M")
+        person = {"person": f"demo-person-{who}"} if who else {}
+        s.entry("demo-shift", f"{ROSTER}-shift-{n:02d}", title, {"roster": ROSTER, "start": starts, "hours": hours, "role": role, **person})
+
+
 def main() -> None:
     base, token = os.environ.get("MARVIN_API_URL"), os.environ.get("MARVIN_TOKEN")
     if not base or not token:
@@ -201,8 +311,17 @@ def main() -> None:
     seed_event(seeder)
     print("Content plan:")
     seed_plan(seeder)
+    today = datetime.now().astimezone().date()  # the day where the script runs, as its owner's calendar says
+    monday = today - timedelta(days=today.weekday())
+    print("People:")
+    seed_people(seeder)
+    print("Team calendar:")
+    seed_calendar(seeder, monday)
+    print("Shift roster:")
+    seed_roster(seeder, monday)
     print(f"Made {seeder.made} entries; {seeder.kept} were already there.")
-    print(f"Open them at /workspace/views/event-agenda?entry={EVENT} and /workspace/views/content-plan?entry={PLAN}.")
+    print(f"Open them at /workspace/views/event-agenda?entry={EVENT}, /workspace/views/content-plan?entry={PLAN},")
+    print(f"/workspace/views/team-calendar?entry={CALENDAR} and /workspace/views/shift-roster?entry={ROSTER}.")
 
 
 if __name__ == "__main__":

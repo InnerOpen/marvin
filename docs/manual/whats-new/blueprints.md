@@ -19,7 +19,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | `workflow` | A [workflow](workflows.md), switched off, authored by whoever applies it | `{"name": …, "definition": {trigger, conditions, actions}}`; the definition must pass structural validation |
 | `playbook` | A [Playbook](playbooks.md#from-an-integration), as a **draft** with its reference files (integrations only) | `{"skill_md": "<SKILL.md text>", "files": {"references/x.md": "<text>"}}`. Text files only (`.md .txt .json .csv .yaml`), no scripts, relative paths; `SKILL.md` at most 64 KB, at most 20 files of 64 KB, 256 KB in all. The SKILL.md `name` is the slug and starts with the provider's slug (underscores as hyphens). Never required, no parameters. Marvin checks all of it again; one that fails is skipped with a warning and the provider's other content still loads |
 | `wizard` | Nothing: a **guided setup** kept in a [package](workflows.md)'s manifest (packages only), listed under *Guided setups* | `{"title": …, "steps": [...]}`: step kinds `option`, `choose` (also `picture`, `subtitle`, `create.upload`, `multiple` with `assets`; `selection` shows a multi-select's picks), `form`, `upload`, `list`, `gallery`, `run`, `review`; `button` puts a button on an entry type's pages that opens the setup on that entry (`{entry_type, label, key, step?, also?}`); `when` shows a step only on a choice; `${name}` reads a choice made earlier. See [Guided setups](guided-setups.md) and `services/blueprints/wizards.py` |
-| `view` | Nothing: a **view** of an entry kept in a package's manifest (packages only); an entry of its type gets a button that opens it, and with `"sidebar": true` the sidebar a link to it; with `picker` its page lists the entries as cards | `{"kind": "timeline", "title": …, "entry_type": …, "unit": …, "spine": {…}, "lanes": [...], "actions": [...]}`: the one kind, `timeline`, lays an entry's children out as time (a story's beats, with lines and sounds in lanes; with `unit` in minutes, hours or days, an agenda or a plan). See `services/blueprints/views.py` |
+| `view` | Nothing: a **view** of an entry kept in a package's manifest (packages only); an entry of its type gets a button that opens it, and with `"sidebar": true` the sidebar a link to it; with `picker` its page lists the entries as cards | `{"kind": "timeline", "title": …, "entry_type": …, "unit": …, "spine": {…}, "lanes": [...], "actions": [...]}`: the one kind, `timeline`, lays an entry's children out as time (a story's beats, with lines and sounds in lanes; with `unit` in minutes, hours or days, an agenda or a plan; with `spine.start`, by date, a calendar or a roster, and a lane's `per`, a row per person). See `services/blueprints/views.py` |
 
 **Required vs suggested.** `required` defaults to `False` and is meant to be set sparingly: `True` only when the source cannot work without it, such as an entry type an action reads or writes. Everything else is a suggestion. Core blueprints are never required.
 
@@ -183,6 +183,36 @@ MARVIN_API_URL=… MARVIN_TOKEN=… python scripts/seed_timeline_demos.py
 ```
 
 The script looks each entry up by its slug and makes only the missing ones, so it can run again.
+
+## A timeline view can place things by date, and draw a lane as a row per person
+
+A timeline lays its spine items one after another. In a view in minutes, hours or days it can instead put each where its own date says, which makes it a calendar or a roster:
+
+- **`spine.start`** names a `date` or `datetime` field on each spine item. The item sits at its date and lasts its `seconds.hold` (in the unit), so empty time is drawn as empty time and items can overlap. Items that overlap stack on rows of the strip, as few as fit; the strip grows taller.
+- **A lane's `start`** names a date or datetime field on each of its entries, which then sit at their own dates for the lane's `seconds` (one unit when empty), belonging to no item: a task with its own start. Such a lane needs `of`, like an `in` lane, and is a lane shape of its own (not with `in` or `placed`). A piece of an `in` or `placed` lane keeps following its item.
+- **`range`** (`{from?, to?}`, top level) names date fields on the view's entry that widen what is shown, so an empty week still shows. Without them the view runs from the earliest start to the latest end of what is drawn. Either way it is rounded out to whole days (in days), whole hours (in hours) or quarter hours (in minutes); a plain date as `to` includes that whole day.
+
+How a date is read:
+
+- A `date` field is a day, with no zone: it is that day for everyone. Marvin reads the entry type's field types, so a `date` field saved with a time and a zone (`2026-11-19T00:00:00Z`) is still the 19th in Los Angeles.
+- A `datetime` written without a zone (`2026-11-19T14:00`, what the entry form saves) is that time on the wall, as the form shows it back.
+- A datetime with a zone (`…Z`, `+01:00`) is a real moment, shown in the viewer's own zone, and its length runs in real time: an 8-hour shift over the night the clocks go forward ends at 9 on the clock, not 8. The page keeps the viewer's zone in a cookie (`marvin.tz`) and reads itself once more on the first visit, when it had to guess. A day of the calendar stays a day: a roster day of 24 hours on the night the clocks change is that one day.
+
+The page then shows real dates: the ruler marks each day in days ("Mon 16 Nov", in the viewer's language), or each midnight with its date and the clock times between in hours and minutes, with a line down the view where a week (from a Monday) or a month starts (a day, in hours and minutes) and the months named over the strip in days. Positions, tooltips and the playhead clock say the date ("Wed 18 Nov, 14:00"); an end in days is the last day covered (three days from Monday read "→ Wed 18 Nov"); the clock takes a date ("2026-11-19", "2026-11-19 14:00"), "today" or "now". Today's column (in days) or a line at now (in hours and minutes) is drawn when it falls inside the range, and the page opens scrolled to it, else to the first thing drawn. An item or lane entry with no date is not dropped: a **No date** tray above the timeline counts them and links to each. Dragging stays off, as in any view not in seconds.
+
+A view placed by date has no `spine.group`, `bands`, `cards` or `scene_break` (they wrap or pause between consecutive items), and `spine.start` is refused in seconds.
+
+**A row per value: `per`.** A lane of pieces (`in`, `placed` or `start`) may name `per`, a field on its entries: the lane is drawn as one row per value, each with its own label (the lane's title and the row's). When the field is a reference to an entry (a text field with `ref`), the row is titled by that entry and links to it; `per_order` names a number field on that entry that sorts the rows (else they go by title). Any other value (a select's) titles its row as written. Pieces with no value go on a last row ("No assignee"). Overlapping pieces stack inside their row. At most 24 rows are drawn; the page says how many more there are. The rows count as one lane against the six. `per` works in any unit, but it is refused on a lane that also names a key of sound (`audio`, `bed`, `words`, `nudge`, `simultaneous`…) and, in seconds, on a `placed` lane, whose pieces are dragged: the player, the mixer and dragging go by a lane's own rows. A view without `start` and `per` is drawn exactly as before.
+
+An older Marvin ignores `spine.start`, `range` and `per`, but refuses a lane with `start` (it knows no such lane), so deploy Marvin before a package that uses it.
+
+The example package Timeline Demos (version 2) adds two views placed by date. A **Team calendar** in days (`demo-calendar`, with `from` and `to`): its `demo-milestone`s on their dates, and a Work lane of `demo-task`s at their own start dates, one row per assignee (`demo-person`). A **Shift roster** in hours (`demo-roster`, one week): a card per `demo-roster-day`, and a Shifts lane of `demo-shift`s placed by date and time, one row per person. The seed script dates both from the week it first runs, so today is on both; running it again later moves nothing. To bring an installed version 1 up to date and seed it:
+
+```sh
+curl -X POST "$MARVIN_API_URL/api/groups/packages/update" -H "Authorization: Bearer $MARVIN_TOKEN" \
+  -H "Content-Type: application/json" --data-binary @docs/examples/timeline-demos.marvin-package.json
+MARVIN_API_URL=… MARVIN_TOKEN=… python scripts/seed_timeline_demos.py
+```
 
 ## Cues on words in a timeline view
 
