@@ -566,7 +566,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
           else
             addTurn(
               "assistant",
-              renderMarkdown(m.content),
+              renderMarkdown(m.content, m.metaJson?.sources),
               assistantMeta(
                 m.metaJson?.sources,
                 (m.stepsJson ?? []).map((s) => s.tool),
@@ -896,7 +896,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       const answer = res.answer ?? "(no answer)";
       addTurn(
         "assistant",
-        renderMarkdown(answer),
+        renderMarkdown(answer, res.sources),
         assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens, res.handoffs, res.referrals, res.playbooks),
       );
       if (opts.refreshThreads && !threadsPanel.hidden) void loadThreads();
