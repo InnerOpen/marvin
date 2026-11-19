@@ -24,6 +24,7 @@ from marvin.db.models.platform.collections import Collections
 from marvin.db.models.platform.entry_assets import EntryAssets
 from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.services.entries import templates as T
+from marvin.services.storage import provider_factory
 
 SCHEMA = {
     "fields": [
@@ -386,7 +387,7 @@ class TestBulk:
 
         def count(conn, cursor, statement, *args):
             # Only this thread's statements: the engine is shared, so a background writer (the event bus, a worker) running
-            # while the entries are made would add one to a run and make two equal runs differ by one (seen once in CI, 24 vs 25).
+            # while the entries are made would add one to a run and make two equal runs differ by one.
             if threading.get_ident() == mine:
                 seen.append(statement)
 
@@ -397,7 +398,12 @@ class TestBulk:
             sa.event.remove(engine, "before_cursor_execute", count)
         return len(seen)
 
-    def test_the_statement_count_does_not_grow_with_the_number_of_entries(self, ws):
+    def test_the_statement_count_does_not_grow_with_the_number_of_entries(self, ws, monkeypatch):
+        # The admin's upload-provider choice is read through a 5 s cache (services/storage/provider_factory.py): a run that
+        # starts after it expired reads it again, one statement more (CI, 24 vs 25). Here it lasts the whole test.
+        monkeypatch.setattr(provider_factory, "CHOICE_TTL_SECONDS", 3600.0)
+        monkeypatch.setattr(provider_factory, "_choice", None)
+        monkeypatch.setattr(provider_factory, "_domains", None)
         self._statements(ws, 1)  # the first run makes the template's tags; after that every run reads the same
         assert self._statements(ws, 5) == self._statements(ws, 60)
 
