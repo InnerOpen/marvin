@@ -208,3 +208,22 @@ describe("answerMarkdownHtml", () => {
     assert.equal(answerMarkdownHtml(md, null), marked.parse(md));
   });
 });
+
+describe("the answer Jared got on 2026-11-19, as Ask stored it", () => {
+  // The stored reply and its sources, word for word: two timed recordings cited, the title in a paragraph of its own, the time later in a list.
+  const REAL = {"text": "It’s in the audio asset **“[with passion][laughing maniacally] You haven't heard the last of me! I'll return for my dog and my family. You can keep”**.\n\nThe line is at the start:\n- **[0:00:00]** “You haven't heard the last of me! I'll return for my dog and my family. You can keep my wife.”\n\nIf you want, I can also point you to the exact asset page.", "sources": [{"entityType": "asset", "entityId": "af6b7005-1f1b-4003-83da-9585dd17d94e", "title": "[with passion][laughing maniacally] You haven't heard the last of me! I'll return for my dog and my family. You can keep", "startSeconds": 0}, {"entityType": "asset", "entityId": "3b56768b-5fea-41a3-83dc-db2e30f1be9b", "title": "The Last Onion: filmstrip"}, {"entityType": "asset", "entityId": "dd455e5b-ab11-4145-b56b-794e7814ac53", "title": "3001 Narrator: By the time the wind dropped, there wa · take 1.webm", "startSeconds": 0}, {"entityType": "asset", "entityId": "dc270f5f-5f6d-4df9-b2a6-bcb362099121", "title": "The Last Onion: subtitles"}]};
+
+  test("its time is a link to the recording named above it, at 0:00", () => {
+    const html = answerMarkdownHtml(REAL.text, REAL.sources);
+    const links = html.match(/<a [^>]*>[^<]*<\/a>/g) ?? [];
+    assert.equal(links.length, 1, html);
+    assert.match(links[0], /af6b7005-1f1b-4003-83da-9585dd17d94e/);
+    assert.match(links[0], />\[?0:00:00\]?<\/a>/);
+  });
+
+  test("a time in a paragraph after a title in an earlier one links; one with no title above it stays text", () => {
+    const both = [A, B];
+    assert.match(answerMarkdownHtml("In **Morning walk**.\n\nIt starts at 0:12.", both), /<a [^>]*aaa[^>]*>0:12<\/a>/);
+    assert.doesNotMatch(answerMarkdownHtml("It starts at 0:12.\n\nIn Morning walk.", both), /<a /);
+  });
+});
