@@ -135,6 +135,15 @@ A timeline definition::
 - ``sidebar`` (``true`` or ``{label?, icon?}``) puts a link to the view's page (its picker of entries) in the sidebar, at the top of the
   package's group (else under Guided setups): ``label`` defaults to the view's title, ``icon`` is a short emoji. Without it there is no link;
   an entry's page offers its views as buttons either way.
+- ``picker`` turns the view's page without an entry (the list of entries to open in it) into a grid of cards, each a link that opens the
+  entry in the view: ``{picture?, subtitle?, badges?, strip?, play?}``, all optional. ``picture`` is an asset field on the entry shown as the
+  card's picture (else the first picture of the strip, else the title's first letters); ``subtitle`` a field key, or a list of up to three,
+  each a key or ``{field, before?}`` (``before``: a few characters put before the value, ``"Ep "``), joined with a dot (a field with a
+  ``ref`` shows the title of the entry it names); ``badges`` up to three field keys shown as chips (a story's status); ``strip`` (``true`` or
+  ``{limit?}``, 1 to 24, default 16) a filmstrip of the spine's pictures (``spine.picture``, which it needs) under the card's picture, evenly
+  sampled when there are more, with the number of items in the card's counts; ``play`` an asset field on the entry holding a video (a
+  story's latest render): a Play button plays it in the card, and its length (the asset's ``seconds``) is in the counts. The page reads
+  the spine's items for all the cards in one query; nothing else is fetched. Without ``picker`` the page is the plain list it was.
 """
 
 from __future__ import annotations
@@ -147,6 +156,10 @@ MAX_LANES = 6
 MAX_ACTIONS = 6
 MAX_SIDEBAR_LABEL = 40
 MAX_SIDEBAR_ICON = 8
+PICKER_KEYS = ("picture", "subtitle", "badges", "strip", "play")
+MAX_PICKER_FIELDS = 3
+MAX_PICKER_BEFORE = 12
+MAX_STRIP = 24
 SECONDS_KEYS = ("hold", "lead", "gap", "tail")
 ENTRY_SECONDS_KEYS = (*SECONDS_KEYS, "picture_lead")
 IN_LANE_KEYS = ("nudge", "simultaneous", "words")
@@ -214,7 +227,53 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         return problem
     if problem := _check_clip(spine.get("clip"), lanes, f"{label} spine"):
         return problem
-    return _check_actions(payload.get("actions"), label) or _check_sidebar(payload.get("sidebar"), label)
+    return (
+        _check_actions(payload.get("actions"), label)
+        or _check_sidebar(payload.get("sidebar"), label)
+        or _check_picker(payload.get("picker"), spine, label)
+    )
+
+
+def _check_picker(spec: Any, spine: dict, label: str) -> str | None:
+    """``picker``: the entries to open drawn as cards, ``{picture?, subtitle?, badges?, strip?, play?}`` (absent: the plain list)."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict) or set(spec) - set(PICKER_KEYS):
+        return f"{label}: picker is {{{', '.join(f'{k}?' for k in PICKER_KEYS)}}}, how the entries to open are drawn as cards"
+    if problem := _fields(spec, ("picture", "play"), f"{label} picker"):
+        return problem
+    sub = spec.get("subtitle")
+    items = [sub] if isinstance(sub, str | dict) else sub
+    if sub is not None and not (isinstance(items, list) and 1 <= len(items) <= MAX_PICKER_FIELDS and all(_subtitle_item(i) for i in items)):
+        return (
+            f"{label}: picker.subtitle is a field key, or a list of up to {MAX_PICKER_FIELDS}, each a key or {{field, before?}} "
+            f"(before: up to {MAX_PICKER_BEFORE} characters)"
+        )
+    badges = spec.get("badges")
+    if badges is not None and not (
+        isinstance(badges, list) and 1 <= len(badges) <= MAX_PICKER_FIELDS and all(isinstance(b, str) and _NAME.match(b) for b in badges)
+    ):
+        return f"{label}: picker.badges is a list of up to {MAX_PICKER_FIELDS} field keys"
+    strip = spec.get("strip")
+    if strip is None or strip is False:
+        return None
+    if not (strip is True or (isinstance(strip, dict) and not set(strip) - {"limit"})):
+        return f"{label}: picker.strip is true or {{limit?}}, a filmstrip of the spine's pictures"
+    limit = strip.get("limit") if isinstance(strip, dict) else None
+    if limit is not None and not (isinstance(limit, int) and not isinstance(limit, bool) and 1 <= limit <= MAX_STRIP):
+        return f"{label}: picker.strip.limit is a whole number from 1 to {MAX_STRIP}"
+    if not spine.get("picture"):
+        return f"{label}: picker.strip shows the spine's pictures, so the spine needs picture"
+    return None
+
+
+def _subtitle_item(item: Any) -> bool:
+    if isinstance(item, str):
+        return bool(_NAME.match(item))
+    if not isinstance(item, dict) or set(item) - {"field", "before"} or not (isinstance(item.get("field"), str) and _NAME.match(item["field"])):
+        return False
+    before = item.get("before")
+    return before is None or (isinstance(before, str) and 0 < len(before) <= MAX_PICKER_BEFORE)
 
 
 def _check_sidebar(spec: Any, label: str) -> str | None:

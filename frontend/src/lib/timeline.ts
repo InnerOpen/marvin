@@ -11,6 +11,7 @@ import { RING } from "./cueFields.ts";
 import { type Effect, effectChip, effectWords, kindOf, mixSeconds } from "./cueKinds.ts";
 import { type StoredCue, cuesByHolder } from "./cueHomes.ts";
 import type { SidebarSpec } from "./viewLinks.ts";
+import type { PickerSpec } from "./viewPicker.ts";
 import { chipsOf } from "./wordCues.ts";
 
 export interface SecondsSpec {
@@ -253,6 +254,8 @@ export interface TimelineSpec {
   actions?: ActionSpec[];
   /** A link to the view in the sidebar (lib/viewLinks.ts). */
   sidebar?: SidebarSpec;
+  /** The page without an entry draws the entries to open as cards (lib/viewPicker.ts); without it, a plain list. */
+  picker?: PickerSpec;
 }
 
 /** An entry as the entries query returns it: the fields in dataJson, the attached assets with the field key as their role. */

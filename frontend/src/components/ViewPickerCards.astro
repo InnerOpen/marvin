@@ -1,0 +1,95 @@
+---
+/**
+ * A view's entries to open, as cards (a view's `picker`, lib/viewPicker.ts): each is one link that opens the entry in the view, holding its
+ * picture (else the first still of its strip, else its initials on the theme's accent), a filmstrip of its spine's pictures (a story's beat
+ * stills, each titled "Beat 07"), its title and chips, a line under it and its counts. A card whose entry holds a video (a story's render)
+ * has a Play button over its picture, a separate focus stop outside the link: it plays the video in place of the picture (InlineVideo.astro,
+ * loading nothing until then) and a second press stops it. Every box has its size before its picture loads, so nothing moves.
+ */
+import InlineVideo from "@/components/InlineVideo.astro";
+import type { PickerCard } from "@/lib/viewPicker";
+
+interface Props {
+  cards: PickerCard[];
+}
+
+const { cards } = Astro.props;
+// A strip of a few stills keeps the size of a longer one's, so the thumbnails are alike from card to card.
+const STRIP_MIN_COLUMNS = 8;
+---
+
+<ul class="pcards" data-picker-cards>
+  {cards.map((card) => (
+    <li class="pcard">
+      <a class="pc-link" href={card.href}>
+        <div class="pc-media">
+          {card.picture ? <img src={card.picture} alt="" loading="lazy" decoding="async" /> : <span class="pc-initials" aria-hidden="true">{card.initials}</span>}
+        </div>
+        {card.strip && (
+          <div class="pc-strip" aria-hidden="true" style={`--cols: ${Math.max(card.thumbs.length, STRIP_MIN_COLUMNS)}`}>
+            {card.thumbs.map((t) => (
+              <span class:list={["pc-thumb", { blank: !t.picture }]} title={t.title}>
+                {t.picture && <img src={t.picture} alt="" loading="lazy" decoding="async" />}
+              </span>
+            ))}
+          </div>
+        )}
+        <div class="pc-body">
+          <div class="pc-head">
+            <h3 class="pc-title">{card.title}</h3>
+            {card.badges.map((b) => <span class="pill pc-chip">{b}</span>)}
+          </div>
+          {card.subtitle && <span class="pc-sub">{card.subtitle}</span>}
+          {card.counts && <span class="pc-counts">{card.counts}</span>}
+        </div>
+      </a>
+      {card.video && (
+        <div class="pc-play">
+          <InlineVideo variant="fill" preload="none" src={card.video.url} label={card.title} />
+        </div>
+      )}
+    </li>
+  ))}
+</ul>
+
+<style>
+  .pcards { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+  .pcard { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+  .pcard:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: 0 6px 20px rgb(0 0 0 / 0.18); transform: translateY(-2px); }
+  .pc-link { display: flex; flex-direction: column; height: 100%; color: inherit; text-decoration: none; border-radius: inherit; }
+  .pc-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* The picture: one shape for every card, the picture cropped to fill it. */
+  .pc-media { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; background: var(--panel-2); overflow: hidden; }
+  .pc-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .pc-initials { display: grid; place-items: center; width: 100%; height: 100%; font-size: 44px; font-weight: 700; letter-spacing: 0.04em; color: var(--ink); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 45%, var(--panel-2)), color-mix(in srgb, var(--accent-2) 30%, var(--panel-2))); }
+
+  /* The filmstrip: equal tiles, a still or a hatched blank where the still is not made yet. */
+  .pc-strip { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 2px; height: 34px; padding: 3px; box-sizing: border-box; background: color-mix(in srgb, var(--ink) 12%, var(--panel-2)); }
+  .pc-thumb { position: relative; display: block; min-width: 0; border-radius: 2px; overflow: hidden; background: var(--panel-2); }
+  .pc-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .pc-thumb.blank { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, transparent) 0 3px, transparent 3px 6px), var(--panel-2); }
+
+  .pc-body { display: grid; gap: 4px; padding: 10px 12px 12px; min-width: 0; }
+  .pc-head { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+  .pc-title { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .pc-chip { flex: none; min-height: 20px; padding: 2px 8px; font-size: 11px; font-weight: 600; text-transform: capitalize; }
+  .pc-sub, .pc-counts { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  .pc-sub { font-size: 13px; }
+  .pc-counts { font-size: 12px; font-variant-numeric: tabular-nums; }
+
+  /* The Play button sits over the picture, outside the link; the video is hidden until it plays, so the picture shows, and while it plays
+     it is shown whole (a tall Short in a wide box) and takes the clicks, so a click on it does not open the entry. */
+  .pc-play { position: absolute; top: 0; left: 0; right: 0; aspect-ratio: 16 / 9; pointer-events: none; }
+  .pc-play :global(.inline-video) { height: 100%; }
+  .pc-play :global(.inline-video:not([data-state="playing"]) video) { opacity: 0; }
+  .pc-play :global(.inline-video[data-state="playing"] video) { object-fit: contain; background: #000; pointer-events: auto; }
+  .pc-play :global(.iv-toggle .play-btn) { width: 48px; height: 48px; opacity: 0.94; box-shadow: 0 2px 10px rgb(0 0 0 / 0.3); }
+  .pc-play :global(.iv-toggle .play-btn svg) { width: 22px; height: 22px; }
+  .pc-play :global(.inline-video[data-state="playing"] .iv-toggle .play-btn) { width: 36px; height: 36px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pcard { transition: none; }
+    .pcard:hover { transform: none; }
+  }
+</style>

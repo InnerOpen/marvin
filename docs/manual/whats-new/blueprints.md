@@ -19,7 +19,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | `workflow` | A [workflow](workflows.md), switched off, authored by whoever applies it | `{"name": …, "definition": {trigger, conditions, actions}}`; the definition must pass structural validation |
 | `playbook` | A [Playbook](playbooks.md#from-an-integration), as a **draft** with its reference files (integrations only) | `{"skill_md": "<SKILL.md text>", "files": {"references/x.md": "<text>"}}`. Text files only (`.md .txt .json .csv .yaml`), no scripts, relative paths; `SKILL.md` at most 64 KB, at most 20 files of 64 KB, 256 KB in all. The SKILL.md `name` is the slug and starts with the provider's slug (underscores as hyphens). Never required, no parameters. Marvin checks all of it again; one that fails is skipped with a warning and the provider's other content still loads |
 | `wizard` | Nothing: a **guided setup** kept in a [package](workflows.md)'s manifest (packages only), listed under *Guided setups* | `{"title": …, "steps": [...]}`: step kinds `option`, `choose` (also `picture`, `subtitle`, `create.upload`, `multiple` with `assets`; `selection` shows a multi-select's picks), `form`, `upload`, `list`, `gallery`, `run`, `review`; `button` puts a button on an entry type's pages that opens the setup on that entry (`{entry_type, label, key, step?, also?}`); `when` shows a step only on a choice; `${name}` reads a choice made earlier. See [Guided setups](guided-setups.md) and `services/blueprints/wizards.py` |
-| `view` | Nothing: a **view** of an entry kept in a package's manifest (packages only); an entry of its type gets a button that opens it, and with `"sidebar": true` the sidebar a link to it | `{"kind": "timeline", "title": …, "entry_type": …, "spine": {…}, "lanes": [...], "actions": [...]}`: the one kind, `timeline`, lays an entry's children out as time (a story's beats, with lines and sounds in lanes). See `services/blueprints/views.py` |
+| `view` | Nothing: a **view** of an entry kept in a package's manifest (packages only); an entry of its type gets a button that opens it, and with `"sidebar": true` the sidebar a link to it; with `picker` its page lists the entries as cards | `{"kind": "timeline", "title": …, "entry_type": …, "spine": {…}, "lanes": [...], "actions": [...]}`: the one kind, `timeline`, lays an entry's children out as time (a story's beats, with lines and sounds in lanes). See `services/blueprints/views.py` |
 
 **Required vs suggested.** `required` defaults to `False` and is meant to be set sparingly: `True` only when the source cannot work without it, such as an entry type an action reads or writes. Everything else is a suggestion. Core blueprints are never required.
 
@@ -129,6 +129,32 @@ A timeline `view` can name `spine.clip.recording` and, on a lane, `recording`: a
 ## A view can put a link to itself in the sidebar
 
 A `view` can say `"sidebar": true`, or `"sidebar": {"label": …, "icon": …}` (both optional: the label defaults to the view's title, the icon is a short emoji, 🎞 when none is named), to get a link in the sidebar that opens the view's page, which lists the entries to open in it. The link sits at the top of the package's own group in the sidebar (the one its collections are listed in), or right under Guided setups when the package has no group there (fewer than two of its collections are shown). A view without the key gets no link, as before. Either way, an entry of the view's type keeps its button that opens it in the view. For Screenplay Studio's story timeline that is `"sidebar": true` on the `story-timeline` view.
+
+## A view's page can show its entries as cards
+
+A view's page without an entry lists the entries to open in it. With a `picker` key the list becomes a grid of cards (three or four to a row on a wide screen, one on a phone), each a link that opens the entry in the view. All of its keys are optional:
+
+- `picture`: an asset field on the entry, shown as the card's picture. Without one, the card shows the first picture of its strip, else the first letters of its title on the theme's accent colour.
+- `subtitle`: the line under the title. It is a field key, or a list of up to three, joined with a dot. Each is a key or `{"field": …, "before": …}`, where `before` is up to 12 characters put before the value (`"Ep "`). A field with a `ref` shows the title of the entry it names, not its slug. Empty fields are left out.
+- `badges`: up to three field keys shown as chips beside the title, such as a story's status.
+- `strip`: `true` or `{"limit": n}` (1 to 24, default 16). It adds a thin filmstrip under the picture: the pictures of the view's spine items (a story's beat stills, `spine.picture`, which the strip needs), evenly sampled when there are more. An item with no picture yet is a hatched blank, and each tile's tooltip says which item it is ("Beat 07"). The card's counts then say how many items there are ("24 beats").
+- `play`: an asset field on the entry holding a video, such as a story's latest render. A card that has one gets a Play button over its picture. It is a separate stop for the keyboard, and it plays the video in the card, loading nothing until it is pressed. A second press stops it. The video's length (its asset's `seconds`) is added to the counts ("24 beats · 1:27").
+
+The page reads the spine items of all the cards in one query, 500 rows at a time and four pages at most. A story whose items were cut off by that limit shows no count. The pictures and the video come with the entries themselves, so no card fetches anything of its own. If one of those reads fails, that part of the card is left off. A view without `picker` keeps its plain list.
+
+For Screenplay Studio's story timeline:
+
+```json
+"picker": {
+  "picture": "cover",
+  "subtitle": ["series", {"field": "episode", "before": "Ep "}],
+  "badges": ["status"],
+  "strip": {"limit": 16},
+  "play": "video"
+}
+```
+
+The render job keeps the story's newest whole-story render in the story's `video` field and trashes the one before, and a draft of a few beats never touches it. So `play` reads that field, not the render jobs.
 
 ## Cues on words in a timeline view
 
