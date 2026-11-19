@@ -6,6 +6,8 @@
 
 export interface TypeLike {
   slug?: string | null;
+  name?: string | null;
+  sortOrder?: number | null;
   capabilitiesJson?: Record<string, unknown> | null;
   schemaJson?: { fields?: { type?: string }[] } | null;
   /** Why the type can't be edited or deleted (backend: services/locked_entry_types.py); the SDK's type doesn't list it yet. */
@@ -44,6 +46,23 @@ export function isListedType(type: TypeLike | null | undefined): boolean {
 /** The types to offer a person who is about to write something. */
 export function listedTypes<T extends TypeLike>(types: T[] | null | undefined): T[] {
   return (types ?? []).filter(isListedType);
+}
+
+/** Whether the New menu and Quick create offer the type: a listed type whose `capabilities.offer_in_new` isn't false ("Offer in the New
+ *  menu" on the entry type editor; a type without the key is offered). The camelCase spelling is read too, as the API would accept it. */
+export function isOfferedInNew(type: TypeLike | null | undefined): boolean {
+  if (!isListedType(type)) return false;
+  const caps = type?.capabilitiesJson;
+  return (caps?.offer_in_new ?? caps?.offerInNew) !== false;
+}
+
+/** The types the New menu (cap 12) or Quick create (cap 6) offers: the offered ones by sort order, then name, the first `cap` of them;
+ *  `more` when some were left out, for a "More…" link to the New entry page, whose chooser lists every listed type. */
+export function newMenuTypes<T extends TypeLike>(types: T[] | null | undefined, cap: number): { shown: T[]; more: boolean } {
+  const offered = (types ?? [])
+    .filter(isOfferedInNew)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.name ?? "").localeCompare(b.name ?? ""));
+  return { shown: offered.slice(0, cap), more: offered.length > cap };
 }
 
 /** Whether the type has a field that holds an asset (an image, or a list of them). */

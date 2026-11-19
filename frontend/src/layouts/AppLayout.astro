@@ -31,7 +31,7 @@ import { getContentAccess } from "@/lib/api/workspaces";
 import { readCurrentWorkspace, readProfile } from "@/lib/api/self";
 import { getTheme } from "@/lib/api/theme";
 import { logoUrl } from "@/lib/integrationLogo";
-import { listedTypes } from "@/lib/entryTypeListing";
+import { newMenuTypes } from "@/lib/entryTypeListing";
 import { isSubmissionsPath, showAudienceGroup, submissionsNav, subscribersNav } from "@/lib/audience";
 import { newBadgeText } from "@/lib/socialInbox";
 import { isSocialPath, socialNav } from "@/lib/socialSpace";
@@ -124,6 +124,8 @@ if (authToken) {
 
 // The New menu: this workspace's entry types (the dashboard's Quick Create, in reach from every page). Best-effort.
 let newTypes: { id: string; name: string; icon?: string | null }[] = [];
+// More types are offered than the menu shows (lib/entryTypeListing newMenuTypes): a "More…" link to the New entry page's chooser.
+let moreNewTypes = false;
 let canAuthor = false;
 // The system collections (Inbox, Drafts, Needs Review, Approved — every workspace has them) are Gmail's folders, with
 // Published and Trash after them; a person's own collections fold under Content, like labels.
@@ -156,7 +158,9 @@ if (authToken) {
     assetTypes = aTypes;
     resourceTypes = rTypes;
     canAuthor = access.canAuthor;
-    newTypes = listedTypes((types ?? []) as any[]).slice(0, 8).map((t: any) => ({ id: t.id, name: t.name, icon: t.icon ?? null }));
+    const offered = newMenuTypes((types ?? []) as any[], 12);
+    newTypes = offered.shown.map((t: any) => ({ id: t.id, name: t.name, icon: t.icon ?? null }));
+    moreNewTypes = offered.more;
     const all = (colls ?? [])
       .slice()
       .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
@@ -170,6 +174,7 @@ if (authToken) {
     collections = all.filter((c) => !c.system && c.inSidebar);
   } catch {
     newTypes = [];
+    moreNewTypes = false;
   }
 }
 const environmentLabel = await environmentLabelRead;
@@ -334,6 +339,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
               {newTypes.map((t) => (
                 <a href={`/workspace/entries/new?type=${t.id}`}><span aria-hidden="true">{t.icon || "📝"}</span><span>{t.name}</span></a>
               ))}
+              {moreNewTypes && <a href="/workspace/entries/new"><span aria-hidden="true">…</span><span>More…</span></a>}
               <a href="/workspace/assets/new"><span aria-hidden="true">🖼</span><span>Upload files</span></a>
               <a href="/workspace/collections/new"><span aria-hidden="true">📚</span><span>Collection</span></a>
               {guided.slice(0, 4).map((w) => (

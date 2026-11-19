@@ -11,7 +11,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | `kind` | Creates | Payload |
 | --- | --- | --- |
 | `collection` | A collection (smart collections are materialised at once) | A collection body |
-| `entry_type` | An entry type | An entry-type body |
+| `entry_type` | An entry type | An entry-type body. `"capabilities_json": {"offer_in_new": false}` keeps a type nobody makes by hand out of the New menu and Quick create (it stays listed; set only when the type is created, an update never changes it) |
 | `entry_fields` | Fields on an existing entry type, and optionally its form settings | `{"entry_type": "<slug>", "fields": [<schema field>, …], "submission": {"destination"?, "kind"?}?}`; only fields whose `key` is missing are appended, existing fields are never changed. `submission` is the one hook on a form's settings: `destination` (`audience` \| `entries`) and/or `kind` (`message` \| `signup`), nothing else, set on a submittable type only for the keys it doesn't already store (a choice someone made stays; choosing a destination sets *Show in content lists* as the editor does). A blueprint that only sets these declares `fields: []`. A Marvin before this hook ignores the block (and rejects an empty `fields` list, so a provider that wants to stay valid there also declares a field) |
 | `scheduled_task` | A scheduled task, switched off | A scheduled-task body |
 | `event_subscription` | An event → integration action wiring, switched off | `event_type`, `action`, `args` |

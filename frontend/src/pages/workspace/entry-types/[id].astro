@@ -48,6 +48,8 @@ const destination = submission.destination === "entries" ? "entries" : "audience
 const kind = submission.kind === "signup" ? "signup" : "message";
 // "Show in content lists" is the one internal flag (`listed`); the hint says what uses the type.
 const listed = capabilities.listed !== false;
+// "Offer in the New menu" (`offer_in_new`, default on): whether the New menu and Quick create offer a listed type.
+const offerInNew = (capabilities.offer_in_new ?? capabilities.offerInNew) !== false;
 const usedByNow = usedBy({ slug: entryType?.slug, capabilitiesJson: capabilities });
 const recipe = (entryType?.recipeJson ?? {}) as Record<string, unknown>;
 // The authoring instructions and the drafts' voice (`enrichment.voice`) get their own boxes; the JSON textarea
@@ -273,6 +275,13 @@ const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
                     Off means its entries are kept out of All entries, the status lists, counts, search and the AI index, while features that use them keep working.
                     <span id="cap_listed_use" data-initial={usedByNow ?? ""}>{usedByNow ? ` Used by ${usedByNow}.` : ""}</span>
                   </p>
+                </div>
+                <div class="form-group listed-switch">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="cap_offer_in_new" checked={offerInNew} />
+                    Offer in the New menu
+                  </label>
+                  <p class="form-help">Off keeps it out of the New menu and Quick create (for types nobody makes by hand); it stays in every list, and New entry's type list still has it.</p>
                 </div>
 
                 <fieldset id="submission-settings" class="submission-settings" hidden={capabilities.submittable !== true}>
@@ -1146,7 +1155,9 @@ const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
       submittable,
       routable: (document.getElementById('cap_routable') as HTMLInputElement).checked,
       listed: (document.getElementById('cap_listed') as HTMLInputElement).checked,
+      offer_in_new: (document.getElementById('cap_offer_in_new') as HTMLInputElement).checked,
     };
+    delete next.offerInNew; // one spelling stored: the switch's
     if (submittable) next.submission = readSubmissionSettings();
     capabilitiesHidden.value = JSON.stringify(next);
   }
@@ -1200,6 +1211,7 @@ const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
   kindSelect?.addEventListener('change', applyDestinationDefault);
   submittableBox?.addEventListener('change', applyDestinationDefault);
   listedBox?.addEventListener('change', syncCapabilitiesJson);
+  document.getElementById('cap_offer_in_new')?.addEventListener('change', syncCapabilitiesJson);
   destinationSelect?.addEventListener('change', syncSubmissionHelp);
   kindSelect?.addEventListener('change', syncSubmissionHelp);
   for (const el of document.querySelectorAll('[data-sub]')) {
