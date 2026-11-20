@@ -1,7 +1,7 @@
 // The sidebar's links to a package's views (a story's Timeline). A view asks for one with `sidebar` in its definition
 // (services/blueprints/views.py): `true`, or `{label?, icon?}`. The link opens the view's page, which first lists the entries
-// to open in it. It sits at the top of its package's group or section in the sidebar, or, when the package has neither, under Guided
-// setups (collectionGroups.ts `placePackages`).
+// to open in it. It sits at the top of its package's group or section in the sidebar (collectionGroups.ts
+// `placePackages`).
 
 /** A view's `sidebar` key: true, or the link's own label and icon. */
 export type SidebarSpec = boolean | { label?: string; icon?: string };

@@ -73,9 +73,9 @@ An entry type is **internal** (*unlisted*) when its `capabilities.listed` is fal
 - Applying a collection [blueprint](blueprints.md) materialises it immediately.
 - The system task **Resync Smart Collections** (`resync_smart_collections`, admin-only, daily interval) re-materialises every smart collection in every workspace. It is the safety net for missed events, bulk imports and rolling windows.
 
-**What a package brings, in the sidebar.** Each installed [package](workflows.md) has a place in the sidebar, chosen on **Automation › Packages** under **In the sidebar** on the package (owners and admins):
+**What a package brings, in the sidebar.** Each installed [package](workflows.md) has a place in the sidebar, chosen on **Settings › Integrations › Packages** under **In the sidebar** on the package (owners and admins):
 
-- **Under Collections** (the default, for packages installed before this too): a group inside the Collections fold, named for the package, with its view links (a story's **Timeline**) first and then its collections, drawn like an integration's group. It opens, with Collections, on the page of any of its views or collections. A package that brings only one thing (one collection and no sidebar view) is listed plainly: its collection with your own, its view link under Guided setups.
+- **Under Collections** (the default, for packages installed before this too): a group inside the Collections fold, named for the package, with its view links (a story's **Timeline**) first and then its collections, drawn like an integration's group. It opens, with Collections, on the page of any of its views or collections. A package that brings only one thing gets its group all the same (**Media › Recordings**), so a collection is always found under the package that made it.
 - **Its own section**: a heading of its own like Audience, after Content, with the same links. This is what a package with two or more collections got before, and it is given even for a single collection.
 - **Hidden**: its collections and view links are left out of the sidebar. Nothing else changes: they are still on All collections, in search and everywhere else.
 

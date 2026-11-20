@@ -32,18 +32,13 @@ export interface PackageGroup<T extends GroupableCollection> {
 }
 
 export interface PlacedPackages<T extends GroupableCollection> {
-  /** Listed as they are under Collections: a person's own, an integration's, and the lone collection of a package with no group. */
+  /** Listed as they are under Collections: a person's own and an integration's. */
   loose: T[];
-  /** The lone view link of a package with no group: under Guided setups. */
-  looseViews: SidebarViewLink[];
   /** Groups folded inside Collections, A to Z. */
   nested: PackageGroup<T>[];
   /** Sections of their own, A to Z. */
   sections: PackageGroup<T>[];
 }
-
-/** Under Collections a package gets a group once it brings this many things (collections and view links): a group of one is a folder for nothing. */
-const SMALLEST_GROUP = 2;
 
 /** A package's title: what its collections' names say before the colon ("Screenplay Studio: Cast"), else its own name, else the slug in words. */
 export function packageTitle(slug: string, names: string[], packageName?: string): string {
@@ -63,13 +58,14 @@ export function nameWithin(name: string, group: string): string {
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
 
-/** Place each package's collections and view links where its choice says. A package missing from `places` is under Collections, the
+/** Place each package's collections and view links where its choice says: always under the package's name, even when it brings one
+ *  thing, so a collection is found under the package that made it. A package missing from `places` is under Collections, the
  *  default. Hidden ones are left out. Integration collections are left to their own grouping. */
 export function placePackages<T extends GroupableCollection>(collections: T[], views: SidebarViewLink[], places: PackagePlace[]): PlacedPackages<T> {
   const placeOf = new Map(places.map((p) => [p.slug, p]));
   const byPackage = new Map<string, { items: T[]; views: SidebarViewLink[] }>();
   const bucket = (slug: string) => byPackage.get(slug) ?? byPackage.set(slug, { items: [], views: [] }).get(slug)!;
-  const placed: PlacedPackages<T> = { loose: [], looseViews: [], nested: [], sections: [] };
+  const placed: PlacedPackages<T> = { loose: [], nested: [], sections: [] };
   for (const c of collections) {
     if (c.packageSlug && !c.integrationId) bucket(c.packageSlug).items.push(c);
     else placed.loose.push(c);
@@ -79,12 +75,7 @@ export function placePackages<T extends GroupableCollection>(collections: T[], v
     const place = placeOf.get(slug)?.sidebar ?? "collections";
     if (place === "hidden") continue;
     const group = { slug, name: packageTitle(slug, items.map((c) => c.name), placeOf.get(slug)?.name), views: links, items };
-    if (place === "section") placed.sections.push(group);
-    else if (items.length + links.length >= SMALLEST_GROUP) placed.nested.push(group);
-    else {
-      placed.loose.push(...items);
-      placed.looseViews.push(...links);
-    }
+    (place === "section" ? placed.sections : placed.nested).push(group);
   }
   placed.nested.sort(byName);
   placed.sections.sort(byName);

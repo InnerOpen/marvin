@@ -348,6 +348,24 @@ export function parseSteps(text: string): { steps: PresetStep[] } | { error: str
   return { steps: value as PresetStep[] };
 }
 
+/** What unticking "Edit the steps as JSON" does. `text` is the box; `before` is what the box held when JSON was switched on. Nobody
+ *  is kept in JSON for a mistake in it: an empty box or list is a form with nothing switched on, and JSON that does not read is
+ *  dropped for the steps as they were before. Only steps the form cannot show stay as JSON, since the form would change them. */
+export function leaveJson(text: string, before: PresetStep[]): { to: "form" | "json"; steps: PresetStep[] | null; note: string } {
+  const empty = text.trim() === "" || text.replace(/\s+/g, "") === "[]";
+  const parsed = empty ? { steps: [] as PresetStep[] } : parseSteps(text);
+  if ("steps" in parsed) {
+    if (formFits(parsed.steps)) return { to: "form", steps: parsed.steps, note: "" };
+    return {
+      to: "json",
+      steps: null,
+      note: "These steps don't fit the form (a treatment twice, out of the form's order, or a value its controls can't hold), so they stay as JSON.",
+    };
+  }
+  if (formFits(before)) return { to: "form", steps: before, note: `${parsed.error} So the form shows the steps as they were before you edited them as JSON.` };
+  return { to: "json", steps: before, note: `${parsed.error} So the steps are back as they were. They don't fit the form, so they stay as JSON.` };
+}
+
 /** The list with `preset` in place of the one with slug `replacing` (or added at the end when `replacing` is null). */
 export function putPreset(list: PicturePreset[], preset: PicturePreset, replacing: string | null): PicturePreset[] {
   const at = replacing == null ? -1 : list.findIndex((p) => p.slug === replacing);
