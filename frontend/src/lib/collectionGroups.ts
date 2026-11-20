@@ -1,6 +1,9 @@
-// The sidebar: the collections a package installed get a section of their own (like Audience), named for the package.
-// "Screenplay Studio: Cast" and "Screenplay Studio: Script" become "Screenplay Studio" with Cast and Script inside.
-// A person's own collections, and an integration's (their own grouping), stay as they are.
+// The sidebar: where the collections and view links a package brings are listed. Each installed package has a place, chosen on the
+// Packages page (GET /api/groups/packages/sidebar): a group folded inside Collections, named for the package (the default), a section of
+// its own like Audience, or nowhere. "Screenplay Studio: Cast" and "Screenplay Studio: Script" become "Screenplay Studio" with Cast and
+// Script inside. A person's own collections, and an integration's (their own grouping), stay as they are.
+
+import type { SidebarViewLink } from "./viewLinks";
 
 export interface GroupableCollection {
   id: string;
@@ -10,17 +13,44 @@ export interface GroupableCollection {
   packageSlug: string | null;
 }
 
+/** `collections`: a group inside the Collections fold. `section`: a section of its own. `hidden`: left out of the sidebar. */
+export type SidebarPlace = "collections" | "section" | "hidden";
+
+/** Where the sidebar puts one installed package. */
+export interface PackagePlace {
+  slug: string;
+  name: string;
+  sidebar: SidebarPlace;
+}
+
 export interface PackageGroup<T extends GroupableCollection> {
   slug: string;
   name: string;
+  /** Its view links, listed first. */
+  views: SidebarViewLink[];
   items: T[];
 }
 
-/** A package's title: what its collections' names say before the colon ("Screenplay Studio: Cast"), else the slug in words. */
-export function packageTitle(slug: string, names: string[]): string {
+export interface PlacedPackages<T extends GroupableCollection> {
+  /** Listed as they are under Collections: a person's own, an integration's, and the lone collection of a package with no group. */
+  loose: T[];
+  /** The lone view link of a package with no group: under Guided setups. */
+  looseViews: SidebarViewLink[];
+  /** Groups folded inside Collections, A to Z. */
+  nested: PackageGroup<T>[];
+  /** Sections of their own, A to Z. */
+  sections: PackageGroup<T>[];
+}
+
+/** Under Collections a package gets a group once it brings this many things (collections and view links): a group of one is a folder for nothing. */
+const SMALLEST_GROUP = 2;
+
+/** A package's title: what its collections' names say before the colon ("Screenplay Studio: Cast"), else its own name, else the slug in words. */
+export function packageTitle(slug: string, names: string[], packageName?: string): string {
   const prefixes = names.map((n) => (n.includes(":") ? n.split(":")[0].trim() : "")).filter(Boolean);
   const first = prefixes[0];
   if (first && prefixes.every((p) => p === first)) return first;
+  if (packageName?.trim()) return packageName.trim();
   const words = slug.replace(/[-_]+/g, " ").trim();
   return words ? words[0].toUpperCase() + words.slice(1) : "Package";
 }
@@ -31,20 +61,32 @@ export function nameWithin(name: string, group: string): string {
   return rest ? rest[0].toUpperCase() + rest.slice(1) : name;
 }
 
-/** Split the collections into the ones no package owns (listed as they are) and one group per package, A to Z. A package's lone
- *  collection stays in the plain list: a group of one is a folder for nothing. Integration collections are left to their own grouping. */
-export function groupByPackage<T extends GroupableCollection>(collections: T[]): { loose: T[]; groups: PackageGroup<T>[] } {
-  const byPackage = new Map<string, T[]>();
-  const loose: T[] = [];
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+
+/** Place each package's collections and view links where its choice says. A package missing from `places` is under Collections, the
+ *  default. Hidden ones are left out. Integration collections are left to their own grouping. */
+export function placePackages<T extends GroupableCollection>(collections: T[], views: SidebarViewLink[], places: PackagePlace[]): PlacedPackages<T> {
+  const placeOf = new Map(places.map((p) => [p.slug, p]));
+  const byPackage = new Map<string, { items: T[]; views: SidebarViewLink[] }>();
+  const bucket = (slug: string) => byPackage.get(slug) ?? byPackage.set(slug, { items: [], views: [] }).get(slug)!;
+  const placed: PlacedPackages<T> = { loose: [], looseViews: [], nested: [], sections: [] };
   for (const c of collections) {
-    if (c.packageSlug && !c.integrationId) byPackage.set(c.packageSlug, [...(byPackage.get(c.packageSlug) ?? []), c]);
-    else loose.push(c);
+    if (c.packageSlug && !c.integrationId) bucket(c.packageSlug).items.push(c);
+    else placed.loose.push(c);
   }
-  const groups: PackageGroup<T>[] = [];
-  for (const [slug, items] of byPackage) {
-    if (items.length < 2) loose.push(...items);
-    else groups.push({ slug, name: packageTitle(slug, items.map((c) => c.name)), items });
+  for (const v of views) bucket(v.package).views.push(v);
+  for (const [slug, { items, views: links }] of byPackage) {
+    const place = placeOf.get(slug)?.sidebar ?? "collections";
+    if (place === "hidden") continue;
+    const group = { slug, name: packageTitle(slug, items.map((c) => c.name), placeOf.get(slug)?.name), views: links, items };
+    if (place === "section") placed.sections.push(group);
+    else if (items.length + links.length >= SMALLEST_GROUP) placed.nested.push(group);
+    else {
+      placed.loose.push(...items);
+      placed.looseViews.push(...links);
+    }
   }
-  groups.sort((a, b) => a.name.localeCompare(b.name));
-  return { loose, groups };
+  placed.nested.sort(byName);
+  placed.sections.sort(byName);
+  return placed;
 }

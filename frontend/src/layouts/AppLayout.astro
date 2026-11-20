@@ -20,11 +20,12 @@ import { navTitle, navTrail, navUnder } from "@/lib/navTree";
 import { createSdkClient } from "@/lib/sdk";
 import { listAssetTypes } from "@/lib/api/assets";
 import { listCollections } from "@/lib/api/collections";
-import { groupByPackage, nameWithin } from "@/lib/collectionGroups";
+import { nameWithin, placePackages, type PackagePlace } from "@/lib/collectionGroups";
+import { listPackagePlaces } from "@/lib/api/packages";
 import { listResourceTypes } from "@/lib/api/resources";
 import { listWizards } from "@/lib/api/wizards";
 import { listSidebarViews } from "@/lib/api/views";
-import { placeViewLinks, type SidebarViewLink } from "@/lib/viewLinks";
+import type { SidebarViewLink } from "@/lib/viewLinks";
 import { getSummary as getAudienceSummary } from "@/lib/api/audience";
 import { getSummary as getSocialInboxSummary } from "@/lib/api/socialInbox";
 import { getTrashCounts } from "@/lib/api/trash";
@@ -144,11 +145,13 @@ let resourceTypes: { type: string; count: number }[] = [];
 let guided: { slug: string; name: string }[] = [];
 // A package's views that ask for a sidebar link (a story's Timeline): at the top of the package's group, else under Guided setups.
 let viewLinks: SidebarViewLink[] = [];
+// Where each package is listed (under Collections, a section of its own, or not at all): the Packages page's "In the sidebar".
+let packagePlaces: PackagePlace[] = [];
 // The Trash row counts everything in it (entries, assets and resources), not just the entries its collection holds.
 let trashTotal: number | null = null;
 if (authToken) {
   try {
-    const [types, access, colls, aTypes, rTypes, trash, wizards, views] = await Promise.all([
+    const [types, access, colls, aTypes, rTypes, trash, wizards, views, places] = await Promise.all([
       listEntryTypes(authToken, Astro.locals),
       getContentAccess(authToken, Astro.locals),
       listCollections(authToken, Astro.locals),
@@ -157,8 +160,11 @@ if (authToken) {
       getTrashCounts(authToken).catch(() => null),
       listWizards(authToken, undefined, Astro.locals).catch(() => []),
       listSidebarViews(authToken, Astro.locals).catch(() => []),
+      // Without it every package is listed under Collections, the default.
+      listPackagePlaces(authToken, Astro.locals).catch(() => []),
     ]);
     viewLinks = views;
+    packagePlaces = places;
     guided = wizards.map((w) => ({ slug: w.slug, name: w.name }));
     trashTotal = trash?.total ?? null;
     assetTypes = aTypes;
@@ -221,9 +227,14 @@ const hasFolder = (slug: string) => folders.some((c) => c.slug === slug);
 // Collections an integration installed fold under that integration ("n8n › In flight, Failed"); a person's own stay
 // at the top. Inside its group a collection drops the "n8n: " its name repeats. A collection whose integration is
 // gone has no integration id any more and is listed with the person's own.
-// What a package installed gets a section of its own, like Audience ("Screenplay Studio": Cast, Script...), unless it is alone.
-const { loose: ownCollections, groups: packageGroups } = groupByPackage(collections.filter((c) => !c.integrationId));
-const { byGroup: groupViewLinks, loose: looseViewLinks } = placeViewLinks(viewLinks, packageGroups.map((g) => g.slug));
+// What a package brings folds into a group named for it under Collections ("Screenplay Studio": Timeline, Cast, Script...) unless it
+// is a single thing, or gets a section of its own like Audience, or is left out: the package's choice (lib/collectionGroups.ts).
+const {
+  loose: ownCollections,
+  looseViews: looseViewLinks,
+  nested: nestedPackages,
+  sections: packageSections,
+} = placePackages(collections.filter((c) => !c.integrationId), viewLinks, packagePlaces);
 const integrationGroups = [
   ...collections
     .filter((c) => c.integrationId)
@@ -256,6 +267,9 @@ const ENTRY_FOLDERS = folderRows.sort((a, b) => rank(a.slug) - rank(b.slug));
 const here = Astro.url.pathname + Astro.url.search;
 const onEntries = Astro.url.pathname === "/workspace/entries" && !Astro.url.searchParams.get("status");
 const onCollections = Astro.url.pathname.startsWith("/workspace/collections") && !folders.some((c) => Astro.url.pathname === `/workspace/collections/${c.id}`);
+// A package's group under Collections is open on the page of one of its views or collections, and Collections with it.
+const inPackage = (g: (typeof nestedPackages)[number]) => g.views.some((v) => path === v.href) || g.items.some((c) => path === `/workspace/collections/${c.id}`);
+const collectionsOpen = onCollections || nestedPackages.some(inPackage);
 const ASSET_TYPE_LABELS: Record<string, string> = { image: "Images", svg: "SVGs", document: "Documents", video: "Videos", audio: "Audio", archive: "Archives", other: "Other" };
 const ASSET_TYPE_ICONS: Record<string, string> = { image: "🖼", svg: "✒️", document: "📄", video: "🎬", audio: "🎵", archive: "🗜", other: "📦" };
 const typeLabel = (t: string) => t.charAt(0).toUpperCase() + t.slice(1).replace(/[-_]/g, " ");
@@ -383,13 +397,26 @@ function isActive(itemPath: string, currentPath: string): boolean {
           <div class="nav-group-label">Content</div>
           <nav class="nav" aria-label="Content">
             <a href="/workspace/entries" aria-current={onEntries ? "page" : undefined}><span aria-hidden="true">📄</span><span>All entries</span></a>
-            <details class="nav-fold" open={onCollections}>
+            <details class="nav-fold" open={collectionsOpen}>
               <summary class="nav-fold-row" aria-current={onCollections ? "page" : undefined}>
                 <span aria-hidden="true">📚</span><span>Collections</span><span class="nav-chevron" aria-hidden="true">›</span>
               </summary>
               <div class="nav nav-fold-items">
                 {ownCollections.map((c) => (
                   <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{c.name}</span></a>
+                ))}
+                {nestedPackages.map((g) => (
+                  <details class="nav-fold nav-subfold" open={inPackage(g)}>
+                    <summary class="nav-fold-row"><span aria-hidden="true">📦</span><span>{g.name}</span><span class="nav-chevron" aria-hidden="true">›</span></summary>
+                    <div class="nav nav-fold-items">
+                      {g.views.map((v) => (
+                        <a href={v.href} aria-current={path === v.href ? "page" : undefined}><span aria-hidden="true">{v.icon}</span><span>{v.label}</span></a>
+                      ))}
+                      {g.items.map((c) => (
+                        <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{nameWithin(c.name, g.name)}</span></a>
+                      ))}
+                    </div>
+                  </details>
                 ))}
                 {integrationGroups.map((g) => (
                   <details class="nav-fold nav-subfold" open={g.items.some((c) => path === `/workspace/collections/${c.id}`)}>
@@ -446,11 +473,11 @@ function isActive(itemPath: string, currentPath: string): boolean {
             ))}
           </nav>
         </div>
-        {packageGroups.map((g) => (
+        {packageSections.map((g) => (
           <div class="nav-group">
             <div class="nav-group-label">{g.name}</div>
             <nav class="nav" aria-label={g.name}>
-              {(groupViewLinks.get(g.slug) ?? []).map((v) => (
+              {g.views.map((v) => (
                 <a href={v.href} aria-current={path === v.href ? "page" : undefined}><span aria-hidden="true">{v.icon}</span><span>{v.label}</span></a>
               ))}
               {g.items.map((c) => (

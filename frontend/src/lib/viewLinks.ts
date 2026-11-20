@@ -1,6 +1,7 @@
 // The sidebar's links to a package's views (a story's Timeline). A view asks for one with `sidebar` in its definition
 // (services/blueprints/views.py): `true`, or `{label?, icon?}`. The link opens the view's page, which first lists the entries
-// to open in it. It sits at the top of its package's group in the sidebar, or, when the package has no group there, under Guided setups.
+// to open in it. It sits at the top of its package's group or section in the sidebar, or, when the package has neither, under Guided
+// setups (collectionGroups.ts `placePackages`).
 
 /** A view's `sidebar` key: true, or the link's own label and icon. */
 export type SidebarSpec = boolean | { label?: string; icon?: string };
@@ -40,19 +41,4 @@ export function sidebarViewLinks(views: ListedView[]): SidebarViewLink[] {
     });
   }
   return links;
-}
-
-/** Split the links by the package groups the sidebar draws: a link whose package has a group goes in it; the rest are loose. */
-export function placeViewLinks(
-  links: SidebarViewLink[],
-  groupSlugs: string[],
-): { byGroup: Map<string, SidebarViewLink[]>; loose: SidebarViewLink[] } {
-  const groups = new Set(groupSlugs);
-  const byGroup = new Map<string, SidebarViewLink[]>();
-  const loose: SidebarViewLink[] = [];
-  for (const link of links) {
-    if (groups.has(link.package)) byGroup.set(link.package, [...(byGroup.get(link.package) ?? []), link]);
-    else loose.push(link);
-  }
-  return { byGroup, loose };
 }

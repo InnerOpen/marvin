@@ -23,6 +23,8 @@ class WorkspacePackageModel(SqlAlchemyBase, BaseMixins):
     description: Mapped[str] = mapped_column(sa.String, nullable=False, default="", server_default="")
     version: Mapped[str] = mapped_column(sa.String(64), nullable=False, default="1", server_default="1")
     manifest: Mapped[dict] = mapped_column(sa.JSON, nullable=False)
+    # Where the app sidebar shows what it brings (schemas/platform/packages.py `SidebarPlace`): the workspace's choice, kept by an update.
+    sidebar: Mapped[str] = mapped_column(sa.String(16), nullable=False, default="collections", server_default="collections")
     created_by: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     __table_args__ = (sa.UniqueConstraint("group_id", "slug", name="uq_workspace_packages_group_slug"),)

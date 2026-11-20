@@ -73,6 +73,14 @@ An entry type is **internal** (*unlisted*) when its `capabilities.listed` is fal
 - Applying a collection [blueprint](blueprints.md) materialises it immediately.
 - The system task **Resync Smart Collections** (`resync_smart_collections`, admin-only, daily interval) re-materialises every smart collection in every workspace. It is the safety net for missed events, bulk imports and rolling windows.
 
+**What a package brings, in the sidebar.** Each installed [package](workflows.md) has a place in the sidebar, chosen on **Automation › Packages** under **In the sidebar** on the package (owners and admins):
+
+- **Under Collections** (the default, for packages installed before this too): a group inside the Collections fold, named for the package, with its view links (a story's **Timeline**) first and then its collections, drawn like an integration's group. It opens, with Collections, on the page of any of its views or collections. A package that brings only one thing (one collection and no sidebar view) is listed plainly: its collection with your own, its view link under Guided setups.
+- **Its own section**: a heading of its own like Audience, after Content, with the same links. This is what a package with two or more collections got before, and it is given even for a single collection.
+- **Hidden**: its collections and view links are left out of the sidebar. Nothing else changes: they are still on All collections, in search and everywhere else.
+
+The choice is the workspace's (everyone sees the same sidebar) and is kept on the package: an update or a re-install keeps it, removing the package forgets it. A collection's own **Sidebar** switch still applies inside the package's group or section. Saving does not reload the Packages page; the sidebar shows the new place from the next page you open. **After this release Screenplay Studio, and any package that had a section, is under Collections**; choose **Its own section** to keep the section. API: `PATCH /api/groups/packages/{slug}` with `{"sidebar": "collections" | "section" | "hidden"}` (owners and admins; another value is refused with a 422 naming the three), `sidebar` on each package in `GET /api/groups/packages`, and `GET /api/groups/packages/sidebar` (`slug`, `name`, `sidebar` for every installed package), which anyone in the workspace may read since every page's sidebar follows it.
+
 ## Where
 
 - Create: `/workspace/collections/new`. Edit: `/workspace/collections/{id}/edit`. Both have the **Visible to sites** toggle and render `SmartCollectionFields`: a **Smart Collection** toggle, the rules under two tabs, **Builder** and **JSON**, and a **Run Query** button.

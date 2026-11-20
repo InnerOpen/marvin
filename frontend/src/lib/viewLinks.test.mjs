@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { placeViewLinks, sidebarViewLinks } from "./viewLinks.ts";
+import { sidebarViewLinks } from "./viewLinks.ts";
 
 const view = (slug, sidebar, pkg = "screenplay-studio", name = "Timeline") => ({
   slug,
@@ -39,25 +39,5 @@ describe("sidebarViewLinks", () => {
     assert.equal(blank.icon, "🎞");
     const [empty] = sidebarViewLinks([view("story-timeline", {})]);
     assert.equal(empty.label, "Timeline");
-  });
-});
-
-describe("placeViewLinks", () => {
-  test("a link goes in its package's group, else it is loose", () => {
-    const links = sidebarViewLinks([view("story-timeline", true), view("poster-wall", true, "art-kit", "Wall")]);
-    const { byGroup, loose } = placeViewLinks(links, ["screenplay-studio"]);
-    assert.deepEqual(
-      byGroup.get("screenplay-studio")?.map((l) => l.slug),
-      ["story-timeline"],
-    );
-    assert.deepEqual(
-      loose.map((l) => l.slug),
-      ["poster-wall"],
-    );
-  });
-  test("with no groups at all every link is loose", () => {
-    const { byGroup, loose } = placeViewLinks(sidebarViewLinks([view("story-timeline", true)]), []);
-    assert.equal(byGroup.size, 0);
-    assert.equal(loose.length, 1);
   });
 });
