@@ -400,13 +400,9 @@ const tabs = [
       {currentTab === 'integrations' && (
         <div class="content-section">
           <h2>Integrations</h2>
-          <p class="section-description">What this workspace adds from outside: packages, and external services that feed content in or react on publish</p>
+          <p class="section-description">What this workspace adds from outside: external services that feed content in or react on publish, and packages</p>
 
           <div class="quick-links">
-            <a href={navHref("settings.packages")} class="link-card">
-              <strong>{navTitle("settings.packages")}</strong>
-              <p>Bundles of workflows, entry types and collections: install, build, download and upload them as one file</p>
-            </a>
             {integrationsAvailable ? (<>
               <a href={navHref("settings.integrations")} class="link-card">
                 <strong>{navTitle("settings.integrations")}</strong>
@@ -417,6 +413,10 @@ const tabs = [
                 <p>Connections that need attention, retries, handled failures, and where alerts go{integrationAlerts > 0 ? ` · ${integrationAlerts} open alert${integrationAlerts === 1 ? "" : "s"}` : ""}</p>
               </a>
             </>) : null}
+            <a href={navHref("settings.packages")} class="link-card">
+              <strong>{navTitle("settings.packages")}</strong>
+              <p>Bundles of workflows, entry types and collections: install, build, download and upload them as one file</p>
+            </a>
           </div>
           {integrationsAvailable ? null : (
             <div class="integrations-banner">

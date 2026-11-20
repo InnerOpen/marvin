@@ -1,4 +1,4 @@
 ---
-// Packages is listed under Settings → Integrations; its page is at /automation/packages, and this older address keeps working.
-return Astro.redirect("/automation/packages", 301);
+// Packages is at Settings → Integrations → Packages; this older address keeps working (see automation/packages.astro for why 302).
+return Astro.redirect(`/workspace/settings/integrations/packages${Astro.url.search}`, 302);
 ---
