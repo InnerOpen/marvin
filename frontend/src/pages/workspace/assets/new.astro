@@ -262,6 +262,24 @@ try {
     margin-top: 1rem;
   }
 
+  /* A phone has no room for three paddings round the drop zone: with these the drop line stays on one line and the two record buttons
+     share a row, where the second used to fall under the first and make the zone taller. */
+  @media (max-width: 640px) {
+    .form {
+      gap: 1.5rem;
+      padding: 1rem;
+    }
+
+    .file-upload-area {
+      padding: 1.5rem 0.75rem;
+    }
+
+    .record-buttons .button {
+      padding-inline: 0.5rem;
+      white-space: nowrap;
+    }
+  }
+
   .upload-placeholder svg {
     color: var(--muted);
   }
