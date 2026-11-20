@@ -327,6 +327,41 @@ def test_a_wrong_view_says_what_is_wrong(mutate, words):
     assert problem is not None and words in problem
 
 
+def _band(**keys) -> dict:
+    return {"entry_type": "scene", "field": "scene", "title": "Scene", **keys}
+
+
+@pytest.mark.parametrize(
+    "band",
+    [_band(run=True), _band(assign=True), _band(run=True, assign=True), _band(run=False, assign=False)],
+)
+def test_a_band_may_run_the_item_action_and_take_the_selected_items(band):
+    payload = copy.deepcopy(TIMELINE)
+    payload["spine"]["bands"] = [band]
+    assert payload_problem(payload, "story-timeline") is None
+
+
+def test_a_band_may_take_the_selected_items_without_a_run_button():
+    payload = copy.deepcopy(TIMELINE)
+    payload["spine"].pop("run")
+    payload["spine"]["bands"] = [_band(assign=True)]
+    assert payload_problem(payload, "story-timeline") is None
+
+
+@pytest.mark.parametrize(
+    ("mutate", "words"),
+    [
+        (lambda p: p["spine"].update(bands=[_band(run="yes")]), "band 'scene' run is true or false"),
+        (lambda p: p["spine"].update(bands=[_band(assign=1)]), "band 'scene' assign is true or false"),
+        (lambda p: (p["spine"].pop("run"), p["spine"].update(bands=[_band(run=True)])), "band 'scene' has run, which runs spine.run"),
+        (lambda p: p["spine"].update(bands=[_band(field="story", assign=True)]), "band 'story' has assign, which writes 'story'"),
+    ],
+)
+def test_a_wrong_band_key_says_what_is_wrong(mutate, words):
+    problem = _bad(mutate)
+    assert problem is not None and words in problem
+
+
 @pytest.mark.parametrize("sidebar", [True, False, {}, {"label": "Story timeline"}, {"label": "Timeline", "icon": "🎞"}])
 def test_a_view_may_ask_for_a_sidebar_link(sidebar):
     assert payload_problem({**TIMELINE, "sidebar": sidebar}, "story-timeline") is None
@@ -807,6 +842,10 @@ def test_a_view_in_seconds_may_not_place_by_date():
         (lambda p: p.update(range={"to": "To"}), "range: to must be a field key"),
         (lambda p: p["spine"].update(group={"entry_type": "phase", "field": "phase"}), "spine.group follows items one after another"),
         (lambda p: p["spine"].update(bands=[{"entry_type": "phase", "field": "phase"}]), "spine.bands follows items one after another"),
+        (
+            lambda p: p["spine"].update(bands=[{"entry_type": "phase", "field": "phase", "assign": True}]),
+            "spine.bands follows items one after another",
+        ),
         (lambda p: p["spine"].update(cards={"intro": {"title": "title"}}), "spine.cards follows items one after another"),
         (lambda p: p["spine"].update(scene_break={"field": "phase", "seconds": "pause"}), "spine.scene_break follows items one after another"),
     ],

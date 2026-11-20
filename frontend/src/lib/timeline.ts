@@ -47,8 +47,9 @@ export interface SpineSpec {
    * `seconds` field (when above 0) of quiet. Must match the render (ScreenplayStudio render: pull `scene_breaks`). */
   scene_break?: { field: string; seconds: string };
   /** Extra bands over the strip, each wrapping the consecutive items that share a value in `field` (the beats of one scene), titled by the
-   * entry of `entry_type` that value names. They do not reorder anything. */
-  bands?: { id?: string; entry_type: string; field: string; title?: string }[];
+   * entry of `entry_type` that value names. They do not reorder anything. `run` puts a button on each strip that runs `run` (below) for
+   * every item holding that value; `assign` lets the selected items be put in one (lib/timelineBands). */
+  bands?: { id?: string; entry_type: string; field: string; title?: string; run?: boolean; assign?: boolean }[];
   /** A button on each item that runs a workflow for just that item (a quick draft of one beat): `entry` is the workflow input that gets the
    * entry's slug, `item` the input that gets this item's `field` value, `inputs` fixed values. */
   run?: { workflow: string; entry: string; item: string; field: string; label?: string; inputs?: Record<string, string | number | boolean> };

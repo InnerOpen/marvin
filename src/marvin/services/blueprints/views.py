@@ -144,7 +144,12 @@ A timeline definition::
   made and waits to be looked at): Keep writes the status ``keep``, Redo the status ``redo`` into the item's status field, and the page shows
   the new status at once. What the package does with those statuses (a redo made again) is its own workflows' business.
 - ``spine.bands`` adds bands over the strip, each wrapping the consecutive items that share a value in its ``field`` (the beats of one scene),
-  titled by the ``entry_type`` entry that value names; at most two. They draw only: nothing is reordered.
+  titled by the ``entry_type`` entry that value names; at most two. They draw only: nothing is reordered. A band with ``run: true`` (it
+  needs ``spine.run``) gets a button on each of its strips that runs ``spine.run``'s workflow for every item holding that value (all its
+  stretches, not only the one clicked), the ``item`` input getting their ``field`` values joined by commas in timeline order. A band with
+  ``assign: true`` adds "Add to <title>…" beside the selected items: it writes the slug of the ``entry_type`` entry chosen (or nothing, for
+  None) into ``field`` on each selected item the person may edit. It offers the entries the spine type's ``field`` offers in the entry form
+  (its ``ref_match``; every entry of the type without one), and it never names ``spine.of``.
 - ``spine.cards`` adds a title card (``intro``) and an end card (``outro``): each reads its ``title`` field (the card exists when it has
   text) and ``seconds`` field (else ``default_seconds``) from the view's entry. A card is laid out as an item of its own, so everything after it
   starts when the render starts it; the package's render must make the same cards.
@@ -234,7 +239,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         problem := _check_spine(spine, f"{label} spine")
         or _check_item_run(spine.get("run"), f"{label} spine")
         or _check_review(spine, f"{label} spine")
-        or _check_bands(spine.get("bands"), f"{label} spine")
+        or _check_bands(spine, f"{label} spine")
         or _check_cards(spine.get("cards"), f"{label} spine")
         or _check_scene_break(spine.get("scene_break"), f"{label} spine")
     ):
@@ -460,16 +465,20 @@ def _check_cards(cards: Any, label: str) -> str | None:
     return None
 
 
-def _check_bands(bands: Any, label: str) -> str | None:
-    """`spine.bands`: extra bands over the strip, each wrapping the consecutive items that share a value (the beats of one scene)."""
+def _check_bands(spine: dict, label: str) -> str | None:
+    """`spine.bands`: extra bands over the strip, each wrapping the consecutive items that share a value (the beats of one scene). A band's
+    `run` runs `spine.run` for its items, so it needs one; its `assign` writes its field on the items picked, so it never names the field that
+    puts an item in the view (`spine.of`): a beat moved to another story would only vanish from this one."""
+    bands = spine.get("bands")
     if bands is None:
         return None
+    shape = "{entry_type, field, id?, title?, run?, assign?}"
     if not isinstance(bands, list) or len(bands) > MAX_BANDS:
-        return f"{label}: bands is a list of at most {MAX_BANDS}, each {{entry_type, field, id?, title?}}"
+        return f"{label}: bands is a list of at most {MAX_BANDS}, each {shape}"
     seen: set[str] = set()
     for band in bands:
         if not isinstance(band, dict):
-            return f"{label}: each band is {{entry_type, field, id?, title?}}"
+            return f"{label}: each band is {shape}"
         if (problem := _slug(band, "entry_type", f"{label} band")) or (problem := _field(band, "field", f"{label} band", required=True)):
             return problem
         if band.get("id") is not None and not (isinstance(band["id"], str) and _ID.match(band["id"])):
@@ -480,6 +489,12 @@ def _check_bands(bands: Any, label: str) -> str | None:
         if key in seen:
             return f"{label}: band {key!r} is used twice"
         seen.add(key)
+        if flag := next((k for k in ("run", "assign") if band.get(k) is not None and not isinstance(band[k], bool)), None):
+            return f"{label}: band {key!r} {flag} is true or false"
+        if band.get("run") and spine.get("run") is None:
+            return f"{label}: band {key!r} has run, which runs spine.run for the band's items, so it needs spine.run"
+        if band.get("assign") and band["field"] == spine.get("of"):
+            return f"{label}: band {key!r} has assign, which writes {band['field']!r}, the field that puts an item in this view (spine.of)"
     return None
 
 
