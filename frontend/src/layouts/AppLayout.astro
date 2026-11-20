@@ -227,11 +227,10 @@ const hasFolder = (slug: string) => folders.some((c) => c.slug === slug);
 // Collections an integration installed fold under that integration ("n8n › In flight, Failed"); a person's own stay
 // at the top. Inside its group a collection drops the "n8n: " its name repeats. A collection whose integration is
 // gone has no integration id any more and is listed with the person's own.
-// What a package brings folds into a group named for it under Collections ("Screenplay Studio": Timeline, Cast, Script...) unless it
-// is a single thing, or gets a section of its own like Audience, or is left out: the package's choice (lib/collectionGroups.ts).
+// What a package brings folds into a group named for it under Collections ("Screenplay Studio": Timeline, Cast, Script...), or gets a
+// section of its own like Audience, or is left out: the package's choice (lib/collectionGroups.ts).
 const {
   loose: ownCollections,
-  looseViews: looseViewLinks,
   nested: nestedPackages,
   sections: packageSections,
 } = placePackages(collections.filter((c) => !c.integrationId), viewLinks, packagePlaces);
@@ -289,7 +288,8 @@ const SETTINGS_TABS: { tab: string; label: string; icon: string; paths: string[]
   { tab: "ai", label: "AI", icon: "✨", paths: ["/workspace/settings/ai-"] },
   // Only once a connected network works with Social (the summary's `show`), like the sidebar's Social group.
   ...(socialSummary?.show ? [{ tab: "social", label: "Social", icon: "💬", paths: ["/workspace/settings/social"] }] : []),
-  { tab: "integrations", label: "Integrations", icon: "🔌", paths: ["/workspace/settings/integrations"] },
+  // Packages is listed with Integrations (what a workspace adds from outside), though its address is still under /automation.
+  { tab: "integrations", label: "Integrations", icon: "🔌", paths: ["/workspace/settings/integrations", "/automation/packages"] },
   { tab: "workers", label: "Workers", icon: "🧰", paths: ["/workspace/settings/workers"], href: "/workspace/settings/workers" },
 ];
 const ASK_PATH = "/workspace/settings/ai-ask";
@@ -298,7 +298,11 @@ const ASK_PATH = "/workspace/settings/ai-ask";
 const embed = Astro.url.searchParams.get("embed") === "1";
 const onAskPage = Astro.url.pathname === ASK_PATH;
 const askPanelShown = askLinkShown && !!authToken && !embed && !onAskPage;
-const activeTab = SETTINGS_TABS.find((t) => t.paths.some((p) => Astro.url.pathname.startsWith(p)) && Astro.url.pathname !== ASK_PATH)?.tab
+// The tab whose path fits the page best: /automation/packages is Integrations', though /automation is Automation's.
+const tabForPath = SETTINGS_TABS.flatMap((t) => t.paths.map((p) => ({ tab: t.tab, p })))
+  .filter(({ p }) => Astro.url.pathname.startsWith(p))
+  .sort((a, b) => b.p.length - a.p.length)[0]?.tab;
+const activeTab = (Astro.url.pathname !== ASK_PATH ? tabForPath : undefined)
   ?? (Astro.url.pathname === "/workspace/settings" ? Astro.url.searchParams.get("tab") || "general" : null);
 const onSettings = activeTab !== null;
 // Simplified navigation following 80% rule
@@ -468,9 +472,6 @@ function isActive(itemPath: string, currentPath: string): boolean {
             <a href="/workspace/setups" aria-current={path.startsWith("/workspace/setups") ? "page" : undefined}>
               <span aria-hidden="true">🧭</span><span>Guided setups</span>{guided.length > 0 && <span class="nav-count">{guided.length}</span>}
             </a>
-            {looseViewLinks.map((v) => (
-              <a href={v.href} aria-current={path === v.href ? "page" : undefined}><span aria-hidden="true">{v.icon}</span><span>{v.label}</span></a>
-            ))}
           </nav>
         </div>
         {packageSections.map((g) => (

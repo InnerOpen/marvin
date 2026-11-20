@@ -600,7 +600,7 @@ const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
                   <div class="form-group" id="pp_json_box" hidden>
                     <label for="pp_json">Steps (JSON)</label>
                     <textarea id="pp_json" rows="10" spellcheck="false" class="pp-json"></textarea>
-                    <p class="form-help">A list of steps, done in order: crop (aspect, focus), resize (width, height, fit), grade (preset, brightness, contrast, saturation, warmth, vignette), convert (format, quality).</p>
+                    <p class="form-help">A list of steps, done in order, each naming its <code>op</code>: crop (aspect, focus), resize (width, height, fit), grade (preset, brightness, contrast, saturation, warmth, vignette), convert (format, quality). For example <code>[&#123;"op": "crop", "aspect": "1:1"&#125;, &#123;"op": "convert", "format": "webp"&#125;]</code>. Untick the box to go back to the form: JSON that does not read is dropped.</p>
                   </div>
 
                   <p class="form-help tpl-preview" id="pp_words" aria-live="polite"></p>
@@ -1265,6 +1265,7 @@ const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
     GRADE_SETTINGS,
     formFits,
     formFromPreset,
+    leaveJson,
     parseSteps,
     presetFromForm,
     previewLook,
@@ -1451,29 +1452,30 @@ const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
       }
     }
 
-    /** JSON mode on: the box gets the steps as they are. Off: back to the form, only when the steps fit it. */
+    /** What the JSON box held when JSON mode was switched on: where a box that no longer reads goes back to. */
+    let beforeJson: PresetStep[] = [];
+
+    /** JSON mode on: the box gets the steps as they are. Off: back to the form (lib `leaveJson`): with the box's steps when they
+     *  fit it, with the steps as they were when the box does not read; steps the form cannot show stay as JSON. */
     function setJsonMode(on: boolean, steps?: PresetStep[]) {
       const box = el<HTMLTextAreaElement>('pp_json');
       if (on) {
-        box.value = JSON.stringify(steps ?? stepsFromForm(readEditor(), storedPreset()), null, 2);
+        beforeJson = steps ?? stepsFromForm(readEditor(), storedPreset());
+        box.value = JSON.stringify(beforeJson, null, 2);
         el('pp_json_mode').checked = true;
-      } else {
-        const parsed = parseSteps(box.value);
-        if ('error' in parsed || !formFits(parsed.steps)) {
-          el('pp_json_mode').checked = true;
-          show(
-            el('pp_json_note'),
-            'error' in parsed
-              ? `${parsed.error} Fix it to go back to the form.`
-              : "These steps don't fit the form (a treatment twice, out of the form's order, or a value its controls can't hold), so they stay as JSON.",
-          );
-          return;
-        }
-        const form = formFromPreset({ slug: '', name: '', steps: parsed.steps });
-        const kept = readEditor();
-        fillEditor({ ...form, name: kept.name, slug: kept.slug, description: kept.description });
-        el('pp_json_mode').checked = false;
         show(el('pp_json_note'), '');
+      } else {
+        const left = leaveJson(box.value, beforeJson);
+        if (left.to === 'json') {
+          if (left.steps) box.value = JSON.stringify(left.steps, null, 2);
+          el('pp_json_mode').checked = true;
+        } else {
+          const form = formFromPreset({ slug: '', name: '', steps: left.steps ?? [] });
+          const kept = readEditor();
+          fillEditor({ ...form, name: kept.name, slug: kept.slug, description: kept.description });
+          el('pp_json_mode').checked = false;
+        }
+        show(el('pp_json_note'), left.note);
       }
       refresh();
     }

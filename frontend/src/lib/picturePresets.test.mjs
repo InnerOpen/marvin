@@ -8,6 +8,7 @@ import {
   blankForm,
   factorToSlider,
   formFits,
+  leaveJson,
   formFromPreset,
   parseSteps,
   presetFromForm,
@@ -193,4 +194,36 @@ test("previewLook turns the steps into CSS: the crop's shape and point, filters,
   assert.equal(warm.filter, "brightness(0.98) contrast(1.12) saturate(0.92)");
   assert.equal(warm.tint.color, "rgb(255 140 40)");
   assert.equal(previewLook([]).filter, "none");
+});
+
+describe("leaveJson: going back from JSON to the form never holds a person there for a mistake", () => {
+  const crop = [{ op: "crop", aspect: "1:1" }];
+  test("steps that read and fit go to the form", () => {
+    assert.deepEqual(leaveJson(JSON.stringify(crop), []), { to: "form", steps: crop, note: "" });
+  });
+  test("an empty list or an empty box is a form with nothing switched on (a new preset opened as JSON and closed again)", () => {
+    assert.deepEqual(leaveJson("[]", []), { to: "form", steps: [], note: "" });
+    assert.deepEqual(leaveJson(" [ ]\n", crop), { to: "form", steps: [], note: "" });
+    assert.deepEqual(leaveJson("", crop), { to: "form", steps: [], note: "" });
+  });
+  test("JSON that does not read is dropped for the steps as they were, and the note says so", () => {
+    for (const broken of ['[{"aspect": "1:1"}]', '[{"op": "rotate"}]', "[{", '{"op": "crop"}']) {
+      const left = leaveJson(broken, crop);
+      assert.deepEqual([left.to, left.steps], ["form", crop], broken);
+      assert.match(left.note, /as they were before you edited them as JSON\.$/);
+    }
+    assert.match(leaveJson('[{"crop": "1:1"}]', crop).note, /^Step 1 needs an "op"/);
+  });
+  test("steps the form cannot show stay as JSON, as typed", () => {
+    const twice = [{ op: "crop", aspect: "1:1" }, { op: "crop", aspect: "4:5" }];
+    const left = leaveJson(JSON.stringify(twice), crop);
+    assert.deepEqual([left.to, left.steps], ["json", null]);
+    assert.match(left.note, /don't fit the form/);
+  });
+  test("a broken box over stored steps the form cannot show goes back to those steps, still as JSON", () => {
+    const twice = [{ op: "crop", aspect: "1:1" }, { op: "crop", aspect: "4:5" }];
+    const left = leaveJson("[{", twice);
+    assert.deepEqual([left.to, left.steps], ["json", twice]);
+    assert.match(left.note, /^The steps are not valid JSON\. So the steps are back as they were\./);
+  });
 });

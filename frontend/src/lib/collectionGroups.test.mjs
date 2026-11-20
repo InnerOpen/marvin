@@ -40,32 +40,32 @@ describe("placePackages", () => {
 
   test("by default a package's collections and view links fold into one group under Collections, links first", () => {
     const placed = placePackages(all, [link("story-timeline", "ss")], []);
-    assert.deepEqual(slugs(placed.nested), [["ss", ["story-timeline"], ["1", "2"]]]);
-    assert.equal(placed.nested[0].name, "Screenplay Studio");
+    assert.deepEqual(slugs(placed.nested), [["solo", [], ["5"]], ["ss", ["story-timeline"], ["1", "2"]]]);
+    assert.deepEqual(placed.nested.map((g) => g.name), ["Only", "Screenplay Studio"]);
     assert.deepEqual(placed.sections, []);
   });
-  test("keeps a person's collections, an integration's, and a package's lone collection in the plain list", () => {
+  test("keeps a person's collections and an integration's in the plain list", () => {
     const { loose } = placePackages(all, [], []);
-    assert.deepEqual(loose.map((x) => x.id).sort(), ["3", "4", "5"]);
+    assert.deepEqual(loose.map((x) => x.id).sort(), ["3", "4"]);
   });
-  test("under Collections, one collection and one view link make a group; a lone view link stays under Guided setups", () => {
-    const placed = placePackages([c("5", "Only: One", "solo")], [link("wall", "solo"), link("agenda", "demo")], []);
-    assert.deepEqual(slugs(placed.nested), [["solo", ["wall"], ["5"]]]);
-    assert.deepEqual(placed.looseViews.map((v) => v.slug), ["agenda"]);
+  test("under Collections a package that brings one thing still gets its group: a lone collection, and a lone view link", () => {
+    const placed = placePackages([c("5", "Recordings", "media")], [link("agenda", "demo")], [place("media", "collections", "Media")]);
+    assert.deepEqual(slugs(placed.nested), [["demo", ["agenda"], []], ["media", [], ["5"]]]);
+    assert.deepEqual([placed.nested[1].name, placed.loose], ["Media", []]);
   });
   test("a group of view links alone is named for the package", () => {
     const placed = placePackages([], [link("agenda", "demo"), link("roster", "demo")], [place("demo", "collections", "Timeline Demos")]);
-    assert.deepEqual([placed.nested[0].name, placed.looseViews.length], ["Timeline Demos", 0]);
+    assert.equal(placed.nested[0].name, "Timeline Demos");
   });
   test("its own section is what the person asked for, even for a single collection", () => {
     const placed = placePackages(all, [link("story-timeline", "ss")], [place("ss", "section"), place("solo", "section")]);
     assert.deepEqual(slugs(placed.sections), [["solo", [], ["5"]], ["ss", ["story-timeline"], ["1", "2"]]]);
-    assert.deepEqual([placed.nested, placed.looseViews], [[], []]);
+    assert.deepEqual(placed.nested, []);
     assert.deepEqual(placed.loose.map((x) => x.id).sort(), ["3", "4"]);
   });
   test("hidden leaves out its collections and its view links, and nothing else", () => {
     const placed = placePackages(all, [link("story-timeline", "ss"), link("wall", "solo")], [place("ss", "hidden"), place("solo", "hidden")]);
-    assert.deepEqual([placed.nested, placed.sections, placed.looseViews], [[], [], []]);
+    assert.deepEqual([placed.nested, placed.sections], [[], []]);
     assert.deepEqual(placed.loose.map((x) => x.id).sort(), ["3", "4"]);
   });
   test("a package with nothing shown gets no group or section", () => {

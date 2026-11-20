@@ -1,5 +1,5 @@
 ---
-// Automation → Packages: bundles of blueprints (entry types, workflows, collections...) this workspace has installed, plus adding one from
+// Settings → Integrations → Packages (the address is still /automation/packages, where it used to be listed): bundles of blueprints (entry types, workflows, collections...) this workspace has installed, plus adding one from
 // a file and building one from the workspace's own content. A package groups what belongs together under one label (the Workflows page
 // shows it as one collapsed section) and travels as a single JSON file. Owners and admins only: the server refuses everyone else.
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -49,7 +49,7 @@ const choices = { workflows: workflows.sort(byName), entryTypes: entryTypes.sort
 const dataJson = JSON.stringify({ packages, ...choices }).replace(/</g, "\\u003c");
 // "In the sidebar": where the sidebar lists what a package brings (lib/collectionGroups.ts placePackages).
 const PLACES = [
-  { value: "collections", label: "Under Collections", hint: "In a group named for the package inside Collections; a package that brings only one thing is listed on its own." },
+  { value: "collections", label: "Under Collections", hint: "In a group named for the package, inside Collections." },
   { value: "section", label: "Its own section", hint: "A heading of its own in the sidebar, like Audience, with its views and collections under it." },
   { value: "hidden", label: "Hidden", hint: "Left out of the sidebar. Its collections are still on All collections and in search." },
 ] as const;
@@ -68,7 +68,7 @@ const holds = (p: PackageInfo) =>
     .join(" · ") || "nothing yet";
 ---
 
-<AppLayout width="wide" crumb="automation.packages">
+<AppLayout width="wide" crumb="settings.packages">
   <div class="toolbar">
     <div>
       <h2>Packages</h2>

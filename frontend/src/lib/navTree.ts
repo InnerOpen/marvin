@@ -97,6 +97,7 @@ const NODES: NavNode[] = [
   { id: "settings.publishing", label: "Publishing", href: "/workspace/settings?tab=publishing", parent: "settings" },
   { id: "settings.automation", label: "Automation", href: "/workspace/settings?tab=automation", parent: "settings" },
   { id: "settings.ai", label: "AI", href: "/workspace/settings?tab=ai", parent: "settings" },
+  { id: "settings.integrations-tab", label: "Integrations", href: "/workspace/settings?tab=integrations", parent: "settings" },
   {
     id: "settings.general",
     label: "General",
@@ -168,6 +169,8 @@ const NODES: NavNode[] = [
   { id: "settings.social", label: "Social", href: "/workspace/settings/social", parent: "settings", title: "Social settings" },
   { id: "settings.integrations", label: "Integrations", href: "/workspace/settings/integrations", parent: "settings" },
   { id: "settings.workers", label: "Workers", href: "/workspace/settings/workers", parent: "settings" },
+  // Packages is listed with Integrations: what a workspace adds from outside. Its address is where it was when Automation listed it.
+  { id: "settings.packages", label: "Packages", href: "/automation/packages", parent: "settings.integrations-tab" },
   {
     id: "settings.integrations.health",
     label: "Alerts & health",
@@ -202,7 +205,6 @@ const NODES: NavNode[] = [
   // Automation and Publishing pages sit directly under Settings: the hub's tabs aren't pages, so they're not crumbs.
   { id: "automation.workflows", label: "Workflows", href: "/automation/workflows", parent: "settings.automation" },
   { id: "automation.library", label: "Workflow Library", href: "/automation/library", parent: "settings.automation" },
-  { id: "automation.packages", label: "Packages", href: "/automation/packages", parent: "settings.automation" },
   { id: "automation.approvals", label: "Approvals", href: "/automation/approvals", parent: "settings.automation" },
   { id: "automation.events", label: "Events", href: "/automation/events", parent: "settings.automation" },
   { id: "automation.events.type", label: "Event", href: "/automation/events/[type]", parent: "automation.events" },
