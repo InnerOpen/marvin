@@ -32,13 +32,13 @@ const words = (nudge: number) =>
     ? "back where it falls"
     : `nudged ${nudge > 0 ? "+" : "−"}${Math.abs(nudge).toFixed(3).replace(/0$/, "")} s`;
 
-/** Save a line's nudge: read the entry, change that one key (0 clears it), send it all back. */
-export async function saveNudge(id: string, field: string, nudge: number): Promise<string> {
+/** Save one field of an entry: read it, set that key (undefined removes it), send it all back. Answers the entry's title. */
+export async function saveField(id: string, field: string, value: unknown): Promise<string> {
   const path = `/api/platform/entries/${encodeURIComponent(id)}`;
   const entry = await fetchApi<{ title: string; slug: string; dataJson?: Record<string, unknown> }>(path);
   const data = { ...(entry.dataJson ?? {}) };
-  if (nudge === 0) delete data[field];
-  else data[field] = nudge;
+  if (value === undefined) delete data[field];
+  else data[field] = value;
   await fetchApi(path, {
     method: "PATCH",
     body: JSON.stringify({ title: entry.title, slug: entry.slug, dataJson: data }),
@@ -46,13 +46,18 @@ export async function saveNudge(id: string, field: string, nudge: number): Promi
   return entry.title;
 }
 
-/** Reload the page where it is: the scroll of each track's box and of the page, put back once the zoom is restored. */
-function reloadInPlace(root: HTMLElement) {
+/** Save a line's nudge (0 clears it). */
+export const saveNudge = (id: string, field: string, nudge: number): Promise<string> =>
+  saveField(id, field, nudge === 0 ? undefined : nudge);
+
+/** Reload the page where it is: the scroll of each track's box and of the page, put back once the zoom is restored, and `note` (what the
+ * change did) shown again in the status line. */
+export function reloadInPlace(root: HTMLElement, note?: string) {
   const boxes = [...root.querySelectorAll<HTMLElement>("[data-scroll]")].map((b) => b.scrollLeft);
   try {
     sessionStorage.setItem(
       SCROLL_KEY,
-      JSON.stringify({ path: location.pathname + location.search, boxes, y: window.scrollY }),
+      JSON.stringify({ path: location.pathname + location.search, boxes, y: window.scrollY, note }),
     );
   } catch {
     /* a private window comes back at the start, nothing more */
@@ -60,15 +65,16 @@ function reloadInPlace(root: HTMLElement) {
   location.reload();
 }
 
-function restoreScroll(root: HTMLElement) {
-  let kept: { path: string; boxes: number[]; y: number } | null = null;
+/** Put back what `reloadInPlace` kept; answers its note, if any. */
+function restoreScroll(root: HTMLElement): string | undefined {
+  let kept: { path: string; boxes: number[]; y: number; note?: string } | null = null;
   try {
     kept = JSON.parse(sessionStorage.getItem(SCROLL_KEY) || "null");
     sessionStorage.removeItem(SCROLL_KEY);
   } catch {
-    return;
+    return undefined;
   }
-  if (!kept || kept.path !== location.pathname + location.search) return;
+  if (!kept || kept.path !== location.pathname + location.search) return undefined;
   const { boxes, y } = kept;
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
@@ -77,6 +83,7 @@ function restoreScroll(root: HTMLElement) {
       window.scrollTo(0, y);
     }),
   );
+  return kept.note;
 }
 
 /** What a draggable sound carries: the item and list entry it is (`withListEntry`), what moving it writes, and where it is now. */
@@ -185,7 +192,8 @@ const leftIn = (el: HTMLElement, start: number) => {
 /** Wire every draggable line (`[data-drag]`), sound (`[data-drag-sound]`) and ↺ (`[data-unnudge]`, `[data-unnudge-cue]`) under `root`; `say`
  * shows a line of status. */
 export function wireLineDrags(root: HTMLElement, items: Record<string, DragItem>, say: (text: string) => void): void {
-  restoreScroll(root);
+  const note = restoreScroll(root);
+  if (note) say(note);
   const saving = async (what: string, write: () => Promise<string>, done: (title: string) => string) => {
     say(`Saving the ${what}…`);
     try {

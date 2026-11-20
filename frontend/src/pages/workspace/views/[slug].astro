@@ -22,6 +22,10 @@ import { cameraWords, parseWordCues } from "@/lib/wordCues";
 import { cueChips, effectWords, emphasisWords } from "@/lib/cueKinds";
 import type { PickerCard } from "@/lib/viewPicker";
 import { pickerCards } from "@/lib/viewPickerApi";
+import { getContentAccess } from "@/lib/api/workspaces";
+import { type RefOption, refMatchOf } from "@/lib/refFields";
+import { refOptionsFor } from "@/lib/refFieldsApi";
+import { bandItemKeys, bandRunWords } from "@/lib/timelineBands";
 
 const authToken = getAuthToken(Astro.cookies);
 const slug = Astro.params.slug ?? "";
@@ -50,6 +54,20 @@ let laid: Layout | null = null;
 let shape: number | null = null; // the picture's width over height (the entry's format), so a Short is drawn tall and a wide video wide
 let itemRun: { workflow: string; base: Record<string, unknown>; item: string; label: string } | null = null;
 let actions: { label: string; href: string; run?: { workflow: string; inputs: Record<string, unknown> } }[] = [];
+/** A band row with `assign`: what "Add to <title>…" offers the selected items and what it writes (lib/timelineBands). */
+interface BandAssign {
+  field: string;
+  title: string;
+  /** The band entries, as the entry form's pick list has them (by title, each with the fields its `ref_match` compares). */
+  options: RefOption[];
+  match: Record<string, string>;
+  /** Per item id, its own fields that `match` compares (a beat's story). */
+  ctx: Record<string, Record<string, string>>;
+  /** Where to make a band when there is none to offer; null for someone who may not. */
+  make: string | null;
+}
+let assigns: BandAssign[] = [];
+let locked: string[] = []; // the items the person may not edit: never written, and named as not changed
 const laneOpens: Record<string, (pieceSlug: string) => string> = {}; // lane id -> where a piece of it opens (a guided setup), when the lane says so
 // A view placed by date reads a moment with a zone in the viewer's own zone, which the page's script keeps in this cookie (UTC until it has).
 const TZ_COOKIE = "marvin.tz";
@@ -142,6 +160,28 @@ if (spec && authToken) {
     if (perItem) {
       const state = await workflowState(perItem.workflow, authToken);
       if (state.id && state.canRun) itemRun = { workflow: state.id, base: { ...(perItem.inputs ?? {}), [perItem.entry]: entry.slug }, item: perItem.item, label: perItem.label ?? "Draft" };
+    }
+    // A band with `assign` lets the selected items be put in one, for someone who may edit them. Each item is offered what the entry form
+    // offers it: the field's own `ref` list, narrowed by its `ref_match` (lib/refFieldsApi), read for just that one field.
+    const assigning = (spec.spine.bands ?? []).filter((b) => b.assign);
+    const access = assigning.length ? await getContentAccess(authToken, Astro.locals) : null;
+    locked = access ? rows.filter((r) => !access.canEditEntry(r as Row & { createdBy?: string | null; status?: string | null })).map((r) => r.id) : [];
+    // Nothing here they may change: no control at all.
+    if (access && locked.length < rows.length) {
+      const fields = await fieldsOf(spec.spine.entry_type);
+      for (const band of assigning) {
+        const field = { ...(fields.find((f) => f.key === band.field) ?? {}), key: band.field, type: "text", ref: band.entry_type };
+        const match = refMatchOf(field);
+        const type = await typeBySlug(band.entry_type, authToken, Astro.locals).catch(() => null);
+        assigns.push({
+          field: band.field,
+          title: band.title ?? type?.name ?? band.entry_type.replace(/-/g, " "),
+          options: (await refOptionsFor({ fields: [field] }, authToken))[band.field] ?? [],
+          match,
+          ctx: Object.fromEntries(rows.map((r) => [r.id, Object.fromEntries(Object.values(match).map((k) => [k, String(r.dataJson?.[k] ?? "")]))])),
+          make: type && access.canAuthor ? `/workspace/entries/new?type=${encodeURIComponent(type.id)}` : null,
+        });
+      }
     }
     // A button starts a wizard with this entry already chosen (the choose step of its type sets the key), or opens a workflow's page.
     for (const action of spec.actions ?? []) {
@@ -335,6 +375,26 @@ const clip = (b: { start: number; seconds: number }, track: { start: number; sec
 // A band's stretches that fall in a track (a scene may run on past a chapter's end).
 const bandsOver = (key: string, track: { start: number; seconds: number }) =>
   (laid?.bands[key] ?? []).filter((b) => b.start < track.start + track.seconds && b.start + b.seconds > track.start);
+// A band with `run`: its strip's button runs the item action, as "Draft selected" would, for every item holding the band's value (all its
+// stretches, in every track); none when the item action cannot run here or none of them has a value to send.
+type BandSpec = NonNullable<TimelineSpec["spine"]["bands"]>[number];
+const bandRun = (band: BandSpec, b: { slug: string; title: string }) => {
+  if (!band.run || !itemRun || !laid || !spec) return null;
+  const keys = bandItemKeys(laid.items, laid.bands[band.id ?? band.field] ?? [], b.slug);
+  if (!keys.length) return null;
+  return {
+    run: JSON.stringify({ workflow: itemRun.workflow, inputs: { ...itemRun.base, [itemRun.item]: keys.join(",") } }),
+    label: `${itemRun.label} of ${(band.title ?? band.entry_type.replace(/-/g, " ")).toLowerCase()} ${b.title}`,
+    words: bandRunWords(itemRun.label, spec.spine.entry_type.replace(/-/g, " "), keys.length, b.title),
+  };
+};
+// What an item is picked by (shown in the pick bar, and sent by "Draft selected"): its `spine.run` value; with only a band's `assign`, its
+// number or title. Undefined: it cannot be picked (a title card).
+const pickKey = (item: Item): string | undefined => {
+  if (item.card) return undefined;
+  if (itemRun) return item.key || undefined;
+  return assigns.length ? (item.number !== null ? String(item.number) : item.title) : undefined;
+};
 const coversIn = (lane: LaneSpec, track: { start: number; seconds: number }) =>
   (laid?.covers[lane.id] ?? []).filter((c) => c.start < track.start + track.seconds && c.start + c.seconds > track.start);
 const marksIn = (lane: LaneSpec, track: { start: number; seconds: number }) =>
@@ -445,10 +505,22 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           <span data-run-text></span>
           <button type="button" class="tl-run-close" data-run-close aria-label="Dismiss">×</button>
         </div>
-        {itemRun && (
-          <div class="tl-pickbar" data-pickbar data-item-input={itemRun.item} data-noun={spec.spine.entry_type.replace(/-/g, " ")} role="status" aria-live="polite" hidden>
+        {(itemRun || assigns.length > 0) && (
+          <div class="tl-pickbar" data-pickbar data-item-input={itemRun?.item} data-noun={spec.spine.entry_type.replace(/-/g, " ")} data-locked={assigns.length ? JSON.stringify(locked) : undefined} role="status" aria-live="polite" hidden>
             <span data-pick-text></span>
-            <button type="button" class="button" data-pick-run data-run={JSON.stringify({ workflow: itemRun.workflow, inputs: itemRun.base })} data-run-label={itemRun.label}>▶ {itemRun.label} selected</button>
+            {itemRun && <button type="button" class="button" data-pick-run data-run={JSON.stringify({ workflow: itemRun.workflow, inputs: itemRun.base })} data-run-label={itemRun.label}>▶ {itemRun.label} selected</button>}
+            {assigns.map((a, i) => (
+              <span class="tl-assign" data-assign={JSON.stringify({ field: a.field, title: a.title, options: a.options, match: a.match, ctx: a.ctx })}>
+                <button type="button" class="button secondary" data-assign-open aria-expanded="false" aria-controls={`tl-assign-${i}`}>Add to {a.title}…</button>
+                <span class="tl-assign-pick" id={`tl-assign-${i}`} role="group" aria-label={`Put the selected ${spec.spine.entry_type.replace(/-/g, " ")}s in a ${a.title.toLowerCase()}`} hidden>
+                  <label for={`tl-assign-${i}-to`}>{a.title}</label>
+                  <select id={`tl-assign-${i}-to`} data-assign-to></select>
+                  <span class="muted" data-assign-none hidden>No {a.title.toLowerCase()}s yet{a.make && <> · <a href={a.make}>make one</a></>}</span>
+                  <button type="button" class="button" data-assign-apply>Set</button>
+                  <button type="button" class="button secondary" data-assign-cancel>Cancel</button>
+                </span>
+              </span>
+            ))}
             <button type="button" class="button secondary" data-pick-clear>Clear</button>
           </div>
         )}
@@ -503,6 +575,19 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       const from = clip(b, track);
                       const place = `left:${pctIn(track, from.from)};width:${pctIn(track, track.start + from.seconds)}`;
                       const words = `${band.title ?? band.entry_type}: ${b.title}\n${timeText.position(b.start)} → ${timeText.position(b.start + b.seconds)}`;
+                      const runs = bandRun(band, b);
+                      // With `run`, the strip holds a button that drafts the band's items and its link (or label): a button may not sit in a link.
+                      if (runs)
+                        return (
+                          <div class="tl-band has-run" role="listitem" style={place}>
+                            <button type="button" class="tl-band-run" data-run={runs.run} data-run-label={runs.label} aria-label={runs.words} title={runs.words}>▶<span class="tl-band-run-word"> {itemRun!.label}</span></button>
+                            {b.id ? (
+                              <a class="tl-band-name" href={open(b.id)} title={`${words}\nClick to open it`}><span>{b.title}</span></a>
+                            ) : (
+                              <span class="tl-band-name" title={`${words}\nNo ${band.entry_type} with this name was found`}><span class="muted">{b.title}</span></span>
+                            )}
+                          </div>
+                        );
                       // The whole band opens the entry it names (the scene); one whose entry was not found is only a label.
                       return b.id ? (
                         <a class="tl-band is-link" role="listitem" href={open(b.id)} style={place} title={`${words}\nClick to open it`}>
@@ -531,7 +616,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated, overlay: !!item.overlay }]}
                       role="listitem"
                       data-item={item.id}
-                      data-key={itemRun && item.key && !item.card ? item.key : undefined}
+                      data-key={pickKey(item)}
                       data-name={item.number !== null ? String(item.number) : item.title}
                       data-start={item.onScreen.start}
                       data-end={item.onScreen.start + item.onScreen.seconds}
@@ -553,8 +638,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                         {item.overlay ? <span class="tl-n" aria-label="comes in on a word">↘ {item.key || item.title}</span> : item.number !== null && <span class="tl-n">{item.number}</span>}
                         {item.status && <span class="tl-dot" data-status={item.status} title={item.status} />}
                       </span>
-                      {itemRun && item.key && !item.card && (
-                        <button type="button" class="tl-pick" aria-pressed="false" aria-label={`Select ${spec.spine.entry_type.replace(/-/g, " ")} ${item.key}`} title="Select to draft several together (ctrl or cmd-click the card to toggle, shift-click for a range)"></button>
+                      {pickKey(item) && (
+                        <button type="button" class="tl-pick" aria-pressed="false" aria-label={`Select ${spec.spine.entry_type.replace(/-/g, " ")} ${pickKey(item)}`} title={`Select to ${itemRun ? "draft" : "change"} several together (ctrl or cmd-click the card to toggle, shift-click for a range)`}></button>
                       )}
                       {!item.card && <a class="tl-open" href={open(item.id)} title={`Open ${item.title}`}>Open</a>}
                       {itemRun && item.key && !item.card && (
@@ -922,7 +1007,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   import { fetchApi } from "@/lib/api/client";
   import { getRunState, startRun } from "@/lib/api/workflowRuns";
   import { followed, type JobRow } from "@/lib/timelineRun";
-  import { wireLineDrags } from "@/lib/timelineDrag";
+  import { reloadInPlace, saveField, wireLineDrags } from "@/lib/timelineDrag";
+  import { assignWords, bandChoices, type Written } from "@/lib/timelineBands";
+  import type { RefOption } from "@/lib/refFields";
   const root = document.querySelector<HTMLElement>(".tl");
   const cuesEl = root?.querySelector<HTMLScriptElement>("script[data-cues]");
   if (root && cuesEl) {
@@ -1239,11 +1326,12 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     const runStatus = root.querySelector<HTMLElement>("[data-run-status]");
     const runText = runStatus?.querySelector<HTMLElement>("[data-run-text]");
     runStatus?.querySelector("[data-run-close]")?.addEventListener("click", () => (runStatus.hidden = true));
-    wireLineDrags(root, JSON.parse(root.querySelector<HTMLScriptElement>("script[data-lines]")?.textContent || "{}"), (text) => {
+    const tell = (text: string) => {
       if (!runStatus || !runText) return;
       runStatus.hidden = false;
       runText.textContent = text;
-    });
+    };
+    wireLineDrags(root, JSON.parse(root.querySelector<HTMLScriptElement>("script[data-lines]")?.textContent || "{}"), tell);
     const POLL_MS = 4000;
     const GIVE_UP_MS = 30 * 60 * 1000;
     root.querySelectorAll<HTMLButtonElement>("[data-run]").forEach((button) =>
@@ -1342,22 +1430,94 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     const pickBar = root.querySelector<HTMLElement>("[data-pickbar]");
     if (pickBar) {
       const pickText = pickBar.querySelector<HTMLElement>("[data-pick-text]")!;
-      const pickRun = pickBar.querySelector<HTMLButtonElement>("[data-pick-run]")!;
-      const base = JSON.parse(pickRun.dataset.run || "{}") as { workflow: string; inputs: Record<string, unknown> };
+      const pickRun = pickBar.querySelector<HTMLButtonElement>("[data-pick-run]"); // none when only a band's `assign` brought the bar
+      const base = JSON.parse(pickRun?.dataset.run || "{}") as { workflow: string; inputs: Record<string, unknown> };
       const itemInput = pickBar.dataset.itemInput ?? "";
       const noun = pickBar.dataset.noun ?? "item";
       const cards = () => Array.from(root.querySelectorAll<HTMLElement>(".tl-item[data-key]"));
       let anchor: HTMLElement | null = null;
+      const pickedCards = () => cards().filter((c) => c.classList.contains("picked"));
+      const assigners = Array.from(pickBar.querySelectorAll<HTMLElement>("[data-assign]")).map((box) => wireAssign(box));
       const refresh = () => {
-        const picked = cards().filter((c) => c.classList.contains("picked"));
+        const picked = pickedCards();
         picked.length ? root.classList.add("has-picks") : root.classList.remove("has-picks");
         cards().forEach((c) => c.querySelector(".tl-pick")?.setAttribute("aria-pressed", String(c.classList.contains("picked"))));
         pickBar.hidden = picked.length === 0;
         const keys = picked.map((c) => c.dataset.key ?? "");
         pickText.textContent = `${picked.length} ${noun}${picked.length === 1 ? "" : "s"} selected: ${keys.join(", ")}`;
-        pickRun.dataset.run = JSON.stringify({ workflow: base.workflow, inputs: { ...base.inputs, [itemInput]: keys.join(",") } });
-        pickRun.dataset.runLabel = `${pickRun.dataset.runLabel?.split(" of ")[0] ?? "Draft"} of ${noun}s ${keys.join(", ")}`;
+        if (pickRun) {
+          pickRun.dataset.run = JSON.stringify({ workflow: base.workflow, inputs: { ...base.inputs, [itemInput]: keys.join(",") } });
+          pickRun.dataset.runLabel = `${pickRun.dataset.runLabel?.split(" of ")[0] ?? "Draft"} of ${noun}s ${keys.join(", ")}`;
+        }
+        for (const a of assigners) a.picked(picked.length > 0);
       };
+      // "Add to <band>…": offer the bands every picked item may hold (as its entry form would), then write the one chosen (or none, to clear)
+      // into the band's field on each picked item the person may edit, and draw the story again where it was, saying what changed.
+      function wireAssign(box: HTMLElement) {
+        const band = JSON.parse(box.dataset.assign || "{}") as { field: string; title: string; options: RefOption[]; match: Record<string, string>; ctx: Record<string, Record<string, string>> };
+        const locked = new Set<string>(JSON.parse(pickBar!.dataset.locked || "[]"));
+        const opener = box.querySelector<HTMLButtonElement>("[data-assign-open]")!;
+        const panel = box.querySelector<HTMLElement>(".tl-assign-pick")!;
+        const select = panel.querySelector<HTMLSelectElement>("[data-assign-to]")!;
+        const none = panel.querySelector<HTMLElement>("[data-assign-none]")!;
+        const apply = panel.querySelector<HTMLButtonElement>("[data-assign-apply]")!;
+        const close = (focus: boolean) => {
+          panel.hidden = true;
+          opener.setAttribute("aria-expanded", "false");
+          if (focus) opener.focus();
+        };
+        // Opening offers the first band; while open, a change of picks keeps the one chosen if it is still offered.
+        const fill = (keep: boolean) => {
+          const was = select.value;
+          const choices = bandChoices(band.options, band.match, pickedCards().map((c) => band.ctx[c.dataset.item ?? ""] ?? {}));
+          select.replaceChildren(...choices.map((o) => new Option(o.title, o.slug)), new Option(`None (out of any ${band.title.toLowerCase()})`, ""));
+          if (keep && [...select.options].some((o) => o.value === was)) select.value = was;
+          none.hidden = choices.length > 0;
+        };
+        opener.addEventListener("click", () => {
+          if (!panel.hidden) return close(true);
+          fill(false);
+          panel.hidden = false;
+          opener.setAttribute("aria-expanded", "true");
+          select.focus();
+        });
+        panel.querySelector("[data-assign-cancel]")?.addEventListener("click", () => close(true));
+        // Escape closes the chooser and leaves the picks; the page's own Escape (below) clears them.
+        panel.addEventListener("keydown", (e) => {
+          if (e.key !== "Escape") return;
+          e.stopPropagation();
+          close(true);
+        });
+        apply.addEventListener("click", async () => {
+          const picked = pickedCards();
+          const slug = select.value;
+          apply.disabled = true;
+          tell(`${band.title}: saving ${picked.length} ${noun}${picked.length === 1 ? "" : "s"}…`);
+          const done: Written[] = await Promise.all(
+            picked.map(async (card) => {
+              const key = card.dataset.key ?? "";
+              if (locked.has(card.dataset.item ?? "")) return { key, problem: "you may not edit it" };
+              try {
+                await saveField(card.dataset.item ?? "", band.field, slug);
+                return { key };
+              } catch (e) {
+                return { key, problem: e instanceof Error ? e.message : "it was not saved" };
+              }
+            }),
+          );
+          const text = assignWords(band.title, slug ? (select.selectedOptions[0]?.text ?? slug) : null, noun, done);
+          if (done.some((w) => !w.problem)) return reloadInPlace(root!, text);
+          tell(text);
+          apply.disabled = false;
+        });
+        // The chooser follows the picks: it closes when none are left, and offers what fits the ones there are now.
+        return {
+          picked: (any: boolean) => {
+            if (!any) close(false);
+            else if (!panel.hidden) fill(true);
+          },
+        };
+      }
       const choose = (card: HTMLElement, shift: boolean) => {
         if (shift && anchor && anchor !== card) {
           const all = cards();
@@ -1543,6 +1703,21 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-band.is-link { color: var(--ink); text-decoration: none; cursor: pointer; }
   .tl-band.is-link:hover, .tl-band.is-link:focus-visible { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); border-color: var(--accent); }
   .tl-band.is-link > span::after { content: " ↗"; color: var(--muted); font-size: 11px; }
+  /* A strip with a run button: the box is the strip, holding the button at its start and then its name, which fills the rest. The button
+     opens out on hover and focus, as a card's buttons show (always on touch); before the name, it never covers it, however the strip is
+     scrolled or narrow, and a narrow strip (one beat at Fit on a phone) shows only the ▶, so the name still reads. */
+  .tl-band.has-run { display: flex; align-items: center; padding: 0; overflow: clip; container-type: inline-size; } /* clip, not hidden: the name sticks to the timeline's scroll */
+  .tl-band-name { flex: 1 1 auto; min-width: 0; height: 100%; padding: 0 6px; box-sizing: border-box; overflow: clip; color: inherit; text-decoration: none; }
+  .tl-band-name > span { position: sticky; left: 10px; display: inline-block; max-width: 100%; line-height: 18px; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  a.tl-band-name { color: var(--ink); cursor: pointer; }
+  a.tl-band-name > span::after { content: " ↗"; color: var(--muted); font-size: 11px; }
+  .tl-band.has-run:has(a.tl-band-name:hover, a.tl-band-name:focus-visible) { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); border-color: var(--accent); }
+  .tl-band-run { flex: none; height: 16px; max-width: 0; margin: 0; padding: 0; border: 0; border-radius: 4px; overflow: hidden; font: inherit; font-size: 11px; line-height: 16px; white-space: nowrap; background: var(--accent); color: #fff; cursor: pointer; }
+  .tl-band.has-run:hover .tl-band-run, .tl-band-run:focus-visible { max-width: 12em; margin-left: 1px; padding: 0 6px; }
+  .tl-band-run:disabled { cursor: progress; opacity: 0.5; }
+  @container (max-width: 150px) {
+    .tl-band-run-word { display: none; }
+  }
   .tl-group { position: absolute; top: 0; height: 22px; border-bottom: 2px solid var(--accent); padding: 0 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
   /* The title slides along inside its chapter while you scroll, so you always know where you are at a high zoom. */
   .tl-group > span { position: sticky; left: 16px; display: inline-block; max-width: 100%; }
@@ -1586,7 +1761,13 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-item.picked .tl-seek { box-shadow: 0 0 0 2px var(--accent); }
   .tl-pickbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 144px; z-index: 41; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: min(640px, calc(100vw - 24px)); padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 6px 24px rgb(0 0 0 / 0.35); font-size: 0.875rem; }
   .tl-pickbar[hidden] { display: none; }
-  @media (hover: none) { .tl-open, .tl-draft, .tl-pick { opacity: 1; } }
+  @media (hover: none) {
+    .tl-open, .tl-draft, .tl-pick { opacity: 1; }
+    .tl-band-run { max-width: 12em; margin-left: 1px; padding: 0 6px; }
+  }
+  .tl-assign, .tl-assign-pick { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .tl-assign-pick[hidden], .tl-assign-pick [hidden] { display: none; }
+  .tl-assign-pick select { font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); max-width: 14em; }
   /* Keep / Redo on a card that waits to be looked at: always visible (it is the point of looking), small, along the bottom-left of the card */
   .tl-review { position: absolute; left: 6px; bottom: 6px; display: inline-flex; gap: 4px; z-index: 2; }
   .tl-review button { font: inherit; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); cursor: pointer; }
