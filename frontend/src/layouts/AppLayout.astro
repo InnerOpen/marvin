@@ -288,8 +288,7 @@ const SETTINGS_TABS: { tab: string; label: string; icon: string; paths: string[]
   { tab: "ai", label: "AI", icon: "✨", paths: ["/workspace/settings/ai-"] },
   // Only once a connected network works with Social (the summary's `show`), like the sidebar's Social group.
   ...(socialSummary?.show ? [{ tab: "social", label: "Social", icon: "💬", paths: ["/workspace/settings/social"] }] : []),
-  // Packages is listed with Integrations (what a workspace adds from outside), though its address is still under /automation.
-  { tab: "integrations", label: "Integrations", icon: "🔌", paths: ["/workspace/settings/integrations", "/automation/packages"] },
+  { tab: "integrations", label: "Integrations", icon: "🔌", paths: ["/workspace/settings/integrations"] },
   { tab: "workers", label: "Workers", icon: "🧰", paths: ["/workspace/settings/workers"], href: "/workspace/settings/workers" },
 ];
 const ASK_PATH = "/workspace/settings/ai-ask";
@@ -298,11 +297,7 @@ const ASK_PATH = "/workspace/settings/ai-ask";
 const embed = Astro.url.searchParams.get("embed") === "1";
 const onAskPage = Astro.url.pathname === ASK_PATH;
 const askPanelShown = askLinkShown && !!authToken && !embed && !onAskPage;
-// The tab whose path fits the page best: /automation/packages is Integrations', though /automation is Automation's.
-const tabForPath = SETTINGS_TABS.flatMap((t) => t.paths.map((p) => ({ tab: t.tab, p })))
-  .filter(({ p }) => Astro.url.pathname.startsWith(p))
-  .sort((a, b) => b.p.length - a.p.length)[0]?.tab;
-const activeTab = (Astro.url.pathname !== ASK_PATH ? tabForPath : undefined)
+const activeTab = SETTINGS_TABS.find((t) => t.paths.some((p) => Astro.url.pathname.startsWith(p)) && Astro.url.pathname !== ASK_PATH)?.tab
   ?? (Astro.url.pathname === "/workspace/settings" ? Astro.url.searchParams.get("tab") || "general" : null);
 const onSettings = activeTab !== null;
 // Simplified navigation following 80% rule

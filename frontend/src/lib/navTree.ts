@@ -169,8 +169,8 @@ const NODES: NavNode[] = [
   { id: "settings.social", label: "Social", href: "/workspace/settings/social", parent: "settings", title: "Social settings" },
   { id: "settings.integrations", label: "Integrations", href: "/workspace/settings/integrations", parent: "settings" },
   { id: "settings.workers", label: "Workers", href: "/workspace/settings/workers", parent: "settings" },
-  // Packages is listed with Integrations: what a workspace adds from outside. Its address is where it was when Automation listed it.
-  { id: "settings.packages", label: "Packages", href: "/automation/packages", parent: "settings.integrations-tab" },
+  // Packages is listed with Integrations: what a workspace adds from outside. /automation/packages, where it was, redirects here.
+  { id: "settings.packages", label: "Packages", href: "/workspace/settings/integrations/packages", parent: "settings.integrations-tab" },
   {
     id: "settings.integrations.health",
     label: "Alerts & health",
