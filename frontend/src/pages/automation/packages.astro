@@ -47,6 +47,12 @@ if (!authToken) {
 }
 const choices = { workflows: workflows.sort(byName), entryTypes: entryTypes.sort(byName), collections: collections.sort(byName) };
 const dataJson = JSON.stringify({ packages, ...choices }).replace(/</g, "\\u003c");
+// "In the sidebar": where the sidebar lists what a package brings (lib/collectionGroups.ts placePackages).
+const PLACES = [
+  { value: "collections", label: "Under Collections", hint: "In a group named for the package inside Collections; a package that brings only one thing is listed on its own." },
+  { value: "section", label: "Its own section", hint: "A heading of its own in the sidebar, like Audience, with its views and collections under it." },
+  { value: "hidden", label: "Hidden", hint: "Left out of the sidebar. Its collections are still on All collections and in search." },
+] as const;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const holds = (p: PackageInfo) =>
   [
@@ -90,6 +96,15 @@ const holds = (p: PackageInfo) =>
                 {p.description && <p class="muted">{p.description}</p>}
                 <p class="holds">{holds(p)}</p>
                 {p.wizards?.length ? <p class="holds"><a href="/workspace/setups">Open its guided setups →</a></p> : null}
+                <fieldset class="place">
+                  <legend>In the sidebar</legend>
+                  {PLACES.map((o) => (
+                    <label class="place-option">
+                      <input type="radio" name={`sidebar-${p.slug}`} value={o.value} checked={(p.sidebar ?? "collections") === o.value} />
+                      <span><span class="place-label">{o.label}</span><span class="place-hint">{o.hint}</span></span>
+                    </label>
+                  ))}
+                </fieldset>
                 <div class="actions">
                   {p.workflows > p.workflowsOn && <button type="button" class="button js-enable">Turn on {plural(p.workflows - p.workflowsOn, "workflow")}</button>}
                   <button type="button" class="button secondary js-download">Download</button>
@@ -185,6 +200,7 @@ const holds = (p: PackageInfo) =>
 </AppLayout>
 
 <script>
+  import type { SidebarPlace } from "@/lib/collectionGroups";
   import { describeResult, parseManifestText, slugFor, fileNameFor } from "@/lib/packageFile";
   import {
     enablePackage,
@@ -195,6 +211,7 @@ const holds = (p: PackageInfo) =>
     previewPackageUpdate,
     updatePackage,
     removePackage,
+    setPackageSidebar,
     type PackageManifest,
     type PackageResult,
   } from "@/lib/api/packages";
@@ -237,6 +254,23 @@ const holds = (p: PackageInfo) =>
         const done = await enablePackage(slug);
         message(note, `${done.switchedOn} workflow${done.switchedOn === 1 ? "" : "s"} switched on.`);
         setTimeout(() => location.reload(), 900);
+      }),
+    );
+    // Saved as soon as it is chosen, one save after another (arrow keys move the choice a step at a time). The sidebar is drawn on the
+    // server, so it shows the new place from the next page on.
+    let saving = Promise.resolve();
+    card.querySelectorAll<HTMLInputElement>(".place input[type=radio]").forEach((radio) =>
+      radio.addEventListener("change", () => {
+        if (!radio.checked) return;
+        const chosen = radio.value as SidebarPlace;
+        saving = saving.then(async () => {
+          try {
+            await setPackageSidebar(slug, chosen);
+            message(note, "Saved. The sidebar shows it from the next page you open.");
+          } catch (e) {
+            message(note, failure(e), true);
+          }
+        });
       }),
     );
     card.querySelector<HTMLButtonElement>(".js-download")?.addEventListener("click", (e) => {
@@ -418,6 +452,11 @@ const holds = (p: PackageInfo) =>
   .package-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
   .package p { margin: 6px 0 0; }
   .holds { font-size: 13px; }
+  .place { margin: 10px 0 0; padding: 8px 12px 10px; }
+  .place-option { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; font-size: 13px; cursor: pointer; }
+  .place-option input { flex: none; }
+  .place-label { font-weight: 600; margin-right: 6px; }
+  .place-hint { color: var(--muted); }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .note { font-size: 13px; color: var(--muted); }
   .note.bad, .bad-text { color: var(--color-error, #dc2626); }

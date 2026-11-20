@@ -4,7 +4,7 @@ Workspace Packages API.
 A package is a named, versioned bundle of blueprints (entry types, workflows, collections...) that a workspace installs, uploads, builds from
 its own content, downloads and removes. Installing follows the blueprints' rules: create what is missing, never overwrite, and everything that
 acts when on starts disabled; switching a package's workflows on is a separate, deliberate call. All of it changes workspace structure, so
-all of it is for owners and admins.
+all of it is for owners and admins, except where the sidebar puts each package (`/sidebar`), which every page's sidebar reads for anyone here.
 """
 
 import json
@@ -13,7 +13,14 @@ from fastapi import APIRouter, Body, HTTPException, Query, Response, status
 
 from marvin.core.root_logger import get_logger
 from marvin.routes._base import BaseUserController, controller
-from marvin.schemas.platform.packages import PackageEnableResult, PackageExportRequest, PackageRead, PackageResult
+from marvin.schemas.platform.packages import (
+    PackageEnableResult,
+    PackageExportRequest,
+    PackagePlace,
+    PackageRead,
+    PackageResult,
+    PackageSettings,
+)
 from marvin.services.blueprints import packages as service
 from marvin.services.blueprints.packages import PackageError
 
@@ -43,6 +50,12 @@ class PackagesController(BaseUserController):
         """The packages installed here, with how many of each kind they hold."""
         self._manage()
         return service.list_packages(self.session, self.group_id)
+
+    @router.get("/sidebar", response_model=list[PackagePlace])
+    def sidebar_places(self):
+        """Where the sidebar shows each installed package: `collections`, `section` or `hidden`. Open to anyone in the workspace, since
+        everyone's sidebar follows it; it names the packages and nothing they hold."""
+        return service.sidebar_places(self.session, self.group_id)
 
     @router.post("/preview", response_model=PackageResult)
     def preview(self, body: dict = Body(..., description="The package file's JSON")):
@@ -136,6 +149,18 @@ class PackagesController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
         except PackageError as e:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+    @router.patch("/{slug}", response_model=PackageRead)
+    def change_package(self, slug: str, settings: PackageSettings):
+        """Choose where the sidebar shows the package (`sidebar`): `collections` (a group under Collections, the default), `section` (a
+        section of its own) or `hidden`. An update or a re-install keeps the choice; removing the package forgets it."""
+        self._manage()
+        try:
+            found = service.set_sidebar(self.session, self.group_id, slug, settings.sidebar)
+        except LookupError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+        self.session.commit()
+        return found
 
     @router.delete("/{slug}")
     def remove(self, slug: str):

@@ -24,8 +24,10 @@ from marvin.schemas.platform.packages import (
     PackageExportRequest,
     PackageItem,
     PackageManifest,
+    PackagePlace,
     PackageRead,
     PackageResult,
+    SidebarPlace,
 )
 from marvin.schemas.platform.views import ViewRead, ViewSummary
 from marvin.schemas.platform.wizards import WizardRead, WizardSummary
@@ -375,7 +377,26 @@ def _read(session, group_id, row, models: dict) -> PackageRead:
         collections=count("collection"),
         scheduled_tasks=count("scheduled_task"),
         incoming_webhooks=count("incoming_webhook"),
+        sidebar=row.sidebar,
     )
+
+
+def sidebar_places(session, group_id) -> list[PackagePlace]:
+    """Where the sidebar puts each installed package. Read on every page, so it reads the package rows alone, not what they hold."""
+    from marvin.db.models.groups.packages import WorkspacePackageModel
+
+    rows = session.query(WorkspacePackageModel).filter_by(group_id=group_id).order_by(WorkspacePackageModel.name).all()
+    return [PackagePlace(slug=row.slug, name=row.name, sidebar=row.sidebar) for row in rows]
+
+
+def set_sidebar(session, group_id, slug: str, place: SidebarPlace) -> PackageRead:
+    """Choose where the sidebar shows the package. Kept on the package's row, which an update or a re-install leaves as it is."""
+    row = _package_row(session, group_id, slug)
+    if row is None:
+        raise LookupError(f"No package '{slug}'.")
+    row.sidebar = place
+    session.flush()
+    return _read(session, group_id, row, _models())
 
 
 def _playbooks_of(session, group_id, package_slug: str) -> list:

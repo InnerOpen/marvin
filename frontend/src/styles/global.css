@@ -302,9 +302,10 @@ select {
   transition: all 0.2s;
 }
 .nav-fold-row:hover, .nav-fold-row[aria-current="page"] { background: var(--panel); color: var(--ink); }
-.nav-fold[open] .nav-chevron { transform: rotate(90deg); }
+/* Its own chevron only: a closed fold inside an open one (a package's group under Collections) keeps its chevron pointing right. */
+.nav-fold[open] > .nav-fold-row .nav-chevron { transform: rotate(90deg); }
 .nav-fold-items { margin: 2px 0 4px 14px; padding-left: 10px; border-left: 1px solid var(--line); }
-.nav-fold-items a { min-height: 34px; padding: 6px 10px; font-size: 14px; }
+.nav-fold-items a, .nav-subfold > .nav-fold-row { min-height: 34px; padding: 6px 10px; font-size: 14px; }
 .nav-fold-all { font-size: 13px !important; opacity: 0.8; }
 
 /* Settings: a group of the hub's tabs that folds, with the current one marked. */

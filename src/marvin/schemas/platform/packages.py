@@ -25,6 +25,10 @@ PACKAGEABLE_KINDS = ("entry_type", "entry_fields", "collection", "workflow", "sc
 MAX_BLUEPRINTS = 200
 MAX_MANIFEST_BYTES = 2_000_000
 
+#: Where the app sidebar shows a package's collections and view links: a group inside the Collections fold (the default), a section
+#: of its own (like Audience), or nowhere (they are still on All collections and in search).
+SidebarPlace = Literal["collections", "section", "hidden"]
+
 PACKAGE_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
@@ -187,6 +191,24 @@ class PackageRead(_MarvinModel):
     collections: int = 0
     scheduled_tasks: int = 0
     incoming_webhooks: int = 0
+    sidebar: SidebarPlace = "collections"
+    """Where the app sidebar shows its collections and view links: `collections` (a group under Collections), `section` (a section of
+    its own) or `hidden`. The workspace's choice: an update or a re-install keeps it."""
+
+
+class PackageSettings(_MarvinModel):
+    """What a workspace may change on an installed package."""
+
+    sidebar: SidebarPlace
+    """`collections`, `section` or `hidden`."""
+
+
+class PackagePlace(_MarvinModel):
+    """Where the sidebar puts one installed package: what every page's sidebar reads, so anyone in the workspace may."""
+
+    slug: str
+    name: str
+    sidebar: SidebarPlace = "collections"
 
 
 class PackageExportRequest(_MarvinModel):
@@ -218,7 +240,10 @@ __all__ = [
     "PackageExportRequest",
     "PackageItem",
     "PackageManifest",
+    "PackagePlace",
     "PackageRead",
     "PackageResult",
+    "PackageSettings",
+    "SidebarPlace",
     "content_problems",
 ]

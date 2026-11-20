@@ -8,6 +8,8 @@
  * passes the cookie token.
  */
 
+import type { PackagePlace, SidebarPlace } from "../collectionGroups";
+import { type RequestScope, readOnce } from "../requestCache";
 import { fetchApi } from "./client";
 
 /** `update`/`updated`/`current`/`edited` come from an update of an installed package (see `updatePackage`). */
@@ -49,6 +51,8 @@ export interface PackageInfo {
   collections: number;
   scheduledTasks: number;
   incomingWebhooks: number;
+  /** Where the sidebar shows what it brings; the workspace's choice, kept by an update. */
+  sidebar: SidebarPlace;
 }
 
 /** A package file's JSON (see `PackageManifest` on the server); the browser passes it on as it was read. */
@@ -95,6 +99,16 @@ export const exportPackage = (request: ExportRequest) =>
 
 export const enablePackage = (slug: string) =>
   fetchApi<{ switchedOn: number; alreadyOn: number }>(`/api/groups/packages/${encodeURIComponent(slug)}/enable`, { method: "POST" });
+
+/** Where the sidebar puts each installed package. Every page's sidebar reads it, so anyone in the workspace may (unlike the rest here). */
+export const listPackagePlaces = (authToken: string, scope?: RequestScope): Promise<PackagePlace[]> => {
+  const path = "/api/groups/packages/sidebar";
+  return readOnce(scope, path, authToken, () => fetchApi<PackagePlace[]>(path, {}, authToken));
+};
+
+/** Choose where the sidebar shows the package (owners and admins); the answer is the package as listed. */
+export const setPackageSidebar = (slug: string, sidebar: SidebarPlace) =>
+  fetchApi<PackageInfo>(`/api/groups/packages/${encodeURIComponent(slug)}`, { method: "PATCH", body: JSON.stringify({ sidebar }), headers: JSON_HEADERS });
 
 /** Ungroups it; nothing it created is deleted. */
 export const removePackage = (slug: string) =>
