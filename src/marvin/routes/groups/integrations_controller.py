@@ -49,6 +49,7 @@ from marvin.schemas.group.integration import (
     IntegrationRetryRead,
     IntegrationUpdate,
 )
+from marvin.services.automation.removed_integration import keep_webhooks
 from marvin.services.blueprints import footprint
 from marvin.services.integrations import (
     INTEGRATION_REGISTRY,
@@ -373,6 +374,7 @@ class IntegrationsController(BaseUserController):
         self.session.add(row)
         self.session.commit()
         self.session.refresh(row)
+        keep_webhooks(self.session, self.group_id)  # a webhook an earlier connection of this provider left behind is this one's now
 
         # Run an initial health check so the row lands with a real status.
         self._run_check(row)
@@ -446,6 +448,7 @@ class IntegrationsController(BaseUserController):
             _delete_secret_quietly(row.secret_ref, self.group_id, self.session)
         self.session.delete(row)
         self.session.commit()
+        keep_webhooks(self.session, self.group_id)  # its incoming webhook goes to a connection of the same provider that stays
         _social_plumbing(self.session, self.group_id)
 
     # ---- health check ------------------------------------------------------------

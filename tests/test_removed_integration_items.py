@@ -18,6 +18,7 @@ from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.db.models.groups.webhooks import GroupWebhooksModel
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 from marvin.db.models.users.roles import WorkspaceRole
+from marvin.services.automation import removed_integration
 from tests import test_content_role_gates as gates
 from tests.test_content_role_gates import workspace  # noqa: F401
 
@@ -180,6 +181,104 @@ def test_a_sibling_connection_of_the_same_provider_does_not_keep_the_leftovers(w
     assert "skipped" not in res.json()
     db_session.expire_all()
     assert _names(db_session, WorkspaceAutomationModel, gid) == set()
+
+
+# ---- the one exception: an incoming webhook stays with its provider -------------------------------------------------------
+
+
+@pytest.fixture
+def acme_webhook(monkeypatch):
+    """The acme provider ships the `acme-events` incoming-webhook blueprint."""
+    monkeypatch.setattr(removed_integration, "_webhook_providers", lambda: {"acme-events": "acme"})
+
+
+def test_the_catalog_says_which_provider_ships_each_webhook_blueprint(monkeypatch):
+    """Read from the providers themselves: only incoming-webhook blueprints, and a slug two providers both use says nothing."""
+    sdk = pytest.importorskip("marvin_integration_sdk")
+
+    def ship(provider, *blueprints):
+        class _P(sdk.IntegrationProvider):
+            name = provider
+
+        _P.slug = provider
+        _P.content = tuple(sdk.ContentBlueprint(kind=kind, slug=slug, name=slug, description="", payload={}) for kind, slug in blueprints)
+        monkeypatch.setitem(sdk.INTEGRATION_REGISTRY, provider, _P())
+
+    ship("acme", ("incoming_webhook", "acme-events"), ("workflow", "acme-flow"), ("incoming_webhook", "shared-events"))
+    ship("other", ("incoming_webhook", "shared-events"))
+
+    found = removed_integration._webhook_providers()
+
+    assert found.get("acme-events") == "acme"
+    assert "acme-flow" not in found and "shared-events" not in found
+
+
+def _webhook_owner(session, webhook_id):
+    session.expire_all()
+    return session.get(WorkspaceIncomingWebhookModel, webhook_id).source_integration_id
+
+
+def test_deleting_a_connection_hands_its_webhook_to_the_same_providers_connection_that_stays(workspace, db_session, acme_webhook):
+    """Sandbox deleted, production left: the address the service posts to is production's now, and no longer a removed one's.
+    The workflow the sandbox installed is still a removed integration's (that rule stands)."""
+    gid = workspace.gid
+    sandbox, production = _live_integration(db_session, gid), _live_integration(db_session, gid)
+    hook, _ = _make("incoming-webhooks", db_session, gid, "Acme events", source_integration_id=sandbox, source_blueprint="acme-events")
+    flow, _ = _make("workflows", db_session, gid, "Acme flow", source_integration_id=sandbox, source_blueprint="acme-flow")
+    db_session.commit()
+    admin = gates._sign_in(workspace, AD)
+
+    assert admin.delete(f"/api/groups/integrations/{sandbox}").status_code == 204
+
+    assert _webhook_owner(db_session, hook) == production
+    assert db_session.get(WorkspaceAutomationModel, flow).source_integration_id is None
+    assert admin.delete(f"{URL}/incoming-webhooks").json()["deleted"] == 0  # "Delete all of these" no longer reaches it
+
+
+def test_a_webhook_whose_provider_has_no_connection_left_is_still_a_removed_one(workspace, db_session, acme_webhook):
+    gid = workspace.gid
+    only = _live_integration(db_session, gid)
+    _live_integration(db_session, gid, provider="other")
+    hook, _ = _make("incoming-webhooks", db_session, gid, "Acme events", source_integration_id=only, source_blueprint="acme-events")
+    db_session.commit()
+
+    assert gates._sign_in(workspace, AD).delete(f"/api/groups/integrations/{only}").status_code == 204
+
+    assert _webhook_owner(db_session, hook) is None
+
+
+def test_webhooks_orphaned_earlier_are_handed_over_and_the_rest_are_left(workspace, db_session, acme_webhook):
+    """What startup does for the ones left behind before the rule: only a provider's own webhook, never a package's or a person's,
+    and the connection that is switched on comes before one that is off."""
+    gid = workspace.gid
+    off, on = _live_integration(db_session, gid), _live_integration(db_session, gid)
+    db_session.get(IntegrationModel, off).enabled = False
+    orphan, _ = _make("incoming-webhooks", db_session, gid, "Acme events", source_blueprint="acme-events")
+    unknown, _ = _make("incoming-webhooks", db_session, gid, "Unknown", source_blueprint="nobody-knows")
+    packaged, _ = _make("incoming-webhooks", db_session, gid, "Packaged", source_blueprint="acme-events", source_package="kit")
+    mine, _ = _make("incoming-webhooks", db_session, gid, "Mine")
+    db_session.commit()
+
+    assert removed_integration.keep_webhooks(db_session) == 1
+
+    assert _webhook_owner(db_session, orphan) == on
+    assert [_webhook_owner(db_session, i) for i in (unknown, packaged, mine)] == [None, None, None]
+    assert removed_integration.keep_webhooks(db_session, gid) == 0  # nothing left to move
+
+
+def test_of_two_connections_the_one_with_the_workflows_takes_the_webhook(workspace, db_session, acme_webhook):
+    """A sandbox added back beside production: the webhook starts production's workflows, so it is production's, older or not."""
+    gid = workspace.gid
+    sandbox, production = _live_integration(db_session, gid), _live_integration(db_session, gid)
+    _make("workflows", db_session, gid, "sandbox flow", source_integration_id=sandbox, source_blueprint="acme-flow")
+    for n in range(3):
+        _make("workflows", db_session, gid, f"production flow {n}", source_integration_id=production, source_blueprint="acme-flow")
+    orphan, _ = _make("incoming-webhooks", db_session, gid, "Acme events", source_blueprint="acme-events")
+    db_session.commit()
+
+    assert removed_integration.keep_webhooks(db_session, gid) == 1
+
+    assert _webhook_owner(db_session, orphan) == production
 
 
 def test_an_unknown_kind_is_a_422(workspace):
