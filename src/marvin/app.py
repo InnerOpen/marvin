@@ -162,6 +162,19 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     except Exception as e:
         logger.exception(f"System collections seeder failed: {e}")
 
+    # An incoming webhook whose connection was deleted while the provider stayed connected belongs to the connection that
+    # stayed. New deletes do this as they happen; this picks up the ones orphaned before that rule existed.
+    try:
+        from marvin.db.db_setup import session_context
+        from marvin.services.automation.removed_integration import keep_webhooks
+
+        with session_context() as session:
+            count = keep_webhooks(session)
+            if count:
+                logger.info(f"Incoming webhooks: {count} left by a deleted connection handed to a connection of the same provider.")
+    except Exception as e:
+        logger.exception(f"Handing over incoming webhooks failed: {e}")
+
     sweep_task = _start_interrupted_run_sweep(process_started_at)
 
     if settings.SCHEDULER_ENABLED:
