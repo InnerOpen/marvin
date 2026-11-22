@@ -92,6 +92,22 @@ def test_published_form_exposes_the_type_schema_and_success_message():
     assert pub.metadata["honeypotField"] == "_website"
 
 
+def test_published_form_says_which_captcha_widget_to_show_and_never_the_secret():
+    cfg = SubmissionConfig(
+        enable_captcha=True, captcha_provider="turnstile", captcha_site_key="site-key-1", captcha_secret_ref="{{TURNSTILE_SECRET_KEY}}"
+    )
+    pub = _published_form_from_entry_type(_entry_type(), cfg)
+    assert pub.metadata["captcha"] == {"provider": "turnstile", "siteKey": "site-key-1"}
+    assert "TURNSTILE_SECRET_KEY" not in str(pub.model_dump())
+
+
+def test_published_form_has_no_captcha_when_it_is_off_or_has_no_site_key():
+    off = SubmissionConfig(enable_captcha=False, captcha_provider="turnstile", captcha_site_key="site-key-1")
+    keyless = SubmissionConfig(enable_captcha=True, captcha_provider="turnstile")
+    assert _published_form_from_entry_type(_entry_type(), off).metadata["captcha"] is None
+    assert _published_form_from_entry_type(_entry_type(), keyless).metadata["captcha"] is None
+
+
 def test_published_form_omits_honeypot_field_when_disabled():
     pub = _published_form_from_entry_type(_entry_type(), SubmissionConfig(enable_honeypot=False))
     assert pub.metadata["honeypotField"] is None

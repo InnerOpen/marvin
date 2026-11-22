@@ -43,6 +43,8 @@ class SubmissionProtectionSettings(_MarvinModel):
     """Flag consumer webmail providers (gmail, yahoo, …). Useful for B2B-only forms."""
     capture_client_info: bool = True
     """Record the submitter's IP address, user agent and referer on the entry and in the event."""
+    blocked_ips: list[str] = Field(default_factory=list)
+    """IPs or CIDR ranges whose submissions are always suspicious, whatever they send."""
     exempt_ips: list[str] = Field(default_factory=list)
     """IPs or CIDR ranges that skip every check (your office, monitoring, test rigs)."""
     surge_threshold: int | None = Field(default=None, ge=1)
@@ -54,7 +56,7 @@ class SubmissionProtectionSettings(_MarvinModel):
     def _clean_domains(cls, value: list[str]) -> list[str]:
         return _normalize_domains(value)
 
-    @field_validator("exempt_ips", mode="after")
+    @field_validator("blocked_ips", "exempt_ips", mode="after")
     @classmethod
     def _clean_ips(cls, value: list[str]) -> list[str]:
         return [v.strip() for v in value if v.strip()]
@@ -69,6 +71,7 @@ class SubmissionProtectionOverride(_MarvinModel):
     block_disposable_domains: bool | None = None
     block_personal_domains: bool | None = None
     capture_client_info: bool | None = None
+    blocked_ips: list[str] | None = None
     exempt_ips: list[str] | None = None
     surge_threshold: int | None = Field(default=None, ge=1)
     surge_window_minutes: int | None = Field(default=None, ge=1)

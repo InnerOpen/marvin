@@ -57,9 +57,13 @@ def _published_form_from_entry_type(entry_type: EntryTypes, cfg: SubmissionConfi
 
     ``form_schema`` carries the entry type's own field schema (``EntryTypeSchemaDefinition``), so the
     site renders the form from the same schema the submission validates against. ``metadata`` carries
-    the render-time bits: the success message and the honeypot field name (only when enabled, so the
-    renderer knows to include the hidden trap input).
+    the render-time bits: the success message, the honeypot field name (only when enabled, so the
+    renderer knows to include the hidden trap input) and, when the CAPTCHA is on and has a site key, which
+    widget to show (``captcha``: provider and site key; the token comes back as ``captchaToken``).
     """
+    captcha = None
+    if cfg.enable_captcha and cfg.captcha_site_key:
+        captcha = {"provider": cfg.captcha_provider or "hcaptcha", "siteKey": cfg.captcha_site_key}
     return PublishedFormRead(
         slug=entry_type.slug,
         name=entry_type.name,
@@ -68,6 +72,7 @@ def _published_form_from_entry_type(entry_type: EntryTypes, cfg: SubmissionConfi
         metadata={
             "successMessage": cfg.success_message,
             "honeypotField": cfg.honeypot_field if cfg.enable_honeypot else None,
+            "captcha": captcha,
         },
     )
 

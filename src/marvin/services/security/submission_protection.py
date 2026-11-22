@@ -61,14 +61,15 @@ def _domain_matches(domain: str, candidates: list[str] | frozenset[str]) -> bool
     return any(domain == c or domain.endswith("." + c) for c in candidates)
 
 
-def is_exempt_ip(ip_address: str | None, exempt: list[str]) -> bool:
-    if not ip_address or not exempt:
+def ip_in(ip_address: str | None, listed: list[str]) -> bool:
+    """Whether the address is one of the listed IPs or inside one of the listed CIDR ranges. An entry that isn't an address matches nothing."""
+    if not ip_address or not listed:
         return False
     try:
         ip = ipaddress.ip_address(ip_address)
     except ValueError:
         return False
-    for entry in exempt:
+    for entry in listed:
         try:
             if "/" in entry:
                 if ip in ipaddress.ip_network(entry, strict=False):
@@ -81,16 +82,20 @@ def is_exempt_ip(ip_address: str | None, exempt: list[str]) -> bool:
 
 
 def evaluate(settings: SubmissionProtectionSettings, submission_data: dict, ip_address: str | None) -> Verdict:
-    """Classify one submission. Never raises; a submission with no email simply has no domain reasons."""
-    if settings.mode == "off" or is_exempt_ip(ip_address, settings.exempt_ips):
+    """Classify one submission. Never raises; a submission with no email simply has no domain reasons. An exempt IP skips every
+    check, so an address on both lists is exempt."""
+    if settings.mode == "off" or ip_in(ip_address, settings.exempt_ips):
         return Verdict()
+
+    reasons: list[str] = []
+    if ip_in(ip_address, settings.blocked_ips):
+        reasons.append(f"blocked_ip:{ip_address}")
 
     email = find_submitted_email(submission_data)
     if not email:
-        return Verdict()
+        return Verdict(reasons)
     domain = email_domain(email)
 
-    reasons: list[str] = []
     if settings.allowed_domains and not _domain_matches(domain, settings.allowed_domains):
         reasons.append(f"domain_not_allowed:{domain}")
     if _domain_matches(domain, settings.blocked_domains):
