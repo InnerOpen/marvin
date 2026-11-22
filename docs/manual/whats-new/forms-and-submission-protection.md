@@ -85,7 +85,7 @@ Event payload `form_submission_received` (`EventFormSubmissionData`): `form_id`,
 |---|---|---|
 | `successMessage`, `redirectUrl` | none | Returned to the site after a submission. |
 | `enableHoneypot`, `honeypotField` | `false`, `_website` | Hidden trap field; a filled value is dropped silently. |
-| `enableCaptcha`, `captchaProvider`, `captchaSecretRef` | `false`, `hcaptcha`, none | Providers offered: `hcaptcha`, `turnstile`, `recaptcha`. The secret is a `{{SLUG}}` workspace-secret ref, never plaintext. |
+| `enableCaptcha`, `captchaProvider`, `captchaSiteKey`, `captchaSecretRef` | `false`, `hcaptcha`, none, none | Providers offered: `hcaptcha`, `turnstile`, `recaptcha`. The site key is the widget's public key: with the CAPTCHA on, the published form carries `metadata.captcha` (`provider`, `siteKey`) so the site can show the widget (marvin-astro's `FormRenderer` does), and the widget's answer is submitted as `captchaToken`. The secret is a `{{SLUG}}` workspace-secret ref, never plaintext. With the CAPTCHA on, a submission without a valid token is refused (400), so switch it on only once the site shows the widget. |
 | `rateLimitMax`, `rateLimitWindowSeconds` | off, `3600` | Per-IP limit for this type; the window is rounded down to whole minutes (minimum 1). |
 | `notify` | `true` | Emit `form_submission_received`. |
 | `titleTemplate` | none | Jinja title for the created entry, e.g. `Contact from {{ name }}`. |

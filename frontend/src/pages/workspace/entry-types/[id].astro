@@ -362,6 +362,10 @@ const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
                       </select>
                     </div>
                     <div class="form-group">
+                      <label for="sub_captchaSiteKey">Site key</label>
+                      <input type="text" id="sub_captchaSiteKey" data-sub="captchaSiteKey" value={subStr("captchaSiteKey")} placeholder="The widget's public key" />
+                    </div>
+                    <div class="form-group">
                       <label for="sub_captchaSecretRef">Secret ref</label>
                       <input type="text" id="sub_captchaSecretRef" data-sub="captchaSecretRef" value={subStr("captchaSecretRef")} placeholder={"{{CAPTCHA_SECRET}}"} />
                     </div>

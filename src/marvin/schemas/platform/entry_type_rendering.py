@@ -32,6 +32,8 @@ class SubmissionConfig(_MarvinModel):
     honeypot_field: str = "_website"
     enable_captcha: bool = False
     captcha_provider: str | None = None
+    # The provider's public key for the widget: published with the form so the site can show it (the secret never is).
+    captcha_site_key: str | None = None
     captcha_secret_ref: str | None = None
     rate_limit_max: int | None = None
     rate_limit_window_seconds: int | None = None
