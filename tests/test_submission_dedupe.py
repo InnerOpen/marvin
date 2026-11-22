@@ -359,3 +359,27 @@ def test_a_deleted_entry_never_matches(db_session, workspace, verdict):
     (entry,) = _entries(db_session, workspace)
     assert entry.id == second.submission_id != first.submission_id
     assert _received(events).duplicate is False
+
+
+def test_a_submission_from_a_blocked_ip_lands_in_needs_review_with_the_reason(db_session, workspace):
+    """The real classifier, through the public form's own path: the workspace blocks the sender's address, a submission
+    with a perfectly good email arrives from it, and it is kept for review with the address named."""
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+    prefs = db_session.query(GroupPreferencesModel).filter_by(group_id=workspace.group.id).first()
+    if prefs is None:
+        prefs = GroupPreferencesModel(session=db_session, group_id=workspace.group.id)
+        db_session.add(prefs)
+    prefs.submission_protection_json = {"blocked_ips": ["203.0.113.0/24"]}
+    db_session.commit()
+
+    try:
+        _, events = _submit(db_session, workspace, {"email": "ann@example.com", "name": "Ann"})
+
+        (entry,) = _entries(db_session, workspace)
+        assert entry.status == "needs_review"
+        assert entry.metadata_json["submission"]["review_reasons"] == ["blocked_ip:203.0.113.7"]
+        assert _received(events).flagged is True
+    finally:
+        db_session.delete(prefs)
+        db_session.commit()

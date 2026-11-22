@@ -93,6 +93,17 @@ const personalNote = presetCounts ? ` (${presetCounts.personal} domains bundled)
     <small>Leave empty to accept any domain. When set, every other domain is treated as suspicious.</small>
   </div>
 
+  <div class="sp-field" data-field="blockedIps">
+    <div class="sp-head">
+      <span class="sp-label">Blocked IP addresses</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("blockedIps")} disabled={!editable} /> Use platform default <em>({fmt(defaults.blockedIps)})</em></label>
+      )}
+    </div>
+    <textarea data-sp-control name="blockedIps" rows="3" placeholder="198.51.100.7&#10;203.0.113.0/24">{lines(current("blockedIps"))}</textarea>
+    <small>One IP or CIDR range per line. Every submission from them is treated as suspicious, whatever it says. A submission shows the address it came from.</small>
+  </div>
+
   <div class="sp-field" data-field="exemptIps">
     <div class="sp-head">
       <span class="sp-label">Exempt IP addresses</span>

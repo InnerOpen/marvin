@@ -15,7 +15,7 @@ from marvin.services.security.submission_protection import (
     SubmissionProtectionService,
     evaluate,
     find_submitted_email,
-    is_exempt_ip,
+    ip_in,
 )
 
 # --- resolution -------------------------------------------------------------------------------
@@ -88,9 +88,34 @@ def test_evaluate_exempt_ip_skips_all_checks():
     assert evaluate(s, data, "203.0.113.6").suspicious is True
 
 
-def test_is_exempt_ip_ignores_garbage_entries_and_unknown_ips():
-    assert is_exempt_ip("unknown", ["10.0.0.0/8"]) is False
-    assert is_exempt_ip("10.1.1.1", ["not-an-ip", "10.0.0.0/8"]) is True
+def test_evaluate_blocked_ip_is_flagged_whatever_it_sends():
+    s = _settings(blocked_ips=["198.51.100.7", "203.0.113.0/24"])
+    assert evaluate(s, {"email": "a@fine.example"}, "198.51.100.7").reasons == ["blocked_ip:198.51.100.7"]
+    assert evaluate(s, {"message": "no email at all"}, "203.0.113.40").reasons == ["blocked_ip:203.0.113.40"]
+    assert not evaluate(s, {"email": "a@fine.example"}, "198.51.100.8").suspicious
+    assert not evaluate(s, {"email": "a@fine.example"}, None).suspicious
+
+
+def test_evaluate_blocked_ip_and_blocked_domain_both_give_a_reason():
+    s = _settings(blocked_ips=["198.51.100.7"], blocked_domains=["spam.example"])
+    assert evaluate(s, {"email": "x@spam.example"}, "198.51.100.7").reasons == ["blocked_ip:198.51.100.7", "blocked_domain:spam.example"]
+
+
+def test_evaluate_an_ip_on_both_lists_is_exempt():
+    s = _settings(blocked_ips=["10.0.0.0/8"], exempt_ips=["10.1.1.1"])
+    assert not evaluate(s, {"email": "a@fine.example"}, "10.1.1.1").suspicious
+    assert evaluate(s, {"email": "a@fine.example"}, "10.2.2.2").suspicious
+
+
+def test_resolve_workspace_blocked_ips_replace_the_platform_list():
+    merged = resolve_submission_protection({"blocked_ips": ["198.51.100.7"]}, {"blockedIps": [" 203.0.113.9 ", ""]})
+    assert merged.blocked_ips == ["203.0.113.9"]
+    assert resolve_submission_protection({"blocked_ips": ["198.51.100.7"]}, {"blocked_ips": None}).blocked_ips == ["198.51.100.7"]
+
+
+def test_ip_in_ignores_garbage_entries_and_unknown_ips():
+    assert ip_in("unknown", ["10.0.0.0/8"]) is False
+    assert ip_in("10.1.1.1", ["not-an-ip", "10.0.0.0/8"]) is True
 
 
 # --- client ip --------------------------------------------------------------------------------

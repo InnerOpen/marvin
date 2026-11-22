@@ -7,7 +7,7 @@ An entry type with `capabilities.submittable: true` is a form: a public POST to 
 - A submittable entry type **is** the form; a submission **is** an entry (`status: "inbox"`, `created_by: null`). It uses the type's own field schema, so the site renders the form from the same schema the submission validates against.
 - The submit path runs, in order: **rate limit** (per IP, per type, only when `rateLimitMax` is set; `429` when exceeded) → **honeypot** (a filled hidden field returns success without storing anything) → **CAPTCHA** (`captchaToken` in the body, verified with the provider; `400` on failure) → **validation** against the type's `fields` schema (`400 Validation failed: …`) → **submission protection** → entry creation.
 - **Submission protection** classifies the submission by the first email-looking value (a field literally named `email` is preferred). Reasons: `domain_not_allowed:<d>`, `blocked_domain:<d>`, `disposable_domain:<d>`, `personal_domain:<d>`. Subdomains match (`mail.example.com` matches `example.com`). A submission with no email address gets no domain reasons.
-- What a suspicious verdict means depends on `mode`: `review` (default) still accepts the entry but lands it as `needs_review` with `metadata_json.submission.review_reasons`; `reject` returns `400`; `off` skips the checks. IPs or CIDRs in `exempt_ips` skip every check.
+- What a suspicious verdict means depends on `mode`: `review` (default) still accepts the entry but lands it as `needs_review` with `metadata_json.submission.review_reasons`; `reject` returns `400`; `off` skips the checks. IPs or CIDRs in `exempt_ips` skip every check. IPs or CIDRs in `blocked_ips` are suspicious whatever they send (reason `blocked_ip:<address>`), including a submission with no email; an address on both lists is exempt. The address a submission came from is shown on it (Audience, Submissions).
 - With `capture_client_info` on, `metadata_json.submission` also records `ip_address`, `user_agent`, `referer` and `received_at`.
 - **Surge detection**: a per-form counter emits `submission_surge_detected` exactly once, on the submission that makes the count equal `surge_threshold` inside `surge_window_minutes`.
 - The entry title comes from `titleTemplate` (Jinja over the submitted fields), else the first non-empty text value, else `<type name> submission <timestamp>`.
@@ -93,7 +93,7 @@ Event payload `form_submission_received` (`EventFormSubmissionData`): `form_id`,
 | `destination` | `audience` | `audience` or `entries`: where the submissions go. See [Where a form's submissions go](#where-submissions-go). |
 | `kind` | `message` | `message` or `signup`: what a submission is (Submissions or Subscribers). |
 
-Submission protection (platform defaults; every field overridable per workspace): `mode` (`review`), `blocked_domains`, `allowed_domains` (when non-empty, any other domain is flagged), `block_disposable_domains` (`true`), `block_personal_domains` (`false`), `capture_client_info` (`true`), `exempt_ips`, `surge_threshold` (off), `surge_window_minutes` (`10`). Domains are lower-cased and a leading `@` is stripped.
+Submission protection (platform defaults; every field overridable per workspace): `mode` (`review`), `blocked_domains`, `allowed_domains` (when non-empty, any other domain is flagged), `block_disposable_domains` (`true`), `block_personal_domains` (`false`), `capture_client_info` (`true`), `blocked_ips`, `exempt_ips`, `surge_threshold` (off), `surge_window_minutes` (`10`). Domains are lower-cased and a leading `@` is stripped.
 
 ## Since
 

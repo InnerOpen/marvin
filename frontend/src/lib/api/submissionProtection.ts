@@ -15,6 +15,7 @@ export interface SubmissionProtectionSettings {
   blockDisposableDomains: boolean;
   blockPersonalDomains: boolean;
   captureClientInfo: boolean;
+  blockedIps: string[];
   exemptIps: string[];
   surgeThreshold: number | null;
   surgeWindowMinutes: number;
