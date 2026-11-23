@@ -10,6 +10,7 @@ import { lockReason, usedBy } from "@/lib/entryTypeListing";
 import { TEMPLATE_VARIABLES, assetFields, valueFields } from "@/lib/entryTemplates";
 import { ASPECTS, GRADES, SLIDERS, type GradeSetting } from "@/lib/picturePresets";
 import { splitRecipe } from "@/lib/recipeForm";
+import { camelSettings } from "@/lib/submissionSettings";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
 const { id } = Astro.params;
@@ -37,7 +38,7 @@ const lockedReason = lockReason(entryType);
 
 const rendering = (entryType?.renderingJson ?? {}) as Record<string, unknown>;
 const capabilities = (entryType?.capabilitiesJson ?? {}) as Record<string, unknown>;
-const submission = (capabilities.submission ?? {}) as Record<string, unknown>;
+const submission = camelSettings(capabilities.submission); // either spelling of a setting's name: see submissionSettings.ts
 const subStr = (k: string) => (submission[k] == null ? "" : String(submission[k]));
 // "Same person = same …": the fields that can identify a submitter (single values, not long text).
 const schemaFields = ((entryType?.schemaJson as { fields?: { key?: string; label?: string; type?: string; options?: string[] }[] } | null)?.fields ?? []);
@@ -1105,6 +1106,7 @@ const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
 
 <script>
   import { foldRecipe } from '@/lib/recipeForm';
+  import { camelSettings } from '@/lib/submissionSettings';
 
   function syncRenderingJson() {
     const name = (document.getElementById('renderer_name') as HTMLInputElement)?.value.trim();
@@ -1128,7 +1130,7 @@ const presetSliders: { key: GradeSetting; label: string; help: string }[] = [
   const capabilitiesHidden = document.getElementById('capabilities_json') as HTMLInputElement;
   let storedCapabilities: Record<string, unknown> = {};
   try { storedCapabilities = JSON.parse(capabilitiesHidden.value || '{}'); } catch { storedCapabilities = {}; }
-  const storedSubmission = (storedCapabilities.submission ?? {}) as Record<string, unknown>;
+  const storedSubmission = camelSettings(storedCapabilities.submission);
 
   function readSubmissionSettings(): Record<string, unknown> {
     const out: Record<string, unknown> = { ...storedSubmission };
