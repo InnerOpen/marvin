@@ -93,6 +93,8 @@ Event payload `form_submission_received` (`EventFormSubmissionData`): `form_id`,
 | `destination` | `audience` | `audience` or `entries`: where the submissions go. See [Where a form's submissions go](#where-submissions-go). |
 | `kind` | `message` | `message` or `signup`: what a submission is (Submissions or Subscribers). |
 
+A setting's name is accepted and stored in either spelling (`enableCaptcha` or `enable_captcha`; a package or an API call often sends the second). The entry type page shows a form stored either way and saves it with one copy of each setting; before 2026-11-23 it showed a form stored with underscores as if nothing was set, and saving it wrote a second, contradicting copy.
+
 Submission protection (platform defaults; every field overridable per workspace): `mode` (`review`), `blocked_domains`, `allowed_domains` (when non-empty, any other domain is flagged), `block_disposable_domains` (`true`), `block_personal_domains` (`false`), `capture_client_info` (`true`), `blocked_ips`, `exempt_ips`, `surge_threshold` (off), `surge_window_minutes` (`10`). Domains are lower-cased and a leading `@` is stripped.
 
 ## Since
